@@ -2,12 +2,16 @@
 Core schema enums for GraviTrax courses.
 
 These mirror the binary format reverse-engineered by lfrancke/murmelbahn.
-Integer values MUST match the schema exactly — generated courses won't load
-in the real GraviTrax app if these drift.
+Integer values MUST match the Rust source exactly — generated courses won't
+load in the real GraviTrax app if these drift.
 
-Source of truth: https://github.com/lfrancke/murmelbahn/blob/main/imhex-schema.txt
+Source of truth: https://github.com/lfrancke/murmelbahn/blob/main/lib/src/app/layer.rs
+Schema reference (older, less complete): imhex-schema.txt in the same repo.
 
-Path: gravitrax-gen/gravitrax_gen/types.py
+Variant names match murmelbahn's Rust CamelCase variants so serialization to
+dump.txt round-trips cleanly via `str.title()` on SCREAMING_SNAKE_CASE names.
+
+Path: traxgen/traxgen/types.py
 """
 
 from enum import IntEnum
@@ -36,12 +40,16 @@ class TileKind(IntEnum):
     """
     Every tile type that can sit on the hex grid.
 
-    Integer values have gaps (e.g., 6 and 76 are absent) — this is intentional
-    and matches the binary format. Do not renumber.
+    Integer values have a gap at 76 — intentional, matches the binary format.
+    Do not renumber.
 
     Starter-Set (22410) uses a small subset: STARTER, CURVE, CATCH, GOAL_BASIN,
     DROP, CROSS, THREEWAY, TWO_WAY, SPLASH, CANNON, STACKER, STACKER_SMALL,
     SWITCH_LEFT, SWITCH_RIGHT.
+
+    Values 86-93 are post-schema additions observed in murmelbahn's Rust source;
+    they won't appear in POWER_2022 (v4) binaries but are included for
+    forward-compat with newer save versions.
     """
     NONE = 0
     STARTER = 1
@@ -49,6 +57,7 @@ class TileKind(IntEnum):
     CATCH = 3
     GOAL_BASIN = 4
     DROP = 5
+    HAMMER = 6
     CATAPULT = 7
     CROSS = 8
     THREEWAY = 9
@@ -76,7 +85,7 @@ class TileKind(IntEnum):
     TIP_TUBE = 31
     VOLCANO = 32
     JUMPER = 33
-    TRANSFERT = 34  # Schema spelling (French-influenced); kept as-is for round-trip fidelity
+    TRANSFER = 34
     ZIPLINE_START = 35
     ZIPLINE_END = 36
     BRIDGE = 37
@@ -118,7 +127,7 @@ class TileKind(IntEnum):
     DROPDOWN_SWITCH_RIGHT = 73
     QUEUE = 74
     LEVER = 75
-    ELEVATOR = 77  # Note: value 76 is absent from the schema
+    ELEVATOR = 77  # Value 76 is absent from the enum
     LIGHT_BASE = 78
     LIGHT_STACKER = 79
     LIGHT_STACKER_SMALL = 80
@@ -127,18 +136,27 @@ class TileKind(IntEnum):
     RELEASER_2 = 83
     RELEASER_3 = 84
     RELEASER_4 = 85
+    # Post-schema additions (not in imhex-schema.txt; present in murmelbahn Rust)
+    VERTICAL_CANNON_0 = 86
+    VERTICAL_CANNON_60 = 87
+    VERTICAL_CANNON_120 = 88
+    VERTICAL_CANNON_180 = 89
+    VERTICAL_CANNON_240 = 90
+    VERTICAL_CANNON_300 = 91
+    SPACE_TUBE_ALIGNED = 92
+    SPACE_TUBE_UNALIGNED = 93
 
 
 class LayerKind(IntEnum):
     """
     Layers are horizontal planes on which cells are placed.
 
-    BASELAYER = the cardboard baseplate.
+    BASE_LAYER = the cardboard baseplate.
     LARGE_LAYER / SMALL_LAYER = transparent level plates stacked above.
     LARGE_GHOST_LAYER = visual-only/intermediate layer used internally.
     """
-    BASELAYER_PIECE = 0
-    BASELAYER = 1
+    BASE_LAYER_PIECE = 0
+    BASE_LAYER = 1
     LARGE_LAYER = 2
     LARGE_GHOST_LAYER = 3
     SMALL_LAYER = 4
@@ -169,10 +187,7 @@ class LightStoneColorMode(IntEnum):
 
 
 class CourseElementGeneration(IntEnum):
-    """
-    Release wave a course belongs to. Stored in the course footer; used by
-    the app to decide which element set is needed.
-    """
+    """Release wave a course belongs to. Stored in the course footer."""
     INITIAL_LAUNCH = 0
     CHRISTMAS_2018 = 1
     EASTER_2019 = 2
@@ -189,9 +204,9 @@ class CourseSaveDataVersion(IntEnum):
     """
     Binary format version. The parser branches on this value.
 
-    We target POWER_2022 (v4) as our write version — it's newer than the
-    common-case user courses and the schema is stable. LIGHT_STONES_2023
-    adds light-stone fields we don't need for starter-set generation.
+    We target POWER_2022 (v4) as our write version — stable, widely supported.
+    LIGHT_STONES_2023 adds light-stone fields we don't need for starter-set
+    generation.
     """
     INITIAL_LAUNCH = 100101
     RAIL_REWORK_2018 = 100201
@@ -204,9 +219,8 @@ class CourseSaveDataVersion(IntEnum):
 
 class RailKind(IntEnum):
     """
-    Rails connect two tile exits. Value 2 is absent from the schema (intentional gap).
-    Starter-Set ships with plain STRAIGHT rails only (in 3 lengths — encoded as
-    rail quantity rather than rail kind).
+    Rails connect two tile exits. Value 2 is absent (intentional gap).
+    Starter-Set ships with STRAIGHT rails only (3 lengths, encoded as quantity).
     """
     STRAIGHT = 0
     BERNOULLI = 1

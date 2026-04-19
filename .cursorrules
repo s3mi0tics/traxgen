@@ -1,0 +1,58 @@
+# traxgen project conventions
+
+## Overview
+Procedural generator for GraviTrax marble run courses. Python 3.12+, uv for env management, pytest for tests.
+
+## File and code conventions
+
+- Do NOT include terminal commands (e.g., `Terminal: touch ...`) at the top of files when creating or modifying them.
+- When creating a file, include the intended path as a comment near the top.
+- When a file imports another file with critical information, ask the user for that file before making changes.
+- Prefer single-line docstrings where they fit; avoid padding with filler.
+- Type hints on all public functions and dataclass fields.
+- Prefer `@dataclass` over raw dicts for structured data.
+- Use `match` statements where they improve readability over `if/elif` chains.
+
+## Schema fidelity (critical)
+
+`traxgen/types.py` enums mirror the binary format from lfrancke/murmelbahn's `imhex-schema.txt`.
+
+- Do NOT renumber enum values.
+- Do NOT "fix" unusual spellings (e.g., `TRANSFERT` with a T is intentional — matches the schema).
+- Gaps in integer values (e.g., TileKind has no value 6 or 76) are intentional — preserve them.
+- If the schema changes upstream, update `types.py` to match AND note the source commit in the docstring.
+
+## Testing
+
+- `pytest` is the test runner.
+- Tests live in `tests/`, mirroring the module structure of `traxgen/`.
+- Use `hypothesis` for property-based testing, especially on hex coordinate math.
+- Markers:
+  - `@pytest.mark.integration` for tests that span multiple modules
+  - `@pytest.mark.network` for tests that hit external APIs (murmelbahn, etc.)
+- Network tests are skipped by default. Run them explicitly with `pytest -m network`.
+
+## Fixtures
+
+Course binary fixtures in `tests/fixtures/` are pulled from `murmelbahn.fly.dev`'s public API. They're committed to the repo for reproducible tests. Refresh them via `scripts/fetch_fixtures.py`, never implicitly during tests.
+
+## Generation modes
+
+Three modes planned:
+
+- `SINGLE_TRACK` (Phase 1): topologically valid track with ball reaching goal. No physics.
+- `RACE_THREE` (Phase 3): 3 parallel tracks with approximately equal completion times. Physics required.
+- `PERPETUAL` (Phase 3): closed-loop track with net energy per cycle ≥ `safety_margin × losses`.
+
+Phase 1 only implements `SINGLE_TRACK`, but the data model must support all three without rewrites.
+
+## Physics and variance
+
+Piece traversal times are modeled with both `expected_time_ms` (mean) and `time_variance_ms` (stddev). Variance is a first-class feature — pieces like the vortex, trampoline, and turntable are intentionally stochastic.
+
+Tolerance is a user parameter (`--tolerance SECONDS`), not a constant. Textbook physics values (μ_r ≈ 0.005 for steel-on-plastic) are adequate; no real-world calibration required.
+
+## Attribution
+
+- lfrancke/murmelbahn is Apache-2.0 — attribution required in README and acknowledgements.
+- Not affiliated with Ravensburger; avoid branding that implies endorsement.

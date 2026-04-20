@@ -8,7 +8,8 @@ the GDZJZA3J3T fixture.
 Wire format notes (POWER_2022, v4):
   - All integers little-endian.
   - Strings: u8 length prefix, UTF-8 bytes, no null terminator.
-  - Booleans: u8 (0 or 1), followed by 2 bytes of padding before the next u32.
+  - Booleans: u8 (0 or 1). No alignment padding — the next field reads from
+    the byte immediately after.
   - HexVector: two s32 in (y, x) order — the binary stores y before x.
   - Recursive tile tree: index, children_count, construction_data, children[].
 
@@ -92,14 +93,8 @@ class Reader:
         return struct.unpack("<f", self._take(4))[0]
 
     def read_bool(self) -> bool:
-        """Read a u8 bool. Does NOT consume trailing padding — see read_bool_padded."""
+        """Read a u8 bool. No alignment padding follows in POWER_2022."""
         return self.read_u8() != 0
-
-    def read_bool_padded(self) -> bool:
-        """Read a u8 bool plus 2 bytes of padding (u32 alignment)."""
-        v = self.read_bool()
-        self._take(2)
-        return v
 
     def read_string(self) -> str:
         """Read a u8-length-prefixed UTF-8 string."""
@@ -155,7 +150,11 @@ _LIGHT_STONE_VERSIONS: frozenset[CourseSaveDataVersion] = frozenset({
     CourseSaveDataVersion.LIGHT_STONES_2023,
 })
 
+# Null / unset sentinels. These live OUTSIDE the associated enums — they are
+# how the binary format spells "None" on the wire, not legal enum variants.
 _RETAINER_ID_NULL_SENTINEL = -2147483647  # i32::MIN + 1, per murmelbahn layer.rs
+_POWER_SIGNAL_NONE_SENTINEL = 0x80000000  # u32 'unset' (PowerSignalMode None)
+_LIGHT_STONE_COLOR_NONE_SENTINEL = 0x80000000  # u32 'unset' (LightStoneColorMode None)
 
 
 def parse_construction_data(
@@ -173,13 +172,13 @@ def parse_construction_data(
     power_signal_mode: PowerSignalMode | None = None
     if version in _POWER_SIGNAL_VERSIONS:
         psm_raw = r.read_u32()
-        if psm_raw != PowerSignalMode.NONE.value:
+        if psm_raw != _POWER_SIGNAL_NONE_SENTINEL:
             power_signal_mode = PowerSignalMode(psm_raw)
 
     light_stone_color_mode: LightStoneColorMode | None = None
     if version in _LIGHT_STONE_VERSIONS:
         lscm_raw = r.read_u32()
-        if lscm_raw != LightStoneColorMode.NONE.value:
+        if lscm_raw != _LIGHT_STONE_COLOR_NONE_SENTINEL:
             light_stone_color_mode = LightStoneColorMode(lscm_raw)
 
     return TileTowerConstructionData(

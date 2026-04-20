@@ -165,9 +165,12 @@ class LayerKind(IntEnum):
 class PowerSignalMode(IntEnum):
     """
     POWER line signal color. Only relevant for POWER_2022+ save versions.
-    NONE (0x80000000) is the 'unset' sentinel in the binary format.
+
+    The binary format uses 0x80000000 (read as u32) as an 'unset' sentinel.
+    That sentinel is NOT a variant of this enum — the parser/serializer handle
+    it as `None` on the Python side of the enum boundary. See
+    `_POWER_SIGNAL_NONE_SENTINEL` in parser.py / serializer.py.
     """
-    NONE = 2147483648
     OFF = 0
     RED = 1
     GREEN = 2
@@ -176,8 +179,13 @@ class PowerSignalMode(IntEnum):
 
 
 class LightStoneColorMode(IntEnum):
-    """Light stone color mode. Only relevant for LIGHT_STONES_2023 save version."""
-    NONE = 2147483648
+    """
+    Light stone color mode. Only relevant for LIGHT_STONES_2023 save version.
+
+    Like PowerSignalMode, the binary uses 0x80000000 as the 'unset' sentinel;
+    that sentinel is NOT a variant here. See `_LIGHT_STONE_COLOR_NONE_SENTINEL`
+    in parser.py / serializer.py.
+    """
     OFF = 0
     ALTERNATING = 1
     RED = 2

@@ -22,8 +22,8 @@ from traxgen.domain import (
     TileTowerTreeNodeData,
 )
 from traxgen.hex import HexVector
-from traxgen.inventory import Inventory, PillarKind, WallKind
-from traxgen.types import LayerKind, TileKind
+from traxgen.inventory import Inventory, PillarKind, RailLength, WallKind
+from traxgen.types import LayerKind, RailKind, TileKind
 
 
 class Severity(IntEnum):
@@ -130,6 +130,16 @@ _WALL_DISTANCE_TO_KIND: dict[int, WallKind] = {
     1: WallKind.SHORT,
     2: WallKind.MEDIUM,
     3: WallKind.LONG,
+}
+
+# STRAIGHT rails are fixed-length pieces: a SHORT spans exactly 1 hex, MEDIUM
+# spans exactly 2, LONG spans exactly 3. No cascading coverage. A distance
+# outside {1, 2, 3} means no available piece can satisfy that placement.
+# See docs/refs/rail-specs.md.
+_STRAIGHT_DISTANCE_TO_LENGTH: dict[int, RailLength] = {
+    1: RailLength.SHORT,
+    2: RailLength.MEDIUM,
+    3: RailLength.LONG,
 }
 
 
@@ -354,6 +364,104 @@ def _check_inventory_budget_structural(
     return violations
 
 
+def _check_inventory_budget_rails(
+    course: Course, inventory: Inventory
+) -> Iterable[Violation]:
+    """INVENTORY_BUDGET_RAILS: rail kinds and STRAIGHT-rail lengths must fit inventory.
+
+    Two kinds of check:
+
+    1. Per-kind count: for every RailKind in the course, count and compare
+       against inventory.rails[kind]. All rails count here regardless of
+       where their endpoints live.
+    2. STRAIGHT-length sub-budget: STRAIGHT rails are fixed-length pieces
+       (SHORT spans 1 hex, MEDIUM 2, LONG 3). Each placed STRAIGHT has its
+       length inferred from the hex distance between its two cell endpoints.
+       An unexpected distance (0 or >3) means no physical piece can satisfy
+       that placement — we emit a per-placement violation. Otherwise we
+       bucket and compare each bucket against inventory.straight_rail_limits.
+
+    Cross-retainer STRAIGHT rails (endpoints on different layers or stacker
+    towers) are SKIPPED from the sub-budget entirely. Rail endpoints use
+    cell_local_hex_pos — position within the endpoint's retainer — so for
+    cross-retainer rails, local distance doesn't reflect physical span.
+    Proper validation requires world coordinates, which in turn requires
+    knowing how baseplates tile in world space (PLAN.md open question).
+    Until that's resolved, cross-retainer rails count toward the per-kind
+    budget but aren't bucketed or span-checked. The GDZJZA3J3T fixture has
+    real cross-retainer rails with local distance 0 and 5, confirming this
+    skip is necessary to avoid false positives on real courses.
+    """
+    violations: list[Violation] = []
+
+    # --- Per-kind rail count ---------------------------------------------
+    placed_by_kind: Counter[RailKind] = Counter(
+        rail.rail_kind for rail in course.rail_construction_data
+    )
+    for kind in sorted(placed_by_kind, key=lambda k: k.value):
+        count = placed_by_kind[kind]
+        limit = inventory.rail_count(kind)
+        if count > limit:
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.INVENTORY_BUDGET_RAILS,
+                message=(
+                    f"Rail budget exceeded for {kind.name}: "
+                    f"placed {count}, allowed {limit}"
+                ),
+            ))
+
+    # --- STRAIGHT sub-budget: per-placement invalid span + bucket checks -
+    length_counts: Counter[RailLength] = Counter()
+    for rail_index, rail in enumerate(course.rail_construction_data):
+        if rail.rail_kind is not RailKind.STRAIGHT:
+            continue
+        exit_1 = rail.exit_1_identifier
+        exit_2 = rail.exit_2_identifier
+        # Skip cross-retainer rails — local distance isn't physical distance.
+        # See docstring.
+        if exit_1.retainer_id != exit_2.retainer_id:
+            continue
+        distance = exit_1.cell_local_hex_pos.distance_to(exit_2.cell_local_hex_pos)
+        length = _STRAIGHT_DISTANCE_TO_LENGTH.get(distance)
+        if length is None:
+            # No physical STRAIGHT piece can span this distance.
+            p1 = exit_1.cell_local_hex_pos
+            p2 = exit_2.cell_local_hex_pos
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.INVENTORY_BUDGET_RAILS,
+                message=(
+                    f"STRAIGHT rail with invalid span: distance {distance} "
+                    f"between ({p1.y},{p1.x}) and ({p2.y},{p2.x}) — "
+                    f"no rail piece available for this span"
+                ),
+                location=Location(
+                    rail_index=rail_index,
+                    retainer_id=exit_1.retainer_id,
+                    hex_position=p1,
+                ),
+            ))
+            continue
+        length_counts[length] += 1
+
+    # Bucket overruns — emitted in SHORT/MEDIUM/LONG order (enum.value order).
+    for length in RailLength:
+        placed = length_counts[length]
+        limit = inventory.straight_rail_limits.get(length, 0)
+        if placed > limit:
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.INVENTORY_BUDGET_RAILS,
+                message=(
+                    f"STRAIGHT {length.name} rail budget exceeded: "
+                    f"placed {placed}, allowed {limit}"
+                ),
+            ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -363,6 +471,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_tiles,
     _check_inventory_budget_stackers,
     _check_inventory_budget_structural,
+    _check_inventory_budget_rails,
 )
 
 

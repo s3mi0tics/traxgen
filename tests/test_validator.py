@@ -12,6 +12,8 @@ from traxgen.domain import (
     Course,
     CourseMetaData,
     LayerConstructionData,
+    RailConstructionData,
+    RailConstructionExitIdentifier,
     SaveDataHeader,
     TileTowerConstructionData,
     TileTowerTreeNodeData,
@@ -27,6 +29,7 @@ from traxgen.types import (
     CourseSaveDataVersion,
     LayerKind,
     ObjectiveKind,
+    RailKind,
     TileKind,
     WallSide,
 )
@@ -120,8 +123,9 @@ def _layer(
 def _course_with(
     *layers: LayerConstructionData,
     walls: tuple[WallConstructionData, ...] = (),
+    rails: tuple[RailConstructionData, ...] = (),
 ) -> Course:
-    """Build a course with the given layers and optional walls."""
+    """Build a course with the given layers and optional walls/rails."""
     return Course(
         header=SaveDataHeader(guid=0, version=CourseSaveDataVersion.POWER_2022),
         meta_data=CourseMetaData(
@@ -130,7 +134,7 @@ def _course_with(
             difficulty=0, completed=False,
         ),
         layer_construction_data=layers,
-        rail_construction_data=(),
+        rail_construction_data=rails,
         pillar_construction_data=(),
         generation=CourseElementGeneration.POWER,
         wall_construction_data=walls,
@@ -774,6 +778,241 @@ def test_budget_structural_strict_raises() -> None:
         if v.rule is Rule.INVENTORY_BUDGET_STRUCTURAL
     ]
     assert len(structural) == 1
+
+
+# --- INVENTORY_BUDGET_RAILS ------------------------------------------------
+#
+# PRO Vertical rail budget:
+#   STRAIGHT pool: 18 total (9 SHORT + 6 MEDIUM + 3 LONG by length)
+#   Bernoulli: 3 LEFT + 3 RIGHT + 2 STRAIGHT
+
+def _rail_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just INVENTORY_BUDGET_RAILS violations."""
+    return [v for v in violations if v.rule is Rule.INVENTORY_BUDGET_RAILS]
+
+
+def _rail(
+    kind: RailKind,
+    *, p1: HexVector, p2: HexVector,
+    retainer_1: int = 0, retainer_2: int = 0,
+) -> RailConstructionData:
+    """Build a rail between two endpoints at cell-local positions p1 and p2."""
+    return RailConstructionData(
+        exit_1_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_1,
+            cell_local_hex_pos=p1,
+            side_hex_rot=0,
+            exit_local_pos_y=0.0,
+        ),
+        exit_2_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_2,
+            cell_local_hex_pos=p2,
+            side_hex_rot=0,
+            exit_local_pos_y=0.0,
+        ),
+        rail_kind=kind,
+    )
+
+
+def _straight(distance: int, *, offset: int = 0) -> RailConstructionData:
+    """Build a STRAIGHT rail spanning `distance` hexes. `offset` disambiguates multiple rails."""
+    return _rail(
+        RailKind.STRAIGHT,
+        p1=HexVector(y=offset, x=0),
+        p2=HexVector(y=offset, x=distance),
+    )
+
+
+def test_budget_rails_empty_passes() -> None:
+    """Course with no rails has no rail violations."""
+    course = _course_with(_layer(_cell(TileKind.CURVE, y=0, x=0)))
+    assert _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_rails_under_budget_passes() -> None:
+    """A modest sprinkling of rails, all within budget, produces no violations."""
+    rails = (
+        _straight(1, offset=0),  # SHORT
+        _straight(2, offset=1),  # MEDIUM
+        _straight(3, offset=2),  # LONG
+        _rail(RailKind.BERNOULLI_SMALL_LEFT,
+              p1=HexVector(y=10, x=0), p2=HexVector(y=10, x=1)),
+    )
+    course = _course_with(_layer(), rails=rails)
+    assert _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_rails_per_kind_bernoulli_overrun() -> None:
+    """4 BERNOULLI_SMALL_LEFT against PRO budget of 3 fires one per-kind violation."""
+    rails = tuple(
+        _rail(RailKind.BERNOULLI_SMALL_LEFT,
+              p1=HexVector(y=i, x=0), p2=HexVector(y=i, x=1))
+        for i in range(4)
+    )
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.INVENTORY_BUDGET_RAILS
+    assert v.severity is Severity.ERROR
+    assert "BERNOULLI_SMALL_LEFT" in v.message
+    assert "4" in v.message
+    assert "3" in v.message
+
+
+def test_budget_rails_short_bucket_overrun() -> None:
+    """10 distance-1 STRAIGHT rails against PRO budget of 9 SHORT fires bucket violation."""
+    rails = tuple(_straight(1, offset=i) for i in range(10))
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    # STRAIGHT per-kind is 10/18 (fine). SHORT bucket is 10/9 (over).
+    assert len(violations) == 1
+    v = violations[0]
+    assert "SHORT" in v.message
+    assert "10" in v.message
+    assert "9" in v.message
+
+
+def test_budget_rails_medium_bucket_overrun() -> None:
+    """7 distance-2 STRAIGHT rails against PRO budget of 6 MEDIUM fires bucket violation."""
+    rails = tuple(_straight(2, offset=i) for i in range(7))
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "MEDIUM" in violations[0].message
+
+
+def test_budget_rails_long_bucket_overrun() -> None:
+    """4 distance-3 STRAIGHT rails against PRO budget of 3 LONG fires bucket violation."""
+    rails = tuple(_straight(3, offset=i) for i in range(4))
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "LONG" in violations[0].message
+
+
+def test_budget_rails_straight_per_kind_overrun_fires_independently() -> None:
+    """19 STRAIGHT rails distributed across lengths so no bucket overruns.
+
+    9 SHORT + 6 MEDIUM + 3 LONG = 18 at budget. Add a 10th SHORT and remove
+    one MEDIUM — bucket stays fine? No, 10 SHORT overruns SHORT bucket too.
+    This scenario is constructed to isolate the per-kind STRAIGHT check:
+    go up in LONG-distance placements which our local metric handles fine.
+    Actually: the per-kind STRAIGHT check compares placed vs inventory.rails[STRAIGHT]
+    = 18. Each bucket has its own limit summing to 18, so hitting exactly 18
+    STRAIGHT means every bucket is at its own limit (no over). 19 total means
+    at least one bucket is over. The per-kind and bucket checks are not
+    cleanly separable in PRO Vertical — they'd always fire together.
+    """
+    # 10 SHORT + 6 MEDIUM + 3 LONG = 19 STRAIGHT total.
+    rails = (
+        *(_straight(1, offset=i) for i in range(10)),
+        *(_straight(2, offset=100 + i) for i in range(6)),
+        *(_straight(3, offset=200 + i) for i in range(3)),
+    )
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    # Expect both: per-kind STRAIGHT (19 > 18) and SHORT bucket (10 > 9).
+    assert len(violations) == 2
+    messages = [v.message for v in violations]
+    assert any("STRAIGHT" in m and "SHORT" not in m for m in messages)
+    assert any("SHORT" in m for m in messages)
+
+
+def test_budget_rails_invalid_span_distance_zero() -> None:
+    """A STRAIGHT rail with both endpoints at the same position has distance 0 — invalid."""
+    bad = _rail(RailKind.STRAIGHT,
+                p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=0))
+    course = _course_with(_layer(), rails=(bad,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.severity is Severity.ERROR
+    assert "invalid span" in v.message
+    assert "distance 0" in v.message
+    assert v.location is not None
+    assert v.location.rail_index == 0
+
+
+def test_budget_rails_invalid_span_distance_four() -> None:
+    """A STRAIGHT rail with distance 4 exceeds LONG's fixed span — invalid."""
+    bad = _rail(RailKind.STRAIGHT,
+                p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4))
+    course = _course_with(_layer(), rails=(bad,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "invalid span" in v.message
+    assert "distance 4" in v.message
+
+
+def test_budget_rails_multiple_invalid_spans_each_reported() -> None:
+    """Each invalid STRAIGHT placement gets its own per-placement violation."""
+    rails = (
+        _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4)),
+        _rail(RailKind.STRAIGHT, p1=HexVector(y=1, x=0), p2=HexVector(y=1, x=5)),
+        _rail(RailKind.STRAIGHT, p1=HexVector(y=2, x=0), p2=HexVector(y=2, x=0)),
+    )
+    course = _course_with(_layer(), rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 3
+    assert all("invalid span" in v.message for v in violations)
+    # Rail indices in Location should be 0, 1, 2.
+    rail_indices = [v.location.rail_index for v in violations if v.location]
+    assert rail_indices == [0, 1, 2]
+
+
+def test_budget_rails_invalid_span_does_not_count_toward_buckets() -> None:
+    """An invalid-span rail must not be bucketed and pass the bucket check."""
+    # 9 valid SHORT (at budget) + 1 invalid-span rail.
+    # Bucket check: SHORT = 9/9, fine. Invalid span: 1 violation. Total: 1.
+    valid = tuple(_straight(1, offset=i) for i in range(9))
+    bad = _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4))
+    course = _course_with(_layer(), rails=valid + (bad,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "invalid span" in violations[0].message
+
+
+def test_budget_rails_strict_raises() -> None:
+    """validate_strict raises when rail violations exist."""
+    rails = tuple(
+        _rail(RailKind.BERNOULLI_SMALL_LEFT,
+              p1=HexVector(y=i, x=0), p2=HexVector(y=i, x=1))
+        for i in range(4)
+    )
+    course = _course_with(_layer(), rails=rails)
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    rail_vs = [
+        v for v in info.value.violations
+        if v.rule is Rule.INVENTORY_BUDGET_RAILS
+    ]
+    assert len(rail_vs) == 1
+
+
+def test_budget_rails_cross_retainer_straight_is_skipped_from_sub_budget() -> None:
+    """Cross-retainer STRAIGHT rails skip the invalid-span and bucket checks.
+
+    Local distance between endpoints on different retainers isn't physical
+    distance. Until we have world-coordinate math (blocked on baseplate
+    arrangement — PLAN.md open question), we skip these from the sub-budget
+    rather than false-positive flag them. The GDZJZA3J3T integration test
+    confirms this is necessary against real courses.
+
+    The rail still counts toward the per-kind STRAIGHT budget since the
+    piece physically exists in the course.
+    """
+    # A rail with cross-retainer endpoints and a would-be invalid span (5).
+    # If we weren't skipping cross-retainer, this would emit "invalid span".
+    cross = _rail(
+        RailKind.STRAIGHT,
+        p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=5),
+        retainer_1=100, retainer_2=200,
+    )
+    course = _course_with(_layer(), rails=(cross,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert violations == [], f"Expected no rail violations, got: {violations}"
 
 
 # --- Real-fixture integration test ----------------------------------------

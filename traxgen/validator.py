@@ -22,7 +22,7 @@ from traxgen.domain import (
     TileTowerTreeNodeData,
 )
 from traxgen.hex import HexVector
-from traxgen.inventory import Inventory
+from traxgen.inventory import Inventory, PillarKind, WallKind
 from traxgen.types import LayerKind, TileKind
 
 
@@ -36,6 +36,7 @@ class Rule(Enum):
     """v1 validation rules. All listed here; implementations land in follow-up steps."""
     INVENTORY_BUDGET_TILES = auto()
     INVENTORY_BUDGET_STACKERS = auto()
+    INVENTORY_BUDGET_STRUCTURAL = auto()
     INVENTORY_BUDGET_RAILS = auto()
     BASEPLATE_COVERAGE = auto()
     CELL_COLLISION = auto()
@@ -113,6 +114,24 @@ def _iter_placed_tiles(course: Course) -> Iterator[TileTowerConstructionData]:
 # limits are equal, so we skip per-kind for switches to avoid duplicate noise.
 _SWITCH_KINDS: frozenset[TileKind] = frozenset({TileKind.SWITCH_LEFT, TileKind.SWITCH_RIGHT})
 
+# Structural pieces appear as tree nodes but are budgeted by
+# INVENTORY_BUDGET_STRUCTURAL, not INVENTORY_BUDGET_TILES. Skipping them in
+# the tiles rule prevents false-positive "not in inventory" overruns (they're
+# absent from inventory.tiles by design).
+_STRUCTURAL_TILE_KINDS: frozenset[TileKind] = frozenset({
+    TileKind.STACKER_TOWER_CLOSED,
+    TileKind.STACKER_TOWER_OPENED,
+    TileKind.DOUBLE_BALCONY,
+})
+
+# Wall length is not stored on the wall itself — it's inferred from hex
+# distance between the two tower endpoints. See docs/refs/pro-structural-notes.md.
+_WALL_DISTANCE_TO_KIND: dict[int, WallKind] = {
+    1: WallKind.SHORT,
+    2: WallKind.MEDIUM,
+    3: WallKind.LONG,
+}
+
 
 def _check_inventory_budget_tiles(
     course: Course, inventory: Inventory
@@ -162,8 +181,12 @@ def _check_inventory_budget_tiles(
     # nodes — they live as the height_in_small_stacker field on whatever sits
     # on top. INVENTORY_BUDGET_STACKERS handles their budgeting separately.
     # See docs/refs/tree-node-height-semantics.md.
+    #
+    # Structural tile kinds (pillars, double balconies) are also skipped here —
+    # they're budgeted by INVENTORY_BUDGET_STRUCTURAL against the separate
+    # StructuralInventory, not against inventory.tiles.
     for kind in sorted(placed, key=lambda k: k.value):
-        if kind in _SWITCH_KINDS:
+        if kind in _SWITCH_KINDS or kind in _STRUCTURAL_TILE_KINDS:
             continue
         count = placed[kind]
         limit = inventory.tile_count(kind)
@@ -231,12 +254,115 @@ def _check_inventory_budget_stackers(
 
     return violations
 
+
+def _check_inventory_budget_structural(
+    course: Course, inventory: Inventory
+) -> Iterable[Violation]:
+    """INVENTORY_BUDGET_STRUCTURAL: pillars, walls, and balconies must fit StructuralInventory.
+
+    Pillars appear as tree nodes (TileKind.STACKER_TOWER_CLOSED / OPENED).
+    Walls live in course.wall_construction_data; length is inferred from the
+    hex distance between the two tower endpoints (1=SHORT, 2=MEDIUM, 3=LONG).
+    Double balconies appear as tree nodes (TileKind.DOUBLE_BALCONY).
+    Single balconies are mounted cells in WallBalconyConstructionData entries
+    on walls — only entries with a non-null cell count as mounted.
+
+    TODO: unverified whether the "mounted-only" counting rule is correct —
+    might be that every entry in balcony_construction_datas represents a
+    physical balcony piece, mounted or not. Verify when we have a fixture
+    with explicit balcony placements.
+
+    TODO: walls with hex distance outside {1,2,3} are silently skipped. A
+    future schema-validity rule should flag those as invalid placements.
+    """
+    violations: list[Violation] = []
+
+    # --- Pillars ---------------------------------------------------------
+    # Count pillar tree nodes by TileKind, then compare to inventory.structural.pillars.
+    placed_kinds = Counter(tile.kind for tile in _iter_placed_tiles(course))
+    for pillar_kind in PillarKind:
+        tile_kind = {
+            PillarKind.CLOSED: TileKind.STACKER_TOWER_CLOSED,
+            PillarKind.OPENED: TileKind.STACKER_TOWER_OPENED,
+        }[pillar_kind]
+        placed = placed_kinds[tile_kind]
+        limit = inventory.structural.pillar_count(pillar_kind)
+        if placed > limit:
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.INVENTORY_BUDGET_STRUCTURAL,
+                message=(
+                    f"Pillar budget exceeded for {pillar_kind.name}: "
+                    f"placed {placed}, allowed {limit}"
+                ),
+            ))
+
+    # --- Walls (length inferred from hex distance between endpoints) -----
+    wall_kind_counts: Counter[WallKind] = Counter()
+    for wall in course.wall_construction_data:
+        distance = wall.lower_stacker_tower_1_local_hex_pos.distance_to(
+            wall.lower_stacker_tower_2_local_hex_pos
+        )
+        wall_kind = _WALL_DISTANCE_TO_KIND.get(distance)
+        if wall_kind is None:
+            # See TODO above — future rule territory.
+            continue
+        wall_kind_counts[wall_kind] += 1
+
+    for wall_kind in WallKind:
+        placed = wall_kind_counts[wall_kind]
+        limit = inventory.structural.wall_count(wall_kind)
+        if placed > limit:
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.INVENTORY_BUDGET_STRUCTURAL,
+                message=(
+                    f"Wall budget exceeded for {wall_kind.name}: "
+                    f"placed {placed}, allowed {limit}"
+                ),
+            ))
+
+    # --- Single balconies (mounted cells on walls) ----------------------
+    single_balconies_placed = sum(
+        1
+        for wall in course.wall_construction_data
+        for balcony in wall.balcony_construction_datas
+        if balcony.cell_construction_data is not None
+    )
+    if single_balconies_placed > inventory.structural.single_balconies:
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.INVENTORY_BUDGET_STRUCTURAL,
+            message=(
+                f"Single balcony budget exceeded: placed {single_balconies_placed}, "
+                f"allowed {inventory.structural.single_balconies}"
+            ),
+        ))
+
+    # --- Double balconies (DOUBLE_BALCONY tree nodes) -------------------
+    double_balconies_placed = placed_kinds[TileKind.DOUBLE_BALCONY]
+    if double_balconies_placed > inventory.structural.double_balconies:
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.INVENTORY_BUDGET_STRUCTURAL,
+            message=(
+                f"Double balcony budget exceeded: placed {double_balconies_placed}, "
+                f"allowed {inventory.structural.double_balconies}"
+            ),
+        ))
+
+    return violations
+
+
+# --- Rule registry --------------------------------------------------------
+
 # Each entry takes (course, inventory) and yields Violations. Rules register
 # here as they're implemented.
 _CheckFn = Callable[[Course, Inventory], Iterable[Violation]]
 _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_tiles,
     _check_inventory_budget_stackers,
+    _check_inventory_budget_structural,
 )
 
 

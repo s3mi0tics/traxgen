@@ -20,7 +20,7 @@ from traxgen.domain import (
     WallCoordinate,
 )
 from traxgen.hex import HexVector
-from traxgen.inventory import CORE_STARTER_SET, PRO_VERTICAL_STARTER_SET
+from traxgen.inventory import CORE_STARTER_SET, PRO_VERTICAL_STARTER_SET, PillarKind, WallKind
 from traxgen.types import (
     CourseElementGeneration,
     CourseKind,
@@ -529,3 +529,313 @@ def test_budget_stackers_strict_raises() -> None:
         if v.rule is Rule.INVENTORY_BUDGET_STACKERS
     ]
     assert len(stacker_violations) == 1
+
+
+# --- INVENTORY_BUDGET_STRUCTURAL -------------------------------------------
+#
+# PRO Vertical structural budget:
+#   Pillars: 8 CLOSED + 4 OPENED
+#   Walls:   1 SHORT + 2 MEDIUM + 2 LONG
+#   Balconies: 16 single + 4 double
+
+def _structural_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just INVENTORY_BUDGET_STRUCTURAL violations."""
+    return [v for v in violations if v.rule is Rule.INVENTORY_BUDGET_STRUCTURAL]
+
+
+def _wall(
+    *, tower1: HexVector, tower2: HexVector,
+    balconies: tuple[WallBalconyConstructionData, ...] = (),
+) -> WallConstructionData:
+    """Build a wall between two tower positions with optional balconies."""
+    return WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=tower1,
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=tower2,
+        balcony_construction_datas=balconies,
+    )
+
+
+def test_budget_structural_empty_passes() -> None:
+    """A course with no structural pieces has no structural violations."""
+    course = _course_with(_layer(_cell(TileKind.CURVE, y=0, x=0)))
+    assert _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_structural_pillar_closed_overrun() -> None:
+    """9 CLOSED pillars against PRO Vertical budget of 8 fires one violation."""
+    cells = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=i) for i in range(9)]
+    course = _course_with(_layer(*cells))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.INVENTORY_BUDGET_STRUCTURAL
+    assert v.severity is Severity.ERROR
+    assert "CLOSED" in v.message
+    assert "9" in v.message
+    assert "8" in v.message
+
+
+def test_budget_structural_pillar_opened_overrun() -> None:
+    """5 OPENED pillars against PRO Vertical budget of 4 fires one violation."""
+    cells = [_cell(TileKind.STACKER_TOWER_OPENED, y=0, x=i) for i in range(5)]
+    course = _course_with(_layer(*cells))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "OPENED" in violations[0].message
+
+
+def test_budget_structural_pillars_at_limit_pass() -> None:
+    """Exactly 8 CLOSED and 4 OPENED pillars — at budget, no violations."""
+    closed = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=i) for i in range(8)]
+    opened = [_cell(TileKind.STACKER_TOWER_OPENED, y=1, x=i) for i in range(4)]
+    course = _course_with(_layer(*closed, *opened))
+    assert _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_structural_pillars_counted_in_stacked_trees() -> None:
+    """Pillars nested as children of other tree nodes still count."""
+    # 8 root CLOSED pillars + 1 child CLOSED pillar = 9 CLOSED → over budget.
+    root_with_child = _node(TileKind.STACKER_TOWER_CLOSED, index=0, children=(
+        _node(TileKind.STACKER_TOWER_CLOSED, index=1),
+    ))
+    cell_nested = CellConstructionData(
+        local_hex_position=HexVector(y=99, x=99),
+        tree_node_data=root_with_child,
+    )
+    other_cells = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=i) for i in range(7)]
+    course = _course_with(_layer(*other_cells, cell_nested))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "CLOSED" in violations[0].message
+
+
+def test_budget_structural_wall_short_inferred_from_distance_one() -> None:
+    """A wall with endpoints 1 hex apart is SHORT; PRO budget is 1."""
+    # 2 SHORT walls → over budget (1).
+    wall_1 = _wall(tower1=HexVector(y=0, x=0), tower2=HexVector(y=0, x=1))
+    wall_2 = _wall(tower1=HexVector(y=2, x=0), tower2=HexVector(y=2, x=1))
+    course = _course_with(_layer(), walls=(wall_1, wall_2))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "SHORT" in violations[0].message
+    assert "2" in violations[0].message
+    assert "1" in violations[0].message
+
+
+def test_budget_structural_wall_medium_inferred_from_distance_two() -> None:
+    """A wall with endpoints 2 hexes apart is MEDIUM; PRO budget is 2."""
+    # 3 MEDIUM walls → over budget (2).
+    walls = tuple(
+        _wall(
+            tower1=HexVector(y=i, x=0),
+            tower2=HexVector(y=i, x=2),
+        )
+        for i in range(3)
+    )
+    course = _course_with(_layer(), walls=walls)
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "MEDIUM" in violations[0].message
+
+
+def test_budget_structural_wall_long_inferred_from_distance_three() -> None:
+    """A wall with endpoints 3 hexes apart is LONG; PRO budget is 2."""
+    # 3 LONG walls → over budget (2).
+    walls = tuple(
+        _wall(
+            tower1=HexVector(y=i, x=0),
+            tower2=HexVector(y=i, x=3),
+        )
+        for i in range(3)
+    )
+    course = _course_with(_layer(), walls=walls)
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "LONG" in violations[0].message
+
+
+def test_budget_structural_wall_unmappable_distance_silently_skipped() -> None:
+    """Walls with hex distance outside {1,2,3} don't count toward any wall budget."""
+    # A wall spanning 5 hexes — not a valid wall length. Should be ignored,
+    # not double-counted as a LONG. Budget is 2 LONG walls; we add 2 LONG +
+    # 1 unmappable. Total valid LONG = 2, at budget, no violation.
+    long_walls = tuple(
+        _wall(tower1=HexVector(y=i, x=0), tower2=HexVector(y=i, x=3))
+        for i in range(2)
+    )
+    bogus_wall = _wall(tower1=HexVector(y=10, x=0), tower2=HexVector(y=10, x=5))
+    course = _course_with(_layer(), walls=long_walls + (bogus_wall,))
+    assert _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_structural_single_balcony_overrun() -> None:
+    """17 mounted single balconies against PRO budget of 16 fires one violation."""
+    # One wall with 17 mounted balcony cells. Use distance 1 so wall-length
+    # inference picks SHORT (PRO has 1 SHORT budget → 1 wall fits).
+    mounted = tuple(
+        WallBalconyConstructionData(
+            retainer_id=100 + i,
+            wall_side=WallSide.WEST,
+            wall_coordinate=WallCoordinate(column=i, row=0),
+            cell_construction_data=CellConstructionData(
+                local_hex_position=HexVector(y=i, x=0),
+                tree_node_data=_node(TileKind.CURVE),
+            ),
+        )
+        for i in range(17)
+    )
+    wall = _wall(
+        tower1=HexVector(y=0, x=0),
+        tower2=HexVector(y=0, x=1),
+        balconies=mounted,
+    )
+    course = _course_with(_layer(), walls=(wall,))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "Single balcony" in v.message
+    assert "17" in v.message
+    assert "16" in v.message
+
+
+def test_budget_structural_empty_balcony_slots_do_not_count() -> None:
+    """Balcony slots with cell_construction_data=None don't consume inventory."""
+    # 20 empty balcony slots on a SHORT wall. Should not trip 16-balcony limit.
+    empty_slots = tuple(
+        WallBalconyConstructionData(
+            retainer_id=100 + i,
+            wall_side=WallSide.WEST,
+            wall_coordinate=WallCoordinate(column=i, row=0),
+            cell_construction_data=None,
+        )
+        for i in range(20)
+    )
+    wall = _wall(
+        tower1=HexVector(y=0, x=0),
+        tower2=HexVector(y=0, x=1),
+        balconies=empty_slots,
+    )
+    course = _course_with(_layer(), walls=(wall,))
+    assert _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_structural_double_balcony_overrun() -> None:
+    """5 DOUBLE_BALCONY tree nodes against PRO budget of 4 fires one violation."""
+    cells = [_cell(TileKind.DOUBLE_BALCONY, y=0, x=i) for i in range(5)]
+    course = _course_with(_layer(*cells))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "Double balcony" in v.message
+    assert "5" in v.message
+    assert "4" in v.message
+
+
+def test_budget_structural_multiple_overruns_all_reported() -> None:
+    """Independent structural overruns each get their own violation."""
+    # 9 CLOSED pillars (over 8), 5 DOUBLE_BALCONY (over 4), all in one course.
+    closed = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=i) for i in range(9)]
+    doubles = [_cell(TileKind.DOUBLE_BALCONY, y=1, x=i) for i in range(5)]
+    course = _course_with(_layer(*closed, *doubles))
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    messages = [v.message for v in violations]
+    assert any("CLOSED" in m for m in messages)
+    assert any("Double balcony" in m for m in messages)
+
+
+def test_budget_structural_pillars_do_not_trip_tiles_rule() -> None:
+    """Structural tile kinds are skipped in the tiles per-kind budget check."""
+    # Place pillars at limit in a Core-inventory context (zero structural budget).
+    # Without the structural-kinds skip in the tiles rule, this would emit
+    # false-positive 'piece not in inventory' violations for each pillar.
+    cells = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=0)]
+    course = _course_with(_layer(*cells))
+    violations = validate(course, CORE_STARTER_SET)
+    # Tiles rule should not fire for the pillar (structural kind skipped).
+    tile_violations = [v for v in violations if v.rule is Rule.INVENTORY_BUDGET_TILES]
+    assert tile_violations == []
+    # Structural rule should fire because CORE has zero pillar budget.
+    structural_violations = _structural_violations(violations)
+    assert len(structural_violations) == 1
+    assert "CLOSED" in structural_violations[0].message
+
+
+def test_budget_structural_strict_raises() -> None:
+    """validate_strict raises when structural violations exist."""
+    cells = [_cell(TileKind.STACKER_TOWER_CLOSED, y=0, x=i) for i in range(9)]
+    course = _course_with(_layer(*cells))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    structural = [
+        v for v in info.value.violations
+        if v.rule is Rule.INVENTORY_BUDGET_STRUCTURAL
+    ]
+    assert len(structural) == 1
+
+
+# --- Real-fixture integration test ----------------------------------------
+#
+# Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one
+# big enough that no budget rule can possibly fire. Any violation we see
+# here indicates a bug in our rules' assumptions about the binary format
+# (wrong field path, wrong TileKind handling, bad walk, etc.), not a
+# legitimate inventory overrun.
+#
+# This is our canary for assumption drift as we add more rules. If this
+# starts failing after a rule change, we investigate before shipping.
+
+def _unlimited_inventory() -> "Inventory":  # type: ignore[name-defined]
+    """Build an inventory with huge budgets for every TileKind, rail, and structural piece."""
+    from types import MappingProxyType
+
+    from traxgen.inventory import (
+        Inventory,
+        RailLength,
+        StructuralInventory,
+    )
+    from traxgen.types import RailKind
+
+    big = 10_000
+    return Inventory(
+        name="unlimited (integration test)",
+        tiles=MappingProxyType({kind: big for kind in TileKind}),
+        rails=MappingProxyType({kind: big for kind in RailKind}),
+        straight_rail_limits=MappingProxyType({length: big for length in RailLength}),
+        baseplates=big,
+        transparent_levels=big,
+        marbles=big,
+        basic_tile_frames=big,
+        structural=StructuralInventory(
+            pillars=MappingProxyType({kind: big for kind in PillarKind}),
+            walls=MappingProxyType({kind: big for kind in WallKind}),
+            single_balconies=big,
+            double_balconies=big,
+        ),
+    )
+
+
+def test_validate_gdzjza3j3t_against_unlimited_inventory_is_clean() -> None:
+    """The real kitchen-sink fixture must produce zero violations against an unlimited inventory.
+
+    This catches bugs in our rules' binary-format assumptions (field paths,
+    TileKind handling, walk correctness). Any violation here means a rule
+    is misreading real data. Details are printed in the assertion message
+    so failures are debuggable without re-running.
+    """
+    from pathlib import Path
+
+    from traxgen.parser import parse_course
+
+    fixture_path = Path(__file__).parent / "fixtures" / "GDZJZA3J3T.course"
+    course = parse_course(fixture_path.read_bytes())
+
+    violations = validate(course, _unlimited_inventory())
+
+    assert violations == [], (
+        f"Expected zero violations on GDZJZA3J3T with unlimited inventory, "
+        f"got {len(violations)}:\n"
+        + "\n".join(f"  - [{v.rule.name}] {v.message}" for v in violations)
+    )

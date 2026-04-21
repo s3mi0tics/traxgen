@@ -102,8 +102,9 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
 - `traxgen/parser.py` — **done.** Reads `.course` binaries (POWER_2022).
 - `traxgen/serializer.py` — **done.** Writes `.course` binaries, byte-compare
   round-trip tested against GDZJZA3J3T.
-- `traxgen/validator.py` — **in progress.** Skeleton in place; rules added
-  one at a time.
+- `traxgen/validator.py` — **in progress (4/13 rules done).** All four
+  inventory-budget rules shipped; 9 referential-integrity and schema-validity
+  rules remain.
 - `traxgen/generator.py` — **not started.** Pluggable by `GenerationMode`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
@@ -122,50 +123,73 @@ contents) lives at `docs/refs/`.
    Python objects.
 3. **M3 Round-trip** — **done (bbf7e36).** Parse → serialize → byte-compare
    matches original.
-4. **M4 Validator** — **in progress.** Given a domain object, correctly
-   answer "is this legal?"
+4. **M4 Validator** — **in progress (4/13 rules done).** Given a domain
+   object, correctly answer "is this legal?"
 5. **M5 Generator** — not started. Produces a valid domain object using
    only inventory pieces.
 6. **M6 End-to-end** — not started. Generated file opens in the real
    GraviTrax app.
 
-### M4 (current) — validator design
+### M4 — validator design
 
 Soft-validation API: `validate(course, inventory)` returns a list of
 `Violation` objects. `validate_strict` wraps it and raises `ValidationError`
 if ERROR-severity violations exist. Each rule is a private `_check_*`
-function registered in `_CHECKS`. No cross-rule dependencies; we introduce
-a shared context later if profiling says we need it.
+function registered in `_CHECKS`. No cross-rule dependencies in v1; we
+introduce a shared context later if profiling says we need it.
 
-v1 rules, approximate order of implementation:
+Rules are implemented incrementally, one commit per rule, each with its own
+unit tests. A single integration test (`test_validate_gdzjza3j3t_against_
+unlimited_inventory_is_clean`) validates every registered rule against the
+real GDZJZA3J3T fixture — details in "De-risking strategy" below.
 
-1. `INVENTORY_BUDGET_TILES` — tile counts by TileKind don't exceed inventory.
-   Includes baseplate count. Also the switch-pool special case
-   (sum of `SWITCH_LEFT` + `SWITCH_RIGHT` placed ≤ pool size).
-2. `INVENTORY_BUDGET_STACKERS` — sum of `height_in_small_stacker` across all
-   tree nodes is feasible given available STACKER + STACKER_SMALL counts.
-3. `INVENTORY_BUDGET_STRUCTURAL` — pillar, wall, balcony counts don't exceed
-   the `structural` inventory. Walls counted from `wall_construction_data`;
-   pillars from tree nodes; single balconies from `WallBalconyConstructionData`
-   entries with non-null cells; double balconies from `DOUBLE_BALCONY` tree
-   nodes.
-4. `INVENTORY_BUDGET_RAILS` — rail counts by `RailKind` don't exceed inventory.
-   For STRAIGHT rails, additionally bucket each placed rail by endpoint hex
-   distance and compare against per-length limits.
-5. `BASEPLATE_COVERAGE` — every cell's layer is present in the course's
+#### v1 rule status
+
+1. ✅ `INVENTORY_BUDGET_TILES` — tile counts by TileKind don't exceed
+   inventory. Includes baseplate count (BASE_LAYER layers) and the
+   switch-pool special case (sum of `SWITCH_LEFT` + `SWITCH_RIGHT` placed ≤
+   pool size). Skips STACKER, STACKER_SMALL (handled by stackers rule) and
+   STACKER_TOWER_CLOSED, STACKER_TOWER_OPENED, DOUBLE_BALCONY (handled by
+   structural rule) in its per-kind check.
+2. ✅ `INVENTORY_BUDGET_STACKERS` — two checks: (1) total
+   `height_in_small_stacker` across all tree nodes ≤ 2×STACKER + STACKER_SMALL,
+   and (2) count of odd-height stacks ≤ STACKER_SMALL. The parity check
+   catches cases where total units fit but pieces don't (large stackers are
+   indivisible size-2 pieces; odd-h stacks need exactly one small each).
+3. ✅ `INVENTORY_BUDGET_STRUCTURAL` — pillar, wall, balcony counts don't
+   exceed `structural` inventory. Walls use hex-distance-to-kind inference
+   (1=SHORT, 2=MEDIUM, 3=LONG) on their tower endpoints. Walls with
+   unexpected distances are silently skipped (deferred cleanup — see below).
+   Single balconies count only when `cell_construction_data` is non-null
+   (assumption, unverified).
+4. ✅ `INVENTORY_BUDGET_RAILS` — per-kind count vs `inventory.rails[kind]`.
+   For STRAIGHT rails, a fixed-length sub-budget: distance → length
+   (1=SHORT, 2=MEDIUM, 3=LONG) with no cascading coverage. Invalid spans
+   (d ∉ {1,2,3}) emit per-placement violations with `Location` populated.
+   Cross-retainer STRAIGHT rails are skipped from the sub-budget — local
+   coordinates can't yield physical distance across retainers without the
+   baseplate world-arrangement answer (still-open unknown).
+5. ⬜ `BASEPLATE_COVERAGE` — every cell's layer is present in the course's
    layer set.
-6. `CELL_COLLISION` — no two cells share `(layer_id, local_hex_position)`.
-7. `RAIL_ENDPOINT_MISSING` — each rail endpoint refers to a cell/retainer
+6. ⬜ `CELL_COLLISION` — no two cells share `(layer_id, local_hex_position)`.
+7. ⬜ `RAIL_ENDPOINT_MISSING` — each rail endpoint refers to a cell/retainer
    that exists.
-8. `PILLAR_ENDPOINT_MISSING` — pillar endpoints refer to existing cells
+8. ⬜ `PILLAR_ENDPOINT_MISSING` — pillar endpoints refer to existing cells
    and layers.
-9. `RETAINER_ID_COLLISION` — retainer IDs are unique across tiles, pillars,
-   walls.
-10. `LAYER_ID_COLLISION` — layer IDs are unique.
-11. `ROTATION_OUT_OF_RANGE` — `hex_rotation` and `side_hex_rot` are in `[0, 5]`.
-12. `MISSING_STARTER_OR_GOAL` — at least one tile with `is_starter=True`
+9. ⬜ `RETAINER_ID_COLLISION` — retainer IDs are unique across tiles,
+   pillars, walls.
+10. ⬜ `LAYER_ID_COLLISION` — layer IDs are unique.
+11. ⬜ `ROTATION_OUT_OF_RANGE` — `hex_rotation` and `side_hex_rot` are in
+    `[0, 5]`.
+12. ⬜ `MISSING_STARTER_OR_GOAL` — at least one tile with `is_starter=True`
     and one with `is_goal=True`.
-13. `TILE_INDEX_COLLISION` — tree-node `index` values are unique within a cell.
+13. ⬜ `TILE_INDEX_COLLISION` — tree-node `index` values are unique within
+    a cell.
+
+**Rule interaction note:** rules are nominally independent but the tiles
+rule explicitly skips kinds owned by the stackers and structural rules.
+When adding new rules that partition `TileKind` space, update the tiles
+rule's skip set accordingly.
 
 ---
 
@@ -236,7 +260,9 @@ Both modes reuse ~80% of Phase 1 code.
 2. **Rail `side_hex_rot` semantics** — which of 6 hex edges it identifies.
    Inferable from fixtures when M5 needs it.
 3. **Baseplate world-coordinate arrangement** — how 4 baseplates tile
-   together. Inferable from a fixture that uses all 4 plates.
+   together in world space. Now actively blocking cross-retainer rail
+   span validation (see #8 below). Inferable from a fixture that uses
+   all 4 plates.
 4. **Retainer ID assignment scheme** — sequential/hashed/arbitrary.
    Inferable from fixtures.
 5. **GUID generation** — the app may or may not validate course GUIDs.
@@ -246,6 +272,14 @@ Both modes reuse ~80% of Phase 1 code.
 7. **`THREE_ENTRANCE_FUNNEL` TileKind assignment** — best-guess mapping
    for the "3-in-1" / "3-way merge" piece. Confirmable by parsing a
    fixture that uses this piece.
+8. **Cross-retainer rail geometry.** Rail endpoints use
+   `cell_local_hex_pos` (local to the endpoint's retainer). For rails
+   spanning different retainers, local distance doesn't reflect physical
+   span. GDZJZA3J3T has real cross-retainer STRAIGHT rails with local
+   distances 0 and 5 (impossible for a fixed-length piece). The rails
+   validator skips cross-retainer rails from the length sub-budget as a
+   workaround. Proper validation needs world coordinates, which needs
+   unknown #3 resolved.
 
 ### Resolved since original plan
 
@@ -257,6 +291,19 @@ Both modes reuse ~80% of Phase 1 code.
   on pillar nodes is stackers-below-base, same rule as any other tile.
 - Starter-set piece counts — fully reconciled for 26832 through physical
   inspection. 3-in-1 mystery resolved as `THREE_ENTRANCE_FUNNEL` (best-guess).
+- **Rail length semantics — fixed, not "up-to."** A SHORT rail spans exactly
+  1 hex. MEDIUM spans exactly 2. LONG spans exactly 3. No cascading coverage
+  where a longer rail can satisfy a shorter demand — each physical piece has
+  one fixed length. Informed the bucket-check logic in the rails validator.
+- **Stacker budget isn't a simple sum.** Large stackers are indivisible
+  size-2 pieces at one physical location. A course with total-units at
+  capacity can still be infeasible if too many individual stacks have odd
+  heights — each odd-h stack needs exactly one small stacker. Parity check
+  added to the stackers rule alongside the total-units check.
+- **Integration canary pattern.** Validating a real parsed fixture against
+  an unlimited inventory catches rule bugs that synthetic unit tests miss.
+  Caught a real false-positive in the rails rule on the commit that added
+  it. See "De-risking strategy" for the pattern.
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -269,6 +316,14 @@ Both modes reuse ~80% of Phase 1 code.
 - `PillarConstructionData.{lower,upper}_layer_id` — parser reads u32,
   Rust struct is i32. Bytes identical for non-negative IDs. Fix before
   M5 if we care about negative layer IDs.
+- **Mounted-only balcony counting** — assumption in
+  `_check_inventory_budget_structural` that a balcony slot counts against
+  inventory only when it holds a cell. Verify against a fixture with
+  explicit balcony placements; revise if empty slots are also consumed
+  pieces.
+- **Walls with unexpected hex distance** — silently skipped in
+  `_check_inventory_budget_structural`. A future schema-validity rule
+  should flag distance ∉ {1, 2, 3} as invalid wall geometry.
 
 ---
 
@@ -278,8 +333,19 @@ Phase 1 sequence was parse first, generate second. Front-loads
 schema-interpretation risk into M2–M3. The generator (M5) inherits a
 proven serializer.
 
+**Integration canary for validator rules.** Every commit that adds or
+modifies a validator rule runs against the GDZJZA3J3T fixture with an
+inventory of 10,000 of everything. Any violation emitted = a rule is
+misreading real binary data, not a legitimate budget overrun. Added
+during M4 after Colby flagged the risk of accumulating assumption bugs
+across rules without end-to-end testing. Has already caught one bug
+(cross-retainer rails in the rails sub-budget). Extend or replace with
+additional canary fixtures as needed — same-layer-only courses,
+starter-set-only courses — when a rule demands narrower coverage.
+
 Fixtures at `tests/fixtures/`; `GDZJZA3J3T.course` is a kitchen-sink course
-that exercises almost every schema path. Add more user-submitted or
+that exercises almost every schema path, including cross-retainer rails,
+stacked pillars, and wall-mounted balconies. Add more user-submitted or
 starter-set-only fixtures if specific validator rules need a clean oracle.
 
 Endpoint for fetching fixtures: `murmelbahn.fly.dev/api/course/{code}/raw`.

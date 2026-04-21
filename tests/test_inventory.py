@@ -96,8 +96,14 @@ class TestPieceSpecProperties:
     def test_starter_is_marked_as_starter(self) -> None:
         assert get_piece_spec(TileKind.STARTER).is_starter is True
 
-    def test_cannon_is_marked_as_starter(self) -> None:
-        assert get_piece_spec(TileKind.CANNON).is_starter is True
+    def test_cannon_is_not_a_starter(self) -> None:
+        """The Magnetic Cannon is an energy injector, not a starter.
+
+        A ball must arrive at the cannon (via gravity from elsewhere) for
+        the cannon to do anything — it can't initiate a run. Its role is
+        modeled via energy_profile.energy_input_j, not is_starter.
+        """
+        assert get_piece_spec(TileKind.CANNON).is_starter is False
 
     def test_goal_basin_is_marked_as_goal(self) -> None:
         assert get_piece_spec(TileKind.GOAL_BASIN).is_goal is True

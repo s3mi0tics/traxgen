@@ -84,7 +84,11 @@ _CATALOGED_PIECES: tuple[PieceSpec, ...] = (
     PieceSpec(
         kind=TileKind.CANNON,
         display_name="Magnetic Cannon",
-        is_starter=True,
+        # Not a starter — the cannon is an energy injector. A ball must
+        # arrive (via gravity from elsewhere) for the cannon to do anything;
+        # it can't initiate a run on its own. Flagged and corrected during
+        # M4 validator design for MISSING_STARTER_OR_GOAL. The cannon's role
+        # is modeled via energy_profile.energy_input_j, not is_starter.
         energy_profile=EnergyProfile(energy_input_j=0.020),
     ),
     PieceSpec(

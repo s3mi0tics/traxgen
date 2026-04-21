@@ -35,6 +35,7 @@ class Severity(IntEnum):
 class Rule(Enum):
     """v1 validation rules. All listed here; implementations land in follow-up steps."""
     INVENTORY_BUDGET_TILES = auto()
+    INVENTORY_BUDGET_STACKERS = auto()
     INVENTORY_BUDGET_RAILS = auto()
     BASEPLATE_COVERAGE = auto()
     CELL_COLLISION = auto()
@@ -157,6 +158,10 @@ def _check_inventory_budget_tiles(
         ))
 
     # Per-kind budget for everything else. Sort by TileKind.value for deterministic output.
+    # STACKER and STACKER_SMALL never appear here because stackers aren't tree
+    # nodes — they live as the height_in_small_stacker field on whatever sits
+    # on top. INVENTORY_BUDGET_STACKERS handles their budgeting separately.
+    # See docs/refs/tree-node-height-semantics.md.
     for kind in sorted(placed, key=lambda k: k.value):
         if kind in _SWITCH_KINDS:
             continue
@@ -175,13 +180,63 @@ def _check_inventory_budget_tiles(
     return violations
 
 
-# --- Rule registry --------------------------------------------------------
+def _check_inventory_budget_stackers(
+    course: Course, inventory: Inventory
+) -> Iterable[Violation]:
+    """INVENTORY_BUDGET_STACKERS: total small-stacker units and parity feasibility against inventory.
+
+    Each tree node's height_in_small_stacker field represents an independent
+    stack of stackers — not a pool. A large stacker provides 2 units at one
+    spot, indivisibly; a small provides 1. Feasibility has two constraints:
+
+      1. Total units: sum(h) <= 2*large + small.
+      2. Parity: each odd-h stack must consume exactly one small stacker
+         (you can't build an odd number out of 2s alone), so the count of
+         odd-h stacks must not exceed the small-stacker inventory.
+
+    Either constraint can fail independently; we emit both violations if
+    both fail. See docs/refs/tree-node-height-semantics.md.
+    """
+    violations: list[Violation] = []
+    stacks = [
+        tile.height_in_small_stacker
+        for tile in _iter_placed_tiles(course)
+        if tile.height_in_small_stacker > 0
+    ]
+    total_units = sum(stacks)
+    odd_count = sum(1 for h in stacks if h % 2 == 1)
+    large = inventory.tile_count(TileKind.STACKER)
+    small = inventory.tile_count(TileKind.STACKER_SMALL)
+    capacity = 2 * large + small
+
+    if total_units > capacity:
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.INVENTORY_BUDGET_STACKERS,
+            message=(
+                f"Stacker budget exceeded: {total_units} small-stacker units required, "
+                f"capacity {capacity} ({large} large * 2 + {small} small)"
+            ),
+        ))
+
+    if odd_count > small:
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.INVENTORY_BUDGET_STACKERS,
+            message=(
+                f"Small stacker shortfall: {odd_count} odd-height stack(s) "
+                f"require small stackers, but inventory has {small}"
+            ),
+        ))
+
+    return violations
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
 # here as they're implemented.
 _CheckFn = Callable[[Course, Inventory], Iterable[Violation]]
 _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_tiles,
+    _check_inventory_budget_stackers,
 )
 
 

@@ -93,6 +93,16 @@ def _cell(kind: TileKind, *, y: int = 0, x: int = 0) -> CellConstructionData:
     )
 
 
+def _cell_with_h(
+    kind: TileKind, *, h: int, y: int = 0, x: int = 0,
+) -> CellConstructionData:
+    """Build a cell at (y, x) containing a single tile with the given h value."""
+    return CellConstructionData(
+        local_hex_position=HexVector(y=y, x=x),
+        tree_node_data=_node(kind, h=h),
+    )
+
+
 def _layer(
     *cells: CellConstructionData, layer_id: int = 0,
     kind: LayerKind = LayerKind.BASE_LAYER,
@@ -360,3 +370,162 @@ def test_budget_tiles_strict_raises() -> None:
         validate_strict(course, PRO_VERTICAL_STARTER_SET)
     assert len(info.value.violations) == 1
     assert info.value.violations[0].rule is Rule.INVENTORY_BUDGET_TILES
+
+
+# --- INVENTORY_BUDGET_STACKERS --------------------------------------------
+#
+# PRO Vertical budget: 20 large + 9 small = 49 small-stacker units capacity,
+# 9 smalls available for odd-height stacks.
+
+def _stacker_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just INVENTORY_BUDGET_STACKERS violations."""
+    return [v for v in violations if v.rule is Rule.INVENTORY_BUDGET_STACKERS]
+
+
+def test_budget_stackers_all_zero_heights_passes() -> None:
+    """Many tiles with h=0 across the board → stacker rule doesn't fire."""
+    # 28 curves at h=0 fits tile budget comfortably, stacker usage is 0.
+    cells = [_cell(TileKind.CURVE, y=i, x=0) for i in range(28)]
+    course = _course_with(_layer(*cells))
+    assert _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_stackers_at_total_capacity_passes() -> None:
+    """49 units total, all even (no odd stacks) — exactly at capacity, no violations."""
+    # Need stacks summing to 49 with zero odd-h stacks. 49 is odd, but the
+    # rule only counts *per-stack* oddness, not total — actually wait, 49
+    # can't be reached with all-even stacks (sum of evens is even). Use 48
+    # units all-even: 24 stacks of h=2. That's under capacity; still no
+    # violation. To test the at-capacity edge exactly, use e.g. 23 stacks
+    # of h=2 (46) + 3 stacks of h=1 (3 units, 3 odd): total 49 = capacity,
+    # 3 odd <= 9 smalls. Passes both checks at the edge.
+    cells = [
+        _cell_with_h(TileKind.CURVE, h=2, y=0, x=i) for i in range(23)
+    ]
+    cells += [
+        _cell_with_h(TileKind.CURVE, h=1, y=1, x=i) for i in range(3)
+    ]
+    course = _course_with(_layer(*cells))
+    assert _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_stackers_total_overrun_only() -> None:
+    """50 units total, all even (0 odd stacks) — total fails, parity passes."""
+    # 25 stacks of h=2 = 50 units, 0 odd. Over capacity (49).
+    cells = [_cell_with_h(TileKind.CURVE, h=2, y=0, x=i) for i in range(25)]
+    course = _course_with(_layer(*cells))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.INVENTORY_BUDGET_STACKERS
+    assert v.severity is Severity.ERROR
+    assert "50" in v.message
+    assert "49" in v.message
+    assert "Stacker budget exceeded" in v.message
+
+
+def test_budget_stackers_parity_overrun_only() -> None:
+    """10 stacks of h=1 = 10 units (under capacity), 10 odd (over 9 smalls)."""
+    cells = [_cell_with_h(TileKind.CURVE, h=1, y=0, x=i) for i in range(10)]
+    course = _course_with(_layer(*cells))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.INVENTORY_BUDGET_STACKERS
+    assert "10" in v.message
+    assert "9" in v.message
+    assert "Small stacker shortfall" in v.message
+
+
+def test_budget_stackers_both_overruns_reported() -> None:
+    """Total > 49 AND odd_count > 9 → both violations emitted."""
+    # 10 stacks of h=11 (odd): total 110, odd_count 10. Breaks both checks.
+    cells = [_cell_with_h(TileKind.CURVE, h=11, y=0, x=i) for i in range(10)]
+    course = _course_with(_layer(*cells))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    messages = [v.message for v in violations]
+    assert any("Stacker budget exceeded" in m for m in messages)
+    assert any("Small stacker shortfall" in m for m in messages)
+
+
+def test_budget_stackers_counts_heights_on_stacked_children() -> None:
+    """h values on child nodes count toward the sum, not just roots."""
+    # Single cell: pillar(h=2) → curve(h=48). Total 50 > 49 capacity.
+    tree = _node(TileKind.STACKER_TOWER_CLOSED, index=0, h=2, children=(
+        _node(TileKind.CURVE, index=1, h=48),
+    ))
+    cell = CellConstructionData(
+        local_hex_position=HexVector(y=0, x=0),
+        tree_node_data=tree,
+    )
+    course = _course_with(_layer(cell))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "Stacker budget exceeded" in violations[0].message
+    assert "50" in violations[0].message
+
+
+def test_budget_stackers_counts_heights_in_balcony_cells() -> None:
+    """h values on tiles in balcony-mounted cells count too."""
+    # 24 curves at h=2 on baseplate = 48 units, 0 odd. Balcony-mounted curve
+    # at h=2 pushes total to 50, triggering total overrun.
+    base_cells = [_cell_with_h(TileKind.CURVE, h=2, y=i, x=0) for i in range(24)]
+    balcony_cell = CellConstructionData(
+        local_hex_position=HexVector(y=99, x=99),
+        tree_node_data=_node(TileKind.CURVE, h=2),
+    )
+    wall = WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=(
+            WallBalconyConstructionData(
+                retainer_id=42,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=0, row=0),
+                cell_construction_data=balcony_cell,
+            ),
+        ),
+    )
+    course = _course_with(_layer(*base_cells), walls=(wall,))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "50" in violations[0].message
+
+
+def test_budget_stackers_pillar_h_counts_as_stack() -> None:
+    """A pillar with h>0 counts as a stack like any other tree node (no kind exceptions)."""
+    # 10 pillars, each with h=1 (cells are independent so no tree nesting needed).
+    # Total 10 units (under capacity), but 10 odd stacks (over 9 smalls).
+    cells = [_cell_with_h(TileKind.STACKER_TOWER_CLOSED, h=1, y=0, x=i) for i in range(10)]
+    course = _course_with(_layer(*cells))
+    violations = _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "Small stacker shortfall" in violations[0].message
+    assert "10" in violations[0].message
+
+
+def test_budget_stackers_zero_h_does_not_count_as_stack() -> None:
+    """h=0 tiles must not be counted as 'even stacks' (they're not stacks at all)."""
+    # 50 tiles at h=0. If h=0 counted as an even stack, total would still be 0
+    # (fine) and odd_count would be 0 (fine). So this test is really about
+    # ensuring the behavior is correct for the boundary: no false positives
+    # from zero-height placements.
+    cells = [_cell(TileKind.CURVE, y=0, x=i) for i in range(28)]
+    course = _course_with(_layer(*cells))
+    assert _stacker_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_stackers_strict_raises() -> None:
+    """validate_strict raises when stacker violations exist."""
+    cells = [_cell_with_h(TileKind.CURVE, h=2, y=0, x=i) for i in range(25)]
+    course = _course_with(_layer(*cells))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    stacker_violations = [
+        v for v in info.value.violations
+        if v.rule is Rule.INVENTORY_BUDGET_STACKERS
+    ]
+    assert len(stacker_violations) == 1

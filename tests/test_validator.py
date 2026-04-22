@@ -1542,6 +1542,176 @@ def test_rotation_strict_raises() -> None:
     assert len(rot_violations) == 1
 
 
+# --- CELL_COLLISION --------------------------------------------------------
+#
+# No two cells on the same layer share a local_hex_position. Expected to
+# never fire on real courses; primary value is guarding the M5 generator.
+# Scope is layer cells only; balcony cells use a different coordinate
+# space and can't collide with layer cells.
+
+def _cell_collision_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just CELL_COLLISION violations."""
+    return [v for v in violations if v.rule is Rule.CELL_COLLISION]
+
+
+def test_cell_collision_empty_course_passes() -> None:
+    """No cells, nothing to collide."""
+    assert _cell_collision_violations(validate(_empty_course(), PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_cell_collision_distinct_positions_pass() -> None:
+    """Cells at different positions on the same layer — no violation."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.GOAL_BASIN, y=0, x=1),
+        _cell(TileKind.CURVE, y=1, x=0),
+    ))
+    assert _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_cell_collision_same_position_different_layers_pass() -> None:
+    """Same hex position on different layers is fine — they're on different
+    physical surfaces."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=1),
+        _layer(_cell(TileKind.GOAL_BASIN, y=0, x=0), layer_id=2),
+    )
+    assert _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_cell_collision_duplicate_position_fires_one_violation() -> None:
+    """Two cells at the same (layer_id, position) → exactly one violation."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=2, x=3),
+        _cell(TileKind.CURVE, y=2, x=3),  # same layer, same position
+        layer_id=10,
+    ))
+    violations = _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.CELL_COLLISION
+    assert v.severity is Severity.ERROR
+    assert "layer_id=10" in v.message
+    assert "(2,3)" in v.message
+    assert "2 cells" in v.message
+    assert "STARTER" in v.message
+    assert "CURVE" in v.message
+
+
+def test_cell_collision_triple_duplicate_dedup_to_one_violation() -> None:
+    """Three cells at the same position → one violation, not two or three."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.CURVE, y=0, x=0),
+        _cell(TileKind.GOAL_BASIN, y=0, x=0),
+        layer_id=5,
+    ))
+    violations = _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "3 cells" in v.message
+
+
+def test_cell_collision_independent_collisions_each_reported() -> None:
+    """Multiple independent collisions → one violation per colliding position,
+    sorted by (layer_id, y, x)."""
+    course = _course_with(
+        _layer(
+            _cell(TileKind.STARTER, y=1, x=0),
+            _cell(TileKind.CURVE, y=1, x=0),  # collision at layer 1
+            layer_id=1,
+        ),
+        _layer(
+            _cell(TileKind.GOAL_BASIN, y=0, x=0),
+            _cell(TileKind.CURVE, y=0, x=0),  # collision at layer 2
+            layer_id=2,
+        ),
+    )
+    violations = _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    # Sort is (layer_id, y, x). Layer 1 violation comes first.
+    assert "layer_id=1" in violations[0].message
+    assert "layer_id=2" in violations[1].message
+
+
+def test_cell_collision_sort_order_within_layer() -> None:
+    """Within a layer, violations sort by (y, x) — smaller first."""
+    course = _course_with(_layer(
+        _cell(TileKind.CURVE, y=5, x=5),
+        _cell(TileKind.STARTER, y=5, x=5),  # collision at (5, 5)
+        _cell(TileKind.CURVE, y=1, x=0),
+        _cell(TileKind.GOAL_BASIN, y=1, x=0),  # collision at (1, 0)
+        _cell(TileKind.CURVE, y=1, x=2),
+        _cell(TileKind.CURVE, y=1, x=2),  # collision at (1, 2)
+        layer_id=0,
+    ))
+    violations = _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 3
+    # (1,0) comes before (1,2) comes before (5,5).
+    assert "(1,0)" in violations[0].message
+    assert "(1,2)" in violations[1].message
+    assert "(5,5)" in violations[2].message
+
+
+def test_cell_collision_balcony_cells_not_in_scope() -> None:
+    """Balcony-mounted cells use a different coordinate space and don't
+    collide with layer cells, even at matching positions."""
+    # Layer cell at (0, 0) and a balcony cell at (0, 0) — not a collision.
+    balcony_cell = CellConstructionData(
+        local_hex_position=HexVector(y=0, x=0),
+        tree_node_data=_node(TileKind.CURVE),
+    )
+    wall = WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=(
+            WallBalconyConstructionData(
+                retainer_id=42,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=0, row=0),
+                cell_construction_data=balcony_cell,
+            ),
+        ),
+    )
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=1),
+        walls=(wall,),
+    )
+    assert _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_cell_collision_violation_populates_location() -> None:
+    """CELL_COLLISION violations carry layer_id and hex_position in Location."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=4, x=-2),
+        _cell(TileKind.CURVE, y=4, x=-2),
+        layer_id=77,
+    ))
+    violations = _cell_collision_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    loc = violations[0].location
+    assert loc is not None
+    assert loc.layer_id == 77
+    assert loc.hex_position == HexVector(y=4, x=-2)
+
+
+def test_cell_collision_strict_raises() -> None:
+    """validate_strict raises when cell collisions exist."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.CURVE, y=0, x=0),
+    ))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    cell_violations = [
+        v for v in info.value.violations
+        if v.rule is Rule.CELL_COLLISION
+    ]
+    assert len(cell_violations) == 1
+
+
 # --- Real-fixture integration test ----------------------------------------
 #
 # Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one

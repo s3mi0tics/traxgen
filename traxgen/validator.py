@@ -650,6 +650,65 @@ def _check_rotation_out_of_range(
     return violations
 
 
+def _check_cell_collision(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """CELL_COLLISION: no two cells on the same layer share a local_hex_position.
+
+    Each (layer_id, local_hex_position) pair identifies a physical hex on
+    a physical layer. Two cells occupying the same pair would mean two
+    physical pieces occupying the same physical hex — impossible.
+
+    Scope: layer cells only. Balcony-mounted cells have their own
+    coordinate space (local to the balcony, not the layer), so they
+    can't collide with layer cells. A future rule could check balcony
+    cell collisions separately if that becomes relevant.
+
+    Emits one violation per colliding (layer_id, position) pair with
+    the root TileKinds listed for debuggability. Violations sorted by
+    (layer_id, position.y, position.x) for determinism.
+
+    Inventory is unused — this is a pure schema-validity check.
+    Expected to never fire on real app-produced courses.
+    """
+    violations: list[Violation] = []
+
+    # Build (layer_id, position) -> list of root TileKinds.
+    # Using root-kind rather than walking the tree: a collision is about
+    # the cell itself occupying a hex, and each cell has exactly one root.
+    by_pos: dict[tuple[int, HexVector], list[TileKind]] = {}
+    for layer in course.layer_construction_data:
+        for cell in layer.cell_construction_datas:
+            key = (layer.layer_id, cell.local_hex_position)
+            by_pos.setdefault(key, []).append(
+                cell.tree_node_data.construction_data.kind
+            )
+
+    # Sort by (layer_id, y, x) for deterministic output.
+    def _sort_key(item: tuple[int, HexVector]) -> tuple[int, int, int]:
+        layer_id, pos = item
+        return (layer_id, pos.y, pos.x)
+
+    for key in sorted(by_pos, key=_sort_key):
+        kinds = by_pos[key]
+        if len(kinds) <= 1:
+            continue
+        layer_id, pos = key
+        kinds_str = ", ".join(k.name for k in kinds)
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.CELL_COLLISION,
+            message=(
+                f"Cell collision: layer_id={layer_id}, position "
+                f"({pos.y},{pos.x}) has {len(kinds)} cells "
+                f"(root kinds: {kinds_str})"
+            ),
+            location=Location(layer_id=layer_id, hex_position=pos),
+        ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -663,6 +722,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_missing_starter_or_goal,
     _check_layer_id_collision,
     _check_rotation_out_of_range,
+    _check_cell_collision,
 )
 
 

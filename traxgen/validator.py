@@ -531,6 +531,51 @@ def _check_missing_starter_or_goal(
     return violations
 
 
+def _check_layer_id_collision(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """LAYER_ID_COLLISION: every layer_id in course.layer_construction_data must be unique.
+
+    Layer IDs are labels used by other parts of the course file to
+    reference specific layers — pillar endpoints, for instance, point to
+    layers by ID. Two layers sharing an ID would make any such reference
+    ambiguous, so the labels must be unique course-wide.
+
+    Emits one violation per duplicated ID (not one per duplicate pair),
+    with the involved `LayerKind`s listed in the message for debuggability.
+    Violations are sorted by layer_id ascending for deterministic output.
+
+    Inventory is unused — this is a pure schema-validity check.
+
+    Expected to never fire on real app-produced fixtures (the app
+    generates valid IDs); the rule's primary value is protecting our own
+    generator from emitting broken files in M5.
+    """
+    violations: list[Violation] = []
+
+    # Build layer_id -> list of layer_kinds for every layer.
+    by_id: dict[int, list[LayerKind]] = {}
+    for layer in course.layer_construction_data:
+        by_id.setdefault(layer.layer_id, []).append(layer.layer_kind)
+
+    for layer_id in sorted(by_id):
+        kinds = by_id[layer_id]
+        if len(kinds) <= 1:
+            continue
+        kinds_str = ", ".join(k.name for k in kinds)
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.LAYER_ID_COLLISION,
+            message=(
+                f"Layer ID collision: layer_id={layer_id} appears "
+                f"{len(kinds)} times (kinds: {kinds_str})"
+            ),
+            location=Location(layer_id=layer_id),
+        ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -542,6 +587,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_structural,
     _check_inventory_budget_rails,
     _check_missing_starter_or_goal,
+    _check_layer_id_collision,
 )
 
 

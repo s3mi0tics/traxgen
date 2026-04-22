@@ -1185,6 +1185,126 @@ def test_starter_goal_strict_raises() -> None:
     assert "starter" in sg_violations[0].message.lower()
 
 
+# --- LAYER_ID_COLLISION ----------------------------------------------------
+#
+# Layer IDs are labels used to reference layers from elsewhere in the
+# binary (pillar endpoints, etc). Two layers sharing an ID would be
+# ambiguous. Expected to never fire on real app-produced courses;
+# primary value is guarding against our own M5 generator emitting bad IDs.
+
+def _layer_id_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just LAYER_ID_COLLISION violations."""
+    return [v for v in violations if v.rule is Rule.LAYER_ID_COLLISION]
+
+
+def test_layer_id_empty_course_has_no_collisions() -> None:
+    """No layers, nothing to collide."""
+    assert _layer_id_violations(validate(_empty_course(), PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_layer_id_single_layer_has_no_collisions() -> None:
+    """A single layer can't collide with itself."""
+    course = _course_with(_layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=42))
+    assert _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_layer_id_distinct_ids_pass() -> None:
+    """Two layers with different IDs — no violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=1),
+        _layer(_cell(TileKind.GOAL_BASIN, y=0, x=0), layer_id=2),
+    )
+    assert _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_layer_id_duplicate_fires_one_violation() -> None:
+    """Two layers with the same ID → exactly one violation."""
+    course = _course_with(
+        _layer(layer_id=5, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=5, kind=LayerKind.SMALL_LAYER),
+    )
+    violations = _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.LAYER_ID_COLLISION
+    assert v.severity is Severity.ERROR
+    assert "layer_id=5" in v.message
+    assert "2 times" in v.message
+    assert "BASE_LAYER" in v.message
+    assert "SMALL_LAYER" in v.message
+
+
+def test_layer_id_triple_duplicate_dedup_to_one_violation() -> None:
+    """Three layers with the same ID → one violation, not two or three."""
+    course = _course_with(
+        _layer(layer_id=7, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=7, kind=LayerKind.LARGE_LAYER),
+        _layer(layer_id=7, kind=LayerKind.SMALL_LAYER),
+    )
+    violations = _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "layer_id=7" in v.message
+    assert "3 times" in v.message
+
+
+def test_layer_id_independent_collisions_each_reported() -> None:
+    """Multiple independent collisions → one violation per colliding ID, sorted ascending."""
+    course = _course_with(
+        _layer(layer_id=10, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=10, kind=LayerKind.BASE_LAYER),  # collides with above
+        _layer(layer_id=3, kind=LayerKind.SMALL_LAYER),
+        _layer(layer_id=3, kind=LayerKind.SMALL_LAYER),  # collides with above
+        _layer(layer_id=99, kind=LayerKind.LARGE_LAYER),  # unique
+    )
+    violations = _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    # Sorted ascending by layer_id: 3 first, then 10.
+    assert "layer_id=3" in violations[0].message
+    assert "layer_id=10" in violations[1].message
+
+
+def test_layer_id_mixed_some_collide_some_unique() -> None:
+    """A mix of unique and colliding IDs reports only the collisions."""
+    course = _course_with(
+        _layer(layer_id=1),
+        _layer(layer_id=2),
+        _layer(layer_id=2),  # collides with above
+        _layer(layer_id=3),
+    )
+    violations = _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "layer_id=2" in violations[0].message
+
+
+def test_layer_id_violation_populates_location() -> None:
+    """The Location on a collision violation carries the colliding ID."""
+    course = _course_with(
+        _layer(layer_id=42),
+        _layer(layer_id=42),
+    )
+    violations = _layer_id_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.location is not None
+    assert v.location.layer_id == 42
+
+
+def test_layer_id_strict_raises() -> None:
+    """validate_strict raises when layer-ID collisions exist."""
+    course = _course_with(
+        _layer(layer_id=1),
+        _layer(layer_id=1),
+    )
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    collisions = [
+        v for v in info.value.violations
+        if v.rule is Rule.LAYER_ID_COLLISION
+    ]
+    assert len(collisions) == 1
+
+
 # --- Real-fixture integration test ----------------------------------------
 #
 # Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one

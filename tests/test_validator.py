@@ -1712,6 +1712,234 @@ def test_cell_collision_strict_raises() -> None:
     assert len(cell_violations) == 1
 
 
+# --- RETAINER_ID_COLLISION -------------------------------------------------
+#
+# Retainer IDs live in one global namespace across three declarer sources:
+# LayerConstructionData.layer_id, TileTowerConstructionData.retainer_id
+# (when non-null), and WallBalconyConstructionData.retainer_id. No two
+# declarers may share an ID. Overlaps with LAYER_ID_COLLISION for the
+# layer-layer case — both fire, messages are complementary.
+
+def _retainer_collision_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just RETAINER_ID_COLLISION violations."""
+    return [v for v in violations if v.rule is Rule.RETAINER_ID_COLLISION]
+
+
+def _cell_with_retainer(
+    kind: TileKind, *, retainer_id: int, y: int = 0, x: int = 0,
+) -> CellConstructionData:
+    """Build a cell whose root tile declares an explicit retainer_id."""
+    return CellConstructionData(
+        local_hex_position=HexVector(y=y, x=x),
+        tree_node_data=TileTowerTreeNodeData(
+            index=0,
+            construction_data=TileTowerConstructionData(
+                kind=kind, height_in_small_stacker=0, hex_rotation=0,
+                retainer_id=retainer_id,
+            ),
+            children=(),
+        ),
+    )
+
+
+def _wall_with_balconies(
+    *, balcony_retainer_ids: tuple[int, ...],
+) -> WallConstructionData:
+    """Build a wall with balconies at the given retainer IDs (no mounted cells)."""
+    return WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=tuple(
+            WallBalconyConstructionData(
+                retainer_id=rid,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=i, row=0),
+                cell_construction_data=None,
+            )
+            for i, rid in enumerate(balcony_retainer_ids)
+        ),
+    )
+
+
+def test_retainer_collision_empty_course_passes() -> None:
+    """No declarers at all, no collisions possible."""
+    assert _retainer_collision_violations(
+        validate(_empty_course(), PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_retainer_collision_unique_across_all_sources_passes() -> None:
+    """Layer, tile, and balcony IDs all distinct — no violation."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=1001, y=0, x=0),
+            layer_id=100,
+        ),
+        walls=(_wall_with_balconies(balcony_retainer_ids=(2001,)),),
+    )
+    assert _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_retainer_collision_layer_vs_tile() -> None:
+    """A layer and a tile sharing an ID → one violation naming both sources."""
+    course = _course_with(_layer(
+        _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=42, y=0, x=0),
+        layer_id=42,  # same as the tile's retainer_id
+    ))
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.RETAINER_ID_COLLISION
+    assert v.severity is Severity.ERROR
+    assert "id=42" in v.message
+    assert "layer" in v.message
+    assert "tile" in v.message
+
+
+def test_retainer_collision_layer_vs_balcony() -> None:
+    """A layer and a balcony sharing an ID → one violation."""
+    course = _course_with(
+        _layer(layer_id=7),
+        walls=(_wall_with_balconies(balcony_retainer_ids=(7,)),),
+    )
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert "id=7" in v.message
+    assert "layer" in v.message
+    assert "balcony" in v.message
+
+
+def test_retainer_collision_tile_vs_balcony() -> None:
+    """A tile and a balcony sharing an ID → one violation."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.DOUBLE_BALCONY, retainer_id=555, y=0, x=0),
+        ),
+        walls=(_wall_with_balconies(balcony_retainer_ids=(555,)),),
+    )
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert "id=555" in v.message
+    assert "tile" in v.message
+    assert "balcony" in v.message
+
+
+def test_retainer_collision_two_layers_also_fires_here() -> None:
+    """LAYER_ID_COLLISION and RETAINER_ID_COLLISION both fire for layer-layer case.
+
+    Not a bug — the rules are independent and emit complementary info:
+    LAYER_ID lists the LayerKinds, this rule lists the declarer types.
+    """
+    course = _course_with(
+        _layer(layer_id=99, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=99, kind=LayerKind.SMALL_LAYER),
+    )
+    all_violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    layer_violations = [v for v in all_violations if v.rule is Rule.LAYER_ID_COLLISION]
+    retainer_violations = _retainer_collision_violations(all_violations)
+    assert len(layer_violations) == 1
+    assert len(retainer_violations) == 1
+    # Messages are complementary.
+    assert "BASE_LAYER" in layer_violations[0].message  # kinds
+    assert "layer, layer" in retainer_violations[0].message  # sources
+
+
+def test_retainer_collision_triple_dedup_to_one_violation() -> None:
+    """Three declarers sharing an ID → one violation, count=3 in message."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=30, y=0, x=0),
+            layer_id=30,
+        ),
+        walls=(_wall_with_balconies(balcony_retainer_ids=(30,)),),
+    )
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    assert "3 times" in violations[0].message
+
+
+def test_retainer_collision_independent_collisions_sorted_ascending() -> None:
+    """Multiple independent collisions → one violation each, sorted by ID ascending."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=100, y=0, x=0),
+            layer_id=100,  # collision at id=100
+        ),
+        _layer(
+            _cell_with_retainer(TileKind.DOUBLE_BALCONY, retainer_id=5, y=0, x=0),
+            layer_id=5,  # collision at id=5
+        ),
+    )
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 2
+    # Ascending: 5 first, then 100.
+    assert "id=5" in violations[0].message
+    assert "id=100" in violations[1].message
+
+
+def test_retainer_collision_tile_with_null_retainer_not_counted() -> None:
+    """Tiles with retainer_id=None don't declare anything and don't collide.
+
+    Most TileKinds leave retainer_id as None (its default). Only structural
+    kinds like STACKER_TOWER_* and DOUBLE_BALCONY typically declare IDs.
+    """
+    # A curve with retainer_id=None; layer_id=42. No collision even though
+    # the _cell builder defaults tile.retainer_id to None.
+    course = _course_with(_layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=42,
+    ))
+    assert _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_retainer_collision_violation_populates_location() -> None:
+    """Violations carry the colliding retainer_id in Location."""
+    course = _course_with(_layer(
+        _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=333, y=0, x=0),
+        layer_id=333,
+    ))
+    violations = _retainer_collision_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    loc = violations[0].location
+    assert loc is not None
+    assert loc.retainer_id == 333
+
+
+def test_retainer_collision_strict_raises() -> None:
+    """validate_strict raises when retainer collisions exist."""
+    course = _course_with(_layer(
+        _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=8, y=0, x=0),
+        layer_id=8,
+    ))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    collisions = [
+        v for v in info.value.violations
+        if v.rule is Rule.RETAINER_ID_COLLISION
+    ]
+    assert len(collisions) == 1
+
+
 # --- Real-fixture integration test ----------------------------------------
 #
 # Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one

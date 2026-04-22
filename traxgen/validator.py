@@ -709,6 +709,73 @@ def _check_cell_collision(
     return violations
 
 
+def _check_retainer_id_collision(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """RETAINER_ID_COLLISION: retainer IDs must be unique across all declarer sources.
+
+    Retainer IDs live in a single global namespace spanning three declarer
+    sources:
+
+      1. LayerConstructionData.layer_id — layers are retainers
+      2. TileTowerConstructionData.retainer_id (when non-null) — structural
+         tiles (STACKER_TOWER_*, DOUBLE_BALCONY) declare retainers
+      3. WallBalconyConstructionData.retainer_id — balcony mounts declare
+         retainers
+
+    Other parts of the binary (rail endpoints, pillar endpoints, wall
+    stacker-tower references) point to retainers by ID; if two declarers
+    share an ID, those references become ambiguous.
+
+    This rule overlaps with LAYER_ID_COLLISION for the layer-layer case.
+    Both fire together for a two-layer collision — that's intentional,
+    keeps the rules independent and the messages complementary
+    (LAYER_ID_COLLISION lists the LayerKinds; this lists the declarer
+    types).
+
+    Emits one violation per colliding ID, sorted ascending. Inventory is
+    unused. Expected to never fire on real app-produced courses;
+    GDZJZA3J3T probe confirmed zero collisions across 48 declarers.
+    """
+    violations: list[Violation] = []
+
+    # Collect (id, source_type) from every declarer source. Source types are
+    # strings for human-readable messages — not worth an enum.
+    declarers: list[tuple[int, str]] = []
+    for layer in course.layer_construction_data:
+        declarers.append((layer.layer_id, "layer"))
+    for cell in _iter_cells(course):
+        for node in _iter_tree_nodes(cell.tree_node_data):
+            rid = node.construction_data.retainer_id
+            if rid is not None:
+                declarers.append((rid, "tile"))
+    for wall in course.wall_construction_data:
+        for balcony in wall.balcony_construction_datas:
+            declarers.append((balcony.retainer_id, "balcony"))
+
+    # Build id -> list of sources (preserving order for determinism).
+    by_id: dict[int, list[str]] = {}
+    for rid, source in declarers:
+        by_id.setdefault(rid, []).append(source)
+
+    for rid in sorted(by_id):
+        sources = by_id[rid]
+        if len(sources) <= 1:
+            continue
+        sources_str = ", ".join(sources)
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.RETAINER_ID_COLLISION,
+            message=(
+                f"Retainer ID collision: id={rid} declared {len(sources)} times "
+                f"(sources: {sources_str})"
+            ),
+            location=Location(retainer_id=rid),
+        ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -723,6 +790,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_layer_id_collision,
     _check_rotation_out_of_range,
     _check_cell_collision,
+    _check_retainer_id_collision,
 )
 
 

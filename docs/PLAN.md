@@ -102,11 +102,13 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
 - `traxgen/parser.py` — **done.** Reads `.course` binaries (POWER_2022).
 - `traxgen/serializer.py` — **done.** Writes `.course` binaries, byte-compare
   round-trip tested against GDZJZA3J3T.
-- `traxgen/validator.py` — **in progress (5/13 v1 rules done + 3 Phase 2
-  rules deferred).** All four inventory-budget rules plus
-  `MISSING_STARTER_OR_GOAL` shipped; 8 v1 referential-integrity,
+- `traxgen/validator.py` — **in progress (5/12 v1 rules done + 3 Phase 2
+  rules deferred + 1 rule dropped).** All four inventory-budget rules plus
+  `MISSING_STARTER_OR_GOAL` shipped; 7 v1 referential-integrity,
   schema-validity, and reachability rules remain. Three additional
-  energy-based rules are Phase 2 scope.
+  energy-based rules are Phase 2 scope. One rule (`TILE_INDEX_COLLISION`)
+  was dropped after empirical probing showed the original spec would
+  false-positive on real courses — see `docs/refs/tile-tree-node-index.md`.
 - `traxgen/generator.py` — **not started.** Pluggable by `GenerationMode`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
@@ -125,9 +127,9 @@ contents) lives at `docs/refs/`.
    Python objects.
 3. **M3 Round-trip** — **done (bbf7e36).** Parse → serialize → byte-compare
    matches original.
-4. **M4 Validator** — **in progress (5/13 v1 rules done + 3 Phase 2
-   rules deferred).** Given a domain object, correctly answer "is this
-   legal?"
+4. **M4 Validator** — **in progress (5/12 v1 rules done + 3 Phase 2
+   rules deferred + 1 rule dropped).** Given a domain object, correctly
+   answer "is this legal?"
 5. **M5 Generator** — not started. Produces a valid domain object using
    only inventory pieces.
 6. **M6 End-to-end** — not started. Generated file opens in the real
@@ -194,8 +196,16 @@ real GDZJZA3J3T fixture — details in "De-risking strategy" below.
     starter or goal; when M5+ introduces `GenerationMode`, this rule will
     need mode-awareness (either mode-gated registration or a mode-aware
     dispatch). See "Starter/goal override API" in deferred cleanup.
-13. ⬜ `TILE_INDEX_COLLISION` — tree-node `index` values are unique within
-    a cell.
+13. ~~`TILE_INDEX_COLLISION`~~ *(dropped from v1)* — original spec was
+    "tree-node `index` values unique within a cell." Empirical probe of
+    GDZJZA3J3T found this is violated by real app-produced courses:
+    non-root tree nodes default to `index=0`, producing within-cell
+    duplicates. Murmelbahn Rust source is silent on `index` semantics
+    (no comment, no cross-references; lfrancke reads/writes it verbatim
+    without attaching meaning). See
+    `docs/refs/tile-tree-node-index.md` for the investigation and
+    possible narrower rules that we might revisit when more fixture
+    evidence exists.
 14. ⬜ `START_GOAL_CONNECTED` — a topological path exists from some
     starter to some goal through the track graph. Pure graph reachability;
     no physics. Requires a track-graph representation (piece-exit
@@ -353,6 +363,14 @@ Both modes reuse ~80% of Phase 1 code.
   `MISSING_STARTER_OR_GOAL` and `START_GOAL_CONNECTED`); (c) and (d)
   require the Phase 2 physics model. Perpetual mode doesn't need (a) at
   all — closed loop. Race mode wants N starters and N goals.
+- **`TILE_INDEX_COLLISION` dropped from v1.** Original spec was "tree-node
+  `index` values unique within a cell." Empirical probing of GDZJZA3J3T
+  showed 4 cells with within-cell duplicate `index=0` — non-root tree
+  nodes default to 0 as a sentinel. Murmelbahn Rust source is silent on
+  `index` semantics. The rule as specified would false-positive on real
+  app-produced courses, and no narrower rule has enough evidence to
+  justify writing. Revisit if more fixtures reveal a pattern or a real
+  failure mode emerges. See `docs/refs/tile-tree-node-index.md`.
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -447,6 +465,10 @@ Ravensburger listings have been the least reliable in practice.
   about long-rail Δheight).
 - `tree-node-height-semantics.md` — how `height_in_small_stacker` works on
   tree nodes (probe evidence plus semantic reasoning).
+- `tile-tree-node-index.md` — investigation of the `TileTowerTreeNodeData.index`
+  field. Semantics are murky; schema is silent; within-cell duplicates at
+  index=0 exist in real fixtures. Source for the `TILE_INDEX_COLLISION`
+  drop.
 - `pro-structural-notes.md` — pillars, walls, balconies for the PRO line.
   Not v1-validator-blocking; documentation for future expansion.
 - `pro-vertical-starter-set-26832.md` — full reconciled contents list for

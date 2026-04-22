@@ -194,30 +194,44 @@ def test_validation_error_is_raisable() -> None:
 
 # --- Entry points, empty course ------------------------------------------
 
-def test_validate_returns_empty_for_empty_course() -> None:
-    """An empty course has no placed pieces — no budget rule can fire."""
-    assert validate(_empty_course(), CORE_STARTER_SET) == []
+def test_validate_flags_missing_starter_and_goal_on_empty_course() -> None:
+    """An empty course is missing both a starter and a goal — fundamental requirements.
+
+    An empty course has no placed pieces, so no budget rule fires. The only
+    violations come from MISSING_STARTER_OR_GOAL — two of them, one for the
+    missing starter, one for the missing goal.
+    """
+    violations = validate(_empty_course(), CORE_STARTER_SET)
+    assert len(violations) == 2
+    assert all(v.rule is Rule.MISSING_STARTER_OR_GOAL for v in violations)
 
 
-def test_validate_strict_does_not_raise_for_empty_course() -> None:
-    validate_strict(_empty_course(), CORE_STARTER_SET)
+def test_validate_strict_raises_for_empty_course() -> None:
+    """An empty course fails MISSING_STARTER_OR_GOAL; strict mode raises."""
+    with pytest.raises(ValidationError):
+        validate_strict(_empty_course(), CORE_STARTER_SET)
 
 
 # --- INVENTORY_BUDGET_TILES -----------------------------------------------
 
+def _budget_tiles_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just INVENTORY_BUDGET_TILES violations."""
+    return [v for v in violations if v.rule is Rule.INVENTORY_BUDGET_TILES]
+
+
 def test_budget_tiles_under_limit_passes() -> None:
-    """Exactly-at-budget placement (1 starter, 28 curves) produces no violations."""
+    """Exactly-at-budget placement (1 starter, 28 curves) produces no tiles violations."""
     cells = [_cell(TileKind.STARTER, y=0, x=0)]
     cells += [_cell(TileKind.CURVE, y=i, x=0) for i in range(1, 29)]
     course = _course_with(_layer(*cells))
-    assert validate(course, PRO_VERTICAL_STARTER_SET) == []
+    assert _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
 
 
 def test_budget_tiles_single_overrun_fires_once() -> None:
-    """29 curves against a 28-curve budget fires one violation, no more."""
+    """29 curves against a 28-curve budget fires one tiles violation, no more."""
     cells = [_cell(TileKind.CURVE, y=i, x=0) for i in range(29)]
     course = _course_with(_layer(*cells))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     v = violations[0]
     assert v.rule is Rule.INVENTORY_BUDGET_TILES
@@ -230,7 +244,7 @@ def test_budget_tiles_single_overrun_fires_once() -> None:
 def test_budget_tiles_piece_not_in_inventory_is_overrun() -> None:
     """Placing a piece absent from inventory (VOLCANO in PRO) trips the rule (budget = 0)."""
     course = _course_with(_layer(_cell(TileKind.VOLCANO)))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     assert violations[0].rule is Rule.INVENTORY_BUDGET_TILES
     assert "VOLCANO" in violations[0].message
@@ -247,7 +261,7 @@ def test_budget_tiles_counts_tiles_in_stacked_tree() -> None:
         tree_node_data=stack,
     )
     course = _course_with(_layer(cell))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     assert "CURVE" in violations[0].message
 
@@ -275,7 +289,7 @@ def test_budget_tiles_counts_tiles_in_balcony_cells() -> None:
         ),
     )
     course = _course_with(_layer(*base_cells), walls=(wall,))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     assert "CURVE" in violations[0].message
     assert "29" in violations[0].message
@@ -287,7 +301,7 @@ def test_budget_tiles_baseplate_overrun() -> None:
     """5 BASE_LAYER layers vs budget of 4 fires one violation."""
     layers = tuple(_layer(layer_id=i, kind=LayerKind.BASE_LAYER) for i in range(5))
     course = _course_with(*layers)
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)  # 4 baseplates
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     v = violations[0]
     assert v.rule is Rule.INVENTORY_BUDGET_TILES
@@ -304,18 +318,18 @@ def test_budget_tiles_baseplate_does_not_count_base_layer_piece() -> None:
         _layer(layer_id=100 + i, kind=LayerKind.BASE_LAYER_PIECE) for i in range(20)
     ]
     course = _course_with(*real, *pieces)
-    assert validate(course, PRO_VERTICAL_STARTER_SET) == []
+    assert _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
 
 
 # --- Switch pool ----------------------------------------------------------
 
 def test_budget_tiles_switch_pool_at_limit_passes() -> None:
-    """2 SWITCH_LEFT + 0 SWITCH_RIGHT = exactly at pool size, no violations."""
+    """2 SWITCH_LEFT + 0 SWITCH_RIGHT = exactly at pool size, no tiles violations."""
     course = _course_with(_layer(
         _cell(TileKind.SWITCH_LEFT, y=0, x=0),
         _cell(TileKind.SWITCH_LEFT, y=1, x=0),
     ))
-    assert validate(course, PRO_VERTICAL_STARTER_SET) == []
+    assert _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
 
 
 def test_budget_tiles_switch_pool_exceeded() -> None:
@@ -325,8 +339,8 @@ def test_budget_tiles_switch_pool_exceeded() -> None:
         _cell(TileKind.SWITCH_LEFT, y=1, x=0),
         _cell(TileKind.SWITCH_RIGHT, y=2, x=0),
     ))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
-    # Exactly one violation — pool check, not per-kind (per-kind is skipped for switches).
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    # Exactly one tiles violation — pool check, not per-kind (per-kind is skipped for switches).
     assert len(violations) == 1
     v = violations[0]
     assert v.rule is Rule.INVENTORY_BUDGET_TILES
@@ -344,7 +358,7 @@ def test_budget_tiles_switch_per_kind_not_reported() -> None:
         _cell(TileKind.SWITCH_LEFT, y=1, x=0),
         _cell(TileKind.SWITCH_LEFT, y=2, x=0),
     ))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     assert "pool" in violations[0].message.lower()
 
@@ -361,7 +375,7 @@ def test_budget_tiles_multiple_overruns_all_reported() -> None:
     ]
     cells += [_cell(TileKind.CURVE, y=1, x=i) for i in range(29)]
     course = _course_with(_layer(*cells))
-    violations = validate(course, PRO_VERTICAL_STARTER_SET)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 2
     assert "STARTER" in violations[0].message
     assert "CURVE" in violations[1].message
@@ -372,8 +386,12 @@ def test_budget_tiles_strict_raises() -> None:
     course = _course_with(_layer(*[_cell(TileKind.CURVE, y=i) for i in range(29)]))
     with pytest.raises(ValidationError) as info:
         validate_strict(course, PRO_VERTICAL_STARTER_SET)
-    assert len(info.value.violations) == 1
-    assert info.value.violations[0].rule is Rule.INVENTORY_BUDGET_TILES
+    tiles_violations = [
+        v for v in info.value.violations
+        if v.rule is Rule.INVENTORY_BUDGET_TILES
+    ]
+    assert len(tiles_violations) == 1
+    assert tiles_violations[0].rule is Rule.INVENTORY_BUDGET_TILES
 
 
 # --- INVENTORY_BUDGET_STACKERS --------------------------------------------
@@ -1013,6 +1031,158 @@ def test_budget_rails_cross_retainer_straight_is_skipped_from_sub_budget() -> No
     course = _course_with(_layer(), rails=(cross,))
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert violations == [], f"Expected no rail violations, got: {violations}"
+
+
+# --- MISSING_STARTER_OR_GOAL ----------------------------------------------
+#
+# Fundamental requirement: the course must contain at least one starter
+# tile and at least one goal tile. Starter/goal kinds are derived from
+# PieceSpec.is_starter / is_goal in PIECE_CATALOG; with the current catalog,
+# starters = {STARTER} and goals = {GOAL_BASIN, GOAL_RAIL}.
+
+def _starter_goal_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just MISSING_STARTER_OR_GOAL violations."""
+    return [v for v in violations if v.rule is Rule.MISSING_STARTER_OR_GOAL]
+
+
+def test_starter_goal_both_present_passes() -> None:
+    """A course with a STARTER and a GOAL_BASIN produces no starter/goal violations."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.GOAL_BASIN, y=0, x=1),
+    ))
+    assert _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_starter_goal_missing_goal_only() -> None:
+    """A course with a STARTER but no goal fires one violation for the missing goal."""
+    course = _course_with(_layer(_cell(TileKind.STARTER, y=0, x=0)))
+    violations = _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.MISSING_STARTER_OR_GOAL
+    assert v.severity is Severity.ERROR
+    assert "goal" in v.message.lower()
+    # Message mentions both valid goal kinds.
+    assert "GOAL_BASIN" in v.message
+    assert "GOAL_RAIL" in v.message
+
+
+def test_starter_goal_missing_starter_only() -> None:
+    """A course with a goal but no starter fires one violation for the missing starter."""
+    course = _course_with(_layer(_cell(TileKind.GOAL_BASIN, y=0, x=0)))
+    violations = _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.MISSING_STARTER_OR_GOAL
+    assert "starter" in v.message.lower()
+    assert "STARTER" in v.message
+
+
+def test_starter_goal_empty_course_fires_both() -> None:
+    """An empty course fires two independent violations: one for starter, one for goal."""
+    violations = _starter_goal_violations(validate(_empty_course(), PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    messages_lower = [v.message.lower() for v in violations]
+    assert any("starter" in m and "goal" not in m for m in messages_lower)
+    assert any("goal" in m and "starter" not in m for m in messages_lower)
+
+
+def test_starter_goal_goal_basin_satisfies_goal_requirement() -> None:
+    """GOAL_BASIN (the 'landing' insert) is a valid goal piece."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.GOAL_BASIN, y=0, x=1),
+    ))
+    assert _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_starter_goal_goal_rail_satisfies_goal_requirement() -> None:
+    """GOAL_RAIL (the 'finish line') is a valid goal piece."""
+    course = _course_with(_layer(
+        _cell(TileKind.STARTER, y=0, x=0),
+        _cell(TileKind.GOAL_RAIL, y=0, x=1),
+    ))
+    assert _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_starter_goal_starter_in_stacked_child_counts() -> None:
+    """A STARTER placed as a stacked child node still satisfies the starter requirement.
+
+    Defensive test — ensures the walk descends into tree children, not just
+    roots. Structurally odd placement (starter stacked on a curve) but the
+    rule doesn't care about structural sensibility, only presence.
+    """
+    tree = _node(TileKind.CURVE, index=0, children=(
+        _node(TileKind.STARTER, index=1),
+    ))
+    cell_stacked = CellConstructionData(
+        local_hex_position=HexVector(y=0, x=0),
+        tree_node_data=tree,
+    )
+    goal_cell = _cell(TileKind.GOAL_BASIN, y=0, x=1)
+    course = _course_with(_layer(cell_stacked, goal_cell))
+    assert _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_starter_goal_goal_in_balcony_cell_counts() -> None:
+    """A goal placed in a wall-balcony cell still satisfies the goal requirement.
+
+    Defensive test — ensures the walk visits balcony-mounted cells, not
+    just layer cells.
+    """
+    starter_cell = _cell(TileKind.STARTER, y=0, x=0)
+    goal_balcony_cell = CellConstructionData(
+        local_hex_position=HexVector(y=99, x=99),
+        tree_node_data=_node(TileKind.GOAL_RAIL),
+    )
+    wall = WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=(
+            WallBalconyConstructionData(
+                retainer_id=42,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=0, row=0),
+                cell_construction_data=goal_balcony_cell,
+            ),
+        ),
+    )
+    course = _course_with(_layer(starter_cell), walls=(wall,))
+    assert _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_starter_goal_cannon_alone_does_not_satisfy_starter() -> None:
+    """A course with only a CANNON (no STARTER) still fires the starter violation.
+
+    End-to-end assertion that the cannon-is-not-a-starter fix flows through
+    the validator. CANNON is an energy injector, not a starter — it requires
+    an incoming ball to do anything. If this test fails, someone likely
+    re-flagged is_starter=True on the CANNON PieceSpec.
+    """
+    course = _course_with(_layer(
+        _cell(TileKind.CANNON, y=0, x=0),
+        _cell(TileKind.GOAL_BASIN, y=0, x=1),
+    ))
+    violations = _starter_goal_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "starter" in violations[0].message.lower()
+
+
+def test_starter_goal_strict_raises() -> None:
+    """validate_strict raises when starter/goal violations exist."""
+    # Goal only, no starter.
+    course = _course_with(_layer(_cell(TileKind.GOAL_BASIN, y=0, x=0)))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    sg_violations = [
+        v for v in info.value.violations
+        if v.rule is Rule.MISSING_STARTER_OR_GOAL
+    ]
+    assert len(sg_violations) == 1
+    assert "starter" in sg_violations[0].message.lower()
 
 
 # --- Real-fixture integration test ----------------------------------------

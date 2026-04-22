@@ -22,7 +22,13 @@ from traxgen.domain import (
     TileTowerTreeNodeData,
 )
 from traxgen.hex import HexVector
-from traxgen.inventory import Inventory, PillarKind, RailLength, WallKind
+from traxgen.inventory import (
+    PIECE_CATALOG,
+    Inventory,
+    PillarKind,
+    RailLength,
+    WallKind,
+)
 from traxgen.types import LayerKind, RailKind, TileKind
 
 
@@ -141,6 +147,18 @@ _STRAIGHT_DISTANCE_TO_LENGTH: dict[int, RailLength] = {
     2: RailLength.MEDIUM,
     3: RailLength.LONG,
 }
+
+# Starter and goal kinds derived from PieceSpec flags in PIECE_CATALOG.
+# Single source of truth: adding a new piece with is_starter=True (e.g.,
+# DOME_STARTER when the POWER line is cataloged) automatically makes it
+# satisfy MISSING_STARTER_OR_GOAL without touching this module. Tiles whose
+# TileKind isn't in the catalog simply don't match either set — no KeyError.
+_STARTER_KINDS: frozenset[TileKind] = frozenset(
+    kind for kind, spec in PIECE_CATALOG.items() if spec.is_starter
+)
+_GOAL_KINDS: frozenset[TileKind] = frozenset(
+    kind for kind, spec in PIECE_CATALOG.items() if spec.is_goal
+)
 
 
 def _check_inventory_budget_tiles(
@@ -462,6 +480,57 @@ def _check_inventory_budget_rails(
     return violations
 
 
+def _check_missing_starter_or_goal(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """MISSING_STARTER_OR_GOAL: course must contain at least one starter and one goal tile.
+
+    Fundamental requirement for single-track mode: the ball has to start
+    somewhere (a STARTER piece) and finish somewhere (a GOAL_BASIN or
+    GOAL_RAIL). Without either, the course is unplayable by construction.
+
+    Two independent checks, each emits its own violation if the count is
+    zero. Starter and goal kinds are derived from PieceSpec.is_starter /
+    is_goal flags in PIECE_CATALOG — see the module-level _STARTER_KINDS
+    and _GOAL_KINDS.
+
+    Inventory is unused by this rule; it's a property of the course, not
+    of what pieces are available. Signature matches the _CheckFn protocol
+    for registration in _CHECKS.
+
+    Race mode (Phase 3) will want N starters and N goals, and perpetual
+    mode has no goal at all — those modes will likely bypass or parameterise
+    this rule via the future GenerationMode mechanism. For v1 single-track,
+    "at least one of each" is the bar.
+    """
+    violations: list[Violation] = []
+
+    has_starter = any(
+        tile.kind in _STARTER_KINDS for tile in _iter_placed_tiles(course)
+    )
+    has_goal = any(
+        tile.kind in _GOAL_KINDS for tile in _iter_placed_tiles(course)
+    )
+
+    if not has_starter:
+        allowed = ", ".join(sorted(k.name for k in _STARTER_KINDS))
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.MISSING_STARTER_OR_GOAL,
+            message=f"No starter tile placed: course needs at least one of {{{allowed}}}",
+        ))
+
+    if not has_goal:
+        allowed = ", ".join(sorted(k.name for k in _GOAL_KINDS))
+        violations.append(Violation(
+            severity=Severity.ERROR,
+            rule=Rule.MISSING_STARTER_OR_GOAL,
+            message=f"No goal tile placed: course needs at least one of {{{allowed}}}",
+        ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -472,6 +541,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_stackers,
     _check_inventory_budget_structural,
     _check_inventory_budget_rails,
+    _check_missing_starter_or_goal,
 )
 
 

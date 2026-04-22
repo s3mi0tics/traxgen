@@ -53,6 +53,7 @@ class Rule(Enum):
     ROTATION_OUT_OF_RANGE = auto()
     MISSING_STARTER_OR_GOAL = auto()
     TILE_INDEX_COLLISION = auto()
+    WALL_ENDPOINT_MISSING = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -885,6 +886,60 @@ def _check_pillar_endpoint_missing(
     return violations
 
 
+def _check_wall_endpoint_missing(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """WALL_ENDPOINT_MISSING: wall stacker-tower references must resolve.
+
+    Each PRO wall spans between two stacker towers, referenced by
+    lower_stacker_tower_1_retainer_id and lower_stacker_tower_2_retainer_id.
+    Those retainer IDs must be declared somewhere (typically by structural
+    tile retainers on pillar pieces, but any declared retainer is valid).
+    A reference to an undeclared ID means the wall dangles with no tower
+    to anchor to.
+
+    Discovered during probe work for the retainer family (commit fb2e547) —
+    not in the original v1 plan. Added once the probe showed wall
+    references are a third kind of retainer reference alongside rails and
+    pillars.
+
+    Emits one violation per bad endpoint. A wall with both towers missing
+    fires twice (same granularity as the rail/pillar endpoint rules).
+
+    Inventory is unused. Expected to never fire on real app-produced
+    courses; GDZJZA3J3T probe confirmed 8/8 wall tower references resolve.
+    """
+    violations: list[Violation] = []
+
+    declared: set[int] = {rid for rid, _ in _collect_retainer_declarers(course)}
+
+    for wall_index, wall in enumerate(course.wall_construction_data):
+        for tower_num, rid, pos in (
+            (1, wall.lower_stacker_tower_1_retainer_id,
+             wall.lower_stacker_tower_1_local_hex_pos),
+            (2, wall.lower_stacker_tower_2_retainer_id,
+             wall.lower_stacker_tower_2_local_hex_pos),
+        ):
+            if rid in declared:
+                continue
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.WALL_ENDPOINT_MISSING,
+                message=(
+                    f"Wall endpoint references missing retainer: wall "
+                    f"#{wall_index} tower {tower_num} points to "
+                    f"retainer_id={rid} (not declared by any layer, "
+                    f"structural tile, or balcony)"
+                ),
+                location=Location(
+                    retainer_id=rid,
+                    hex_position=pos,
+                ),
+            ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -902,6 +957,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_retainer_id_collision,
     _check_rail_endpoint_missing,
     _check_pillar_endpoint_missing,
+    _check_wall_endpoint_missing,
 )
 
 

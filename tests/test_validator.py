@@ -2210,6 +2210,140 @@ def test_pillar_endpoint_missing_strict_raises() -> None:
     assert len(pillar_missing) == 1
 
 
+# --- WALL_ENDPOINT_MISSING -------------------------------------------------
+#
+# Walls reference stacker-tower retainer_ids at both ends; those IDs
+# must be declared somewhere. Expected to never fire on real courses;
+# GDZJZA3J3T confirmed 8/8 wall tower references resolve.
+
+def _wall_endpoint_missing_violations(
+    violations: list[Violation],
+) -> list[Violation]:
+    """Filter to just WALL_ENDPOINT_MISSING violations."""
+    return [v for v in violations if v.rule is Rule.WALL_ENDPOINT_MISSING]
+
+
+def _wall_with_tower_retainers(
+    *, tower_1_id: int, tower_2_id: int,
+    balcony_retainer_ids: tuple[int, ...] = (),
+) -> WallConstructionData:
+    """Build a wall with explicit stacker-tower retainer_ids on each end."""
+    return WallConstructionData(
+        lower_stacker_tower_1_retainer_id=tower_1_id,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=tower_2_id,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=tuple(
+            WallBalconyConstructionData(
+                retainer_id=rid,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=i, row=0),
+                cell_construction_data=None,
+            )
+            for i, rid in enumerate(balcony_retainer_ids)
+        ),
+    )
+
+
+def test_wall_endpoint_missing_empty_course_passes() -> None:
+    """No walls, nothing to check."""
+    assert _wall_endpoint_missing_violations(
+        validate(_empty_course(), PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_wall_endpoint_missing_both_towers_declared_pass() -> None:
+    """Wall references two declared retainers (layers count) — no violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        _layer(_cell(TileKind.CURVE, y=0, x=0), layer_id=200),
+        walls=(_wall_with_tower_retainers(tower_1_id=100, tower_2_id=200),),
+    )
+    assert _wall_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_wall_endpoint_missing_tower_1_undeclared() -> None:
+    """Tower 1 references a missing retainer → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        walls=(_wall_with_tower_retainers(tower_1_id=9999, tower_2_id=100),),
+    )
+    violations = _wall_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.WALL_ENDPOINT_MISSING
+    assert v.severity is Severity.ERROR
+    assert "tower 1" in v.message
+    assert "retainer_id=9999" in v.message
+    assert v.location is not None
+    assert v.location.retainer_id == 9999
+
+
+def test_wall_endpoint_missing_tower_2_undeclared() -> None:
+    """Tower 2 references a missing retainer → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        walls=(_wall_with_tower_retainers(tower_1_id=100, tower_2_id=7777),),
+    )
+    violations = _wall_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert "tower 2" in v.message
+    assert "retainer_id=7777" in v.message
+
+
+def test_wall_endpoint_missing_both_towers_undeclared() -> None:
+    """Both tower endpoints undeclared → two violations."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        walls=(_wall_with_tower_retainers(tower_1_id=8888, tower_2_id=9999),),
+    )
+    violations = _wall_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 2
+    assert "tower 1" in violations[0].message
+    assert "retainer_id=8888" in violations[0].message
+    assert "tower 2" in violations[1].message
+    assert "retainer_id=9999" in violations[1].message
+
+
+def test_wall_endpoint_missing_tile_retainer_is_valid_target() -> None:
+    """Walls can target structural-tile retainer_ids, not only layers."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=1005, y=0, x=0),
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=1006, y=1, x=0),
+            layer_id=100,
+        ),
+        walls=(_wall_with_tower_retainers(tower_1_id=1005, tower_2_id=1006),),
+    )
+    assert _wall_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_wall_endpoint_missing_strict_raises() -> None:
+    """validate_strict raises when a wall tower points to a missing retainer."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        walls=(_wall_with_tower_retainers(tower_1_id=9999, tower_2_id=100),),
+    )
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    wall_missing = [
+        v for v in info.value.violations
+        if v.rule is Rule.WALL_ENDPOINT_MISSING
+    ]
+    assert len(wall_missing) == 1
+
+
 # --- Real-fixture integration test ----------------------------------------
 #
 # Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one

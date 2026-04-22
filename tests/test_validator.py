@@ -12,6 +12,7 @@ from traxgen.domain import (
     Course,
     CourseMetaData,
     LayerConstructionData,
+    PillarConstructionData,
     RailConstructionData,
     RailConstructionExitIdentifier,
     SaveDataHeader,
@@ -124,8 +125,9 @@ def _course_with(
     *layers: LayerConstructionData,
     walls: tuple[WallConstructionData, ...] = (),
     rails: tuple[RailConstructionData, ...] = (),
+    pillars: tuple[PillarConstructionData, ...] = (),
 ) -> Course:
-    """Build a course with the given layers and optional walls/rails."""
+    """Build a course with the given layers and optional walls/rails/pillars."""
     return Course(
         header=SaveDataHeader(guid=0, version=CourseSaveDataVersion.POWER_2022),
         meta_data=CourseMetaData(
@@ -135,7 +137,7 @@ def _course_with(
         ),
         layer_construction_data=layers,
         rail_construction_data=rails,
-        pillar_construction_data=(),
+        pillar_construction_data=pillars,
         generation=CourseElementGeneration.POWER,
         wall_construction_data=walls,
     )
@@ -1938,6 +1940,274 @@ def test_retainer_collision_strict_raises() -> None:
         if v.rule is Rule.RETAINER_ID_COLLISION
     ]
     assert len(collisions) == 1
+
+
+# --- RAIL_ENDPOINT_MISSING -------------------------------------------------
+#
+# Every rail endpoint references a retainer by ID. That retainer must
+# exist — be declared by some layer, structural tile, or balcony.
+# Expected to never fire on real courses; GDZJZA3J3T confirmed 40/40.
+
+def _rail_endpoint_missing_violations(
+    violations: list[Violation],
+) -> list[Violation]:
+    """Filter to just RAIL_ENDPOINT_MISSING violations."""
+    return [v for v in violations if v.rule is Rule.RAIL_ENDPOINT_MISSING]
+
+
+def _rail_with_retainers(
+    *, retainer_1: int, retainer_2: int,
+    p1: HexVector = HexVector(y=0, x=0),
+    p2: HexVector = HexVector(y=0, x=1),
+) -> RailConstructionData:
+    """Build a STRAIGHT rail whose endpoints explicitly reference the given retainer IDs."""
+    return RailConstructionData(
+        exit_1_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_1, cell_local_hex_pos=p1,
+            side_hex_rot=0, exit_local_pos_y=0.0,
+        ),
+        exit_2_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_2, cell_local_hex_pos=p2,
+            side_hex_rot=0, exit_local_pos_y=0.0,
+        ),
+        rail_kind=RailKind.STRAIGHT,
+    )
+
+
+def test_rail_endpoint_missing_empty_course_passes() -> None:
+    """No rails, nothing to check."""
+    assert _rail_endpoint_missing_violations(
+        validate(_empty_course(), PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_rail_endpoint_missing_both_endpoints_declared_pass() -> None:
+    """Rail endpoints reference a declared layer — no violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        rails=(_rail_with_retainers(retainer_1=100, retainer_2=100),),
+    )
+    assert _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_rail_endpoint_missing_exit_1_undeclared() -> None:
+    """Exit 1 references a missing retainer → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        rails=(_rail_with_retainers(retainer_1=9999, retainer_2=100),),
+    )
+    violations = _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.RAIL_ENDPOINT_MISSING
+    assert v.severity is Severity.ERROR
+    assert "exit 1" in v.message
+    assert "retainer_id=9999" in v.message
+    assert v.location is not None
+    assert v.location.rail_index == 0
+    assert v.location.retainer_id == 9999
+
+
+def test_rail_endpoint_missing_exit_2_undeclared() -> None:
+    """Exit 2 references a missing retainer → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        rails=(_rail_with_retainers(retainer_1=100, retainer_2=7777),),
+    )
+    violations = _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert "exit 2" in v.message
+    assert "retainer_id=7777" in v.message
+
+
+def test_rail_endpoint_missing_both_endpoints_undeclared() -> None:
+    """Both endpoints point to missing retainers → two violations."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        rails=(_rail_with_retainers(retainer_1=8888, retainer_2=9999),),
+    )
+    violations = _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 2
+    assert "exit 1" in violations[0].message
+    assert "retainer_id=8888" in violations[0].message
+    assert "exit 2" in violations[1].message
+    assert "retainer_id=9999" in violations[1].message
+
+
+def test_rail_endpoint_missing_tile_retainer_is_valid_target() -> None:
+    """A rail can target a structural-tile retainer_id, not only a layer."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=1005, y=0, x=0),
+            layer_id=100,
+        ),
+        rails=(_rail_with_retainers(retainer_1=1005, retainer_2=100),),
+    )
+    assert _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_rail_endpoint_missing_balcony_retainer_is_valid_target() -> None:
+    """A rail can target a balcony retainer_id."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        walls=(_wall_with_balconies(balcony_retainer_ids=(1010,)),),
+        rails=(_rail_with_retainers(retainer_1=1010, retainer_2=100),),
+    )
+    assert _rail_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_rail_endpoint_missing_strict_raises() -> None:
+    """validate_strict raises when a rail endpoint references a missing retainer."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        rails=(_rail_with_retainers(retainer_1=9999, retainer_2=100),),
+    )
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    rail_missing = [
+        v for v in info.value.violations
+        if v.rule is Rule.RAIL_ENDPOINT_MISSING
+    ]
+    assert len(rail_missing) == 1
+
+
+# --- PILLAR_ENDPOINT_MISSING -----------------------------------------------
+#
+# Pillars have lower/upper layer_id fields that actually reference any
+# declared retainer — layer, tile, or balcony. Expected to never fire on
+# real courses; GDZJZA3J3T confirmed 30/30.
+
+def _pillar_endpoint_missing_violations(
+    violations: list[Violation],
+) -> list[Violation]:
+    """Filter to just PILLAR_ENDPOINT_MISSING violations."""
+    return [v for v in violations if v.rule is Rule.PILLAR_ENDPOINT_MISSING]
+
+
+def _pillar(
+    *, lower_id: int, upper_id: int,
+    lower_pos: HexVector = HexVector(y=0, x=0),
+    upper_pos: HexVector = HexVector(y=0, x=0),
+) -> PillarConstructionData:
+    """Build a pillar with explicit lower/upper layer IDs."""
+    return PillarConstructionData(
+        lower_layer_id=lower_id,
+        lower_cell_local_position=lower_pos,
+        upper_layer_id=upper_id,
+        upper_cell_local_position=upper_pos,
+    )
+
+
+def test_pillar_endpoint_missing_empty_course_passes() -> None:
+    """No pillars, nothing to check."""
+    assert _pillar_endpoint_missing_violations(
+        validate(_empty_course(), PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_pillar_endpoint_missing_both_endpoints_declared_pass() -> None:
+    """Pillar connects two declared layers — no violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        _layer(_cell(TileKind.GOAL_BASIN, y=0, x=0), layer_id=200),
+        pillars=(_pillar(lower_id=100, upper_id=200),),
+    )
+    assert _pillar_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_pillar_endpoint_missing_lower_undeclared() -> None:
+    """Pillar's lower endpoint points to a missing ID → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=200),
+        pillars=(_pillar(lower_id=5555, upper_id=200),),
+    )
+    violations = _pillar_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.PILLAR_ENDPOINT_MISSING
+    assert v.severity is Severity.ERROR
+    assert "lower" in v.message
+    assert "layer_id=5555" in v.message
+    assert v.location is not None
+    assert v.location.pillar_index == 0
+    assert v.location.retainer_id == 5555
+
+
+def test_pillar_endpoint_missing_upper_undeclared() -> None:
+    """Pillar's upper endpoint points to a missing ID → one violation."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        pillars=(_pillar(lower_id=100, upper_id=6666),),
+    )
+    violations = _pillar_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 1
+    v = violations[0]
+    assert "upper" in v.message
+    assert "layer_id=6666" in v.message
+
+
+def test_pillar_endpoint_missing_both_undeclared() -> None:
+    """Both endpoints undeclared → two violations."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        pillars=(_pillar(lower_id=1111, upper_id=2222),),
+    )
+    violations = _pillar_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    )
+    assert len(violations) == 2
+    assert "lower" in violations[0].message
+    assert "layer_id=1111" in violations[0].message
+    assert "upper" in violations[1].message
+    assert "layer_id=2222" in violations[1].message
+
+
+def test_pillar_endpoint_missing_can_reference_tile_retainer() -> None:
+    """Pillar can target a structural-tile retainer_id, not only a layer id."""
+    course = _course_with(
+        _layer(
+            _cell_with_retainer(TileKind.STACKER_TOWER_CLOSED, retainer_id=1020, y=0, x=0),
+            layer_id=100,
+        ),
+        pillars=(_pillar(lower_id=100, upper_id=1020),),
+    )
+    assert _pillar_endpoint_missing_violations(
+        validate(course, PRO_VERTICAL_STARTER_SET)
+    ) == []
+
+
+def test_pillar_endpoint_missing_strict_raises() -> None:
+    """validate_strict raises when pillar endpoints reference missing IDs."""
+    course = _course_with(
+        _layer(_cell(TileKind.STARTER, y=0, x=0), layer_id=100),
+        pillars=(_pillar(lower_id=9999, upper_id=100),),
+    )
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    pillar_missing = [
+        v for v in info.value.violations
+        if v.rule is Rule.PILLAR_ENDPOINT_MISSING
+    ]
+    assert len(pillar_missing) == 1
 
 
 # --- Real-fixture integration test ----------------------------------------

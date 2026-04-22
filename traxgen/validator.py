@@ -709,6 +709,33 @@ def _check_cell_collision(
     return violations
 
 
+def _collect_retainer_declarers(course: Course) -> list[tuple[int, str]]:
+    """Yield (retainer_id, source_type) for every declarer in the course.
+
+    Declarer sources:
+      1. LayerConstructionData.layer_id -> source 'layer'
+      2. TileTowerConstructionData.retainer_id (when non-null) -> 'tile'
+      3. WallBalconyConstructionData.retainer_id -> 'balcony'
+
+    Order is layers -> tiles (in cell walk order) -> balconies, preserving
+    stability across calls. Shared by RETAINER_ID_COLLISION,
+    RAIL_ENDPOINT_MISSING, and PILLAR_ENDPOINT_MISSING — whenever a rule
+    needs the set or list of valid retainer targets, it goes through here.
+    """
+    declarers: list[tuple[int, str]] = []
+    for layer in course.layer_construction_data:
+        declarers.append((layer.layer_id, "layer"))
+    for cell in _iter_cells(course):
+        for node in _iter_tree_nodes(cell.tree_node_data):
+            rid = node.construction_data.retainer_id
+            if rid is not None:
+                declarers.append((rid, "tile"))
+    for wall in course.wall_construction_data:
+        for balcony in wall.balcony_construction_datas:
+            declarers.append((balcony.retainer_id, "balcony"))
+    return declarers
+
+
 def _check_retainer_id_collision(
     course: Course, inventory: Inventory  # noqa: ARG001
 ) -> Iterable[Violation]:
@@ -739,23 +766,9 @@ def _check_retainer_id_collision(
     """
     violations: list[Violation] = []
 
-    # Collect (id, source_type) from every declarer source. Source types are
-    # strings for human-readable messages — not worth an enum.
-    declarers: list[tuple[int, str]] = []
-    for layer in course.layer_construction_data:
-        declarers.append((layer.layer_id, "layer"))
-    for cell in _iter_cells(course):
-        for node in _iter_tree_nodes(cell.tree_node_data):
-            rid = node.construction_data.retainer_id
-            if rid is not None:
-                declarers.append((rid, "tile"))
-    for wall in course.wall_construction_data:
-        for balcony in wall.balcony_construction_datas:
-            declarers.append((balcony.retainer_id, "balcony"))
-
     # Build id -> list of sources (preserving order for determinism).
     by_id: dict[int, list[str]] = {}
-    for rid, source in declarers:
+    for rid, source in _collect_retainer_declarers(course):
         by_id.setdefault(rid, []).append(source)
 
     for rid in sorted(by_id):
@@ -776,6 +789,102 @@ def _check_retainer_id_collision(
     return violations
 
 
+def _check_rail_endpoint_missing(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """RAIL_ENDPOINT_MISSING: every rail endpoint must reference a declared retainer.
+
+    Each rail has two endpoints (exit_1 and exit_2), each of which
+    references a retainer by ID. That retainer must be declared somewhere
+    (as a layer, a structural tile, or a balcony). A reference to an
+    undeclared ID means the rail points into the void — no target to
+    actually attach to.
+
+    Emits one violation per bad endpoint. A rail with both endpoints
+    pointing to missing retainers fires twice (matches the ROTATION rule's
+    per-endpoint granularity). Violations preserve course order.
+
+    Inventory is unused. Expected to never fire on real app-produced
+    courses; GDZJZA3J3T probe confirmed 40/40 rail endpoints resolve.
+    """
+    violations: list[Violation] = []
+
+    declared: set[int] = {rid for rid, _ in _collect_retainer_declarers(course)}
+
+    for rail_index, rail in enumerate(course.rail_construction_data):
+        for exit_num, exit_id in (
+            (1, rail.exit_1_identifier),
+            (2, rail.exit_2_identifier),
+        ):
+            rid = exit_id.retainer_id
+            if rid in declared:
+                continue
+            pos = exit_id.cell_local_hex_pos
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.RAIL_ENDPOINT_MISSING,
+                message=(
+                    f"Rail endpoint references missing retainer: rail "
+                    f"#{rail_index} exit {exit_num} points to "
+                    f"retainer_id={rid} (not declared by any layer, "
+                    f"structural tile, or balcony)"
+                ),
+                location=Location(
+                    rail_index=rail_index,
+                    retainer_id=rid,
+                    hex_position=pos,
+                ),
+            ))
+
+    return violations
+
+
+def _check_pillar_endpoint_missing(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """PILLAR_ENDPOINT_MISSING: pillar endpoints must reference declared retainers.
+
+    Each pillar has two layer/retainer endpoints (lower and upper). The
+    field names are 'lower_layer_id' / 'upper_layer_id' for historical
+    reasons, but they reference any declared retainer — not only literal
+    layers. A pillar can connect a baseplate layer (low-numbered id) to
+    a pillar-on-pillar structural tile (high-numbered retainer id).
+
+    Emits one violation per bad endpoint. A pillar with both ends pointing
+    to missing retainers fires twice.
+
+    Inventory is unused. Expected to never fire on real app-produced
+    courses; GDZJZA3J3T probe confirmed 30/30 pillar endpoints resolve.
+    """
+    violations: list[Violation] = []
+
+    declared: set[int] = {rid for rid, _ in _collect_retainer_declarers(course)}
+
+    for pillar_index, pillar in enumerate(course.pillar_construction_data):
+        for side, rid, pos in (
+            ("lower", pillar.lower_layer_id, pillar.lower_cell_local_position),
+            ("upper", pillar.upper_layer_id, pillar.upper_cell_local_position),
+        ):
+            if rid in declared:
+                continue
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.PILLAR_ENDPOINT_MISSING,
+                message=(
+                    f"Pillar endpoint references missing layer/retainer: "
+                    f"pillar #{pillar_index} {side} points to layer_id={rid} "
+                    f"(not declared by any layer, structural tile, or balcony)"
+                ),
+                location=Location(
+                    pillar_index=pillar_index,
+                    retainer_id=rid,
+                    hex_position=pos,
+                ),
+            ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -791,6 +900,8 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_rotation_out_of_range,
     _check_cell_collision,
     _check_retainer_id_collision,
+    _check_rail_endpoint_missing,
+    _check_pillar_endpoint_missing,
 )
 
 

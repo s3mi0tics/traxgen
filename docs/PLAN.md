@@ -102,9 +102,11 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
 - `traxgen/parser.py` — **done.** Reads `.course` binaries (POWER_2022).
 - `traxgen/serializer.py` — **done.** Writes `.course` binaries, byte-compare
   round-trip tested against GDZJZA3J3T.
-- `traxgen/validator.py` — **in progress (4/13 rules done).** All four
-  inventory-budget rules shipped; 9 referential-integrity and schema-validity
-  rules remain.
+- `traxgen/validator.py` — **in progress (5/13 v1 rules done + 3 Phase 2
+  rules deferred).** All four inventory-budget rules plus
+  `MISSING_STARTER_OR_GOAL` shipped; 8 v1 referential-integrity,
+  schema-validity, and reachability rules remain. Three additional
+  energy-based rules are Phase 2 scope.
 - `traxgen/generator.py` — **not started.** Pluggable by `GenerationMode`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
@@ -123,8 +125,9 @@ contents) lives at `docs/refs/`.
    Python objects.
 3. **M3 Round-trip** — **done (bbf7e36).** Parse → serialize → byte-compare
    matches original.
-4. **M4 Validator** — **in progress (4/13 rules done).** Given a domain
-   object, correctly answer "is this legal?"
+4. **M4 Validator** — **in progress (5/13 v1 rules done + 3 Phase 2
+   rules deferred).** Given a domain object, correctly answer "is this
+   legal?"
 5. **M5 Generator** — not started. Produces a valid domain object using
    only inventory pieces.
 6. **M6 End-to-end** — not started. Generated file opens in the real
@@ -181,10 +184,33 @@ real GDZJZA3J3T fixture — details in "De-risking strategy" below.
 10. ⬜ `LAYER_ID_COLLISION` — layer IDs are unique.
 11. ⬜ `ROTATION_OUT_OF_RANGE` — `hex_rotation` and `side_hex_rot` are in
     `[0, 5]`.
-12. ⬜ `MISSING_STARTER_OR_GOAL` — at least one tile with `is_starter=True`
-    and one with `is_goal=True`.
+12. ✅ `MISSING_STARTER_OR_GOAL` — at least one tile with `is_starter=True`
+    and one with `is_goal=True`. Catalog-derived: `_STARTER_KINDS` and
+    `_GOAL_KINDS` are computed from `PieceSpec` flags at import time, so
+    adding a new catalog entry with `is_starter=True` (e.g., `DOME_STARTER`
+    when the POWER line is cataloged) automatically satisfies the rule.
+    Two independent violations — empty course fires both. **Single-track
+    mode only.** Perpetual mode is a closed loop and doesn't require a
+    starter or goal; when M5+ introduces `GenerationMode`, this rule will
+    need mode-awareness (either mode-gated registration or a mode-aware
+    dispatch). See "Starter/goal override API" in deferred cleanup.
 13. ⬜ `TILE_INDEX_COLLISION` — tree-node `index` values are unique within
     a cell.
+14. ⬜ `START_GOAL_CONNECTED` — a topological path exists from some
+    starter to some goal through the track graph. Pure graph reachability;
+    no physics. Requires a track-graph representation (piece-exit
+    adjacency via rails) that doesn't exist yet — probably lives in its
+    own module (`traxgen/graph.py`) since the generator will reuse it
+    in M5. Flagged by Colby during M4 as a fundamental playability
+    requirement alongside `MISSING_STARTER_OR_GOAL`.
+15. ⬜ `SUFFICIENT_POTENTIAL_ENERGY` *(Phase 2)* — total energy along the
+    path from starter to goal is positive: initial PE + energy-input-piece
+    contributions ≥ cumulative losses. Aggregate check, depends on the
+    Phase 2 physics model. Not v1.
+16. ⬜ `NO_ENERGY_DEADLOCK` *(Phase 2)* — KE remains positive at every
+    point along the path. Point-wise check; a flat section after a drop
+    can drain KE to zero even when the aggregate energy budget is
+    positive. Harder than #15. Not v1.
 
 **Rule interaction note:** rules are nominally independent but the tiles
 rule explicitly skips kinds owned by the stackers and structural rules.
@@ -280,6 +306,13 @@ Both modes reuse ~80% of Phase 1 code.
    validator skips cross-retainer rails from the length sub-budget as a
    workaround. Proper validation needs world coordinates, which needs
    unknown #3 resolved.
+9. **Track-graph representation.** Needed for `START_GOAL_CONNECTED`
+   (rule #14) and reused by the generator in M5. Nodes = piece exits;
+   edges = rails (and implicit through-piece connections for multi-exit
+   pieces like switches, junctions, threeway). Connection semantics per
+   tile type (unknown #6) feeds directly into this. Likely lands in its
+   own module (`traxgen/graph.py`) rather than bolted into the validator.
+   Design when #6 is answered enough to be worth it.
 
 ### Resolved since original plan
 
@@ -304,6 +337,22 @@ Both modes reuse ~80% of Phase 1 code.
   an unlimited inventory catches rule bugs that synthetic unit tests miss.
   Caught a real false-positive in the rails rule on the commit that added
   it. See "De-risking strategy" for the pattern.
+- **Cannon is not a starter.** Originally `PieceSpec(CANNON, is_starter=True)`
+  on the belief that a cannon could launch a ball. Corrected during M4
+  design for `MISSING_STARTER_OR_GOAL`: the cannon is an energy injector,
+  not a starter — it requires an incoming ball (via gravity from
+  elsewhere) to do anything. Its role is modeled via
+  `energy_profile.energy_input_j`, not `is_starter`. Fixed in commit d89218f;
+  the validator rule is catalog-derived so the fix flowed through
+  automatically.
+- **Playability ≠ just "has starter and goal."** A valid single-track course
+  needs: (a) at least one starter and one goal, (b) a topological path
+  between them, (c) enough potential energy (plus any energy-input pieces)
+  to traverse the path accounting for losses, and (d) no point along the
+  path where KE drops to zero. Items (a) and (b) are v1 (rules
+  `MISSING_STARTER_OR_GOAL` and `START_GOAL_CONNECTED`); (c) and (d)
+  require the Phase 2 physics model. Perpetual mode doesn't need (a) at
+  all — closed loop. Race mode wants N starters and N goals.
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -324,6 +373,14 @@ Both modes reuse ~80% of Phase 1 code.
 - **Walls with unexpected hex distance** — silently skipped in
   `_check_inventory_budget_structural`. A future schema-validity rule
   should flag distance ∉ {1, 2, 3} as invalid wall geometry.
+- **Starter/goal override API.** `_STARTER_KINDS` and `_GOAL_KINDS` in the
+  validator are catalog-derived globals — no per-call override. Custom
+  generation modes or experimental house-rules (e.g., treating a cannon
+  as a starter because the user will physically drop a ball on it) would
+  need an escape hatch. Likely shape: optional `starter_kinds` /
+  `goal_kinds` parameters on `validate()`, or a future `ValidatorConfig`
+  object, or mode-aware dispatch from `GenerationMode`. Design when a
+  real consumer forces the shape — don't pre-build.
 
 ---
 

@@ -576,6 +576,80 @@ def _check_layer_id_collision(
     return violations
 
 
+def _check_rotation_out_of_range(
+    course: Course, inventory: Inventory  # noqa: ARG001
+) -> Iterable[Violation]:
+    """ROTATION_OUT_OF_RANGE: hex_rotation and side_hex_rot must be in [0, 5].
+
+    Hexagonal coordinates have 6 orientations (one per 60° rotation);
+    valid rotation values are 0 through 5 inclusive. Two loci to check:
+
+    1. `TileTowerConstructionData.hex_rotation` — the rotation of every
+       placed tile (including stacked children and balcony-mounted tiles).
+    2. `RailConstructionExitIdentifier.side_hex_rot` — the hex edge each
+       rail endpoint attaches to, on both ends of each rail.
+
+    Emits one violation per out-of-range value. Rail endpoints fire
+    independently (a rail with both ends bad produces two violations).
+
+    Inventory is unused — this is a pure schema-validity check. Expected
+    to never fire on real app-produced courses; the rule's primary value
+    is protecting our own M5 generator from emitting bad rotations.
+    """
+    violations: list[Violation] = []
+    valid = range(6)
+
+    # --- Tile rotations -------------------------------------------------
+    # Walk order matches _iter_placed_tiles: layer cells (pre-order tree),
+    # then balcony-mounted cells. We don't carry layer_id in the location
+    # — _iter_placed_tiles is a flat iterator, and hex_position is enough
+    # to pinpoint placements on any given layer for v1 debugging.
+    for cell in _iter_cells(course):
+        for node in _iter_tree_nodes(cell.tree_node_data):
+            rot = node.construction_data.hex_rotation
+            if rot in valid:
+                continue
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.ROTATION_OUT_OF_RANGE,
+                message=(
+                    f"hex_rotation out of range: value={rot} at position "
+                    f"({cell.local_hex_position.y},{cell.local_hex_position.x}) "
+                    f"on tile {node.construction_data.kind.name} "
+                    f"— valid range [0, 5]"
+                ),
+                location=Location(hex_position=cell.local_hex_position),
+            ))
+
+    # --- Rail endpoint rotations ----------------------------------------
+    for rail_index, rail in enumerate(course.rail_construction_data):
+        for exit_num, exit_id in (
+            (1, rail.exit_1_identifier),
+            (2, rail.exit_2_identifier),
+        ):
+            rot = exit_id.side_hex_rot
+            if rot in valid:
+                continue
+            pos = exit_id.cell_local_hex_pos
+            violations.append(Violation(
+                severity=Severity.ERROR,
+                rule=Rule.ROTATION_OUT_OF_RANGE,
+                message=(
+                    f"side_hex_rot out of range: value={rot} at rail "
+                    f"#{rail_index} exit {exit_num} "
+                    f"(retainer {exit_id.retainer_id}, pos ({pos.y},{pos.x})) "
+                    f"— valid range [0, 5]"
+                ),
+                location=Location(
+                    rail_index=rail_index,
+                    retainer_id=exit_id.retainer_id,
+                    hex_position=pos,
+                ),
+            ))
+
+    return violations
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -588,6 +662,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_inventory_budget_rails,
     _check_missing_starter_or_goal,
     _check_layer_id_collision,
+    _check_rotation_out_of_range,
 )
 
 

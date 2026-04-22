@@ -1305,6 +1305,243 @@ def test_layer_id_strict_raises() -> None:
     assert len(collisions) == 1
 
 
+# --- ROTATION_OUT_OF_RANGE -------------------------------------------------
+#
+# Valid rotation values are 0..5 (6 orientations on a hex grid). Checks
+# two loci: TileTowerConstructionData.hex_rotation on every placed tile,
+# and RailConstructionExitIdentifier.side_hex_rot on both endpoints of
+# every rail. Expected to never fire on real courses; primary value is
+# guarding the M5 generator.
+
+def _rotation_violations(violations: list[Violation]) -> list[Violation]:
+    """Filter to just ROTATION_OUT_OF_RANGE violations."""
+    return [v for v in violations if v.rule is Rule.ROTATION_OUT_OF_RANGE]
+
+
+def _cell_with_rot(kind: TileKind, *, rot: int, y: int = 0, x: int = 0) -> CellConstructionData:
+    """Build a cell with a single tile whose hex_rotation is explicitly set."""
+    return CellConstructionData(
+        local_hex_position=HexVector(y=y, x=x),
+        tree_node_data=TileTowerTreeNodeData(
+            index=0,
+            construction_data=TileTowerConstructionData(
+                kind=kind, height_in_small_stacker=0, hex_rotation=rot,
+            ),
+            children=(),
+        ),
+    )
+
+
+def _rail_with_rot(
+    *, rot_1: int, rot_2: int,
+    p1: HexVector = HexVector(y=0, x=0),
+    p2: HexVector = HexVector(y=0, x=1),
+    retainer_1: int = 0, retainer_2: int = 0,
+) -> RailConstructionData:
+    """Build a STRAIGHT rail with explicit side_hex_rot values on each endpoint."""
+    return RailConstructionData(
+        exit_1_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_1, cell_local_hex_pos=p1,
+            side_hex_rot=rot_1, exit_local_pos_y=0.0,
+        ),
+        exit_2_identifier=RailConstructionExitIdentifier(
+            retainer_id=retainer_2, cell_local_hex_pos=p2,
+            side_hex_rot=rot_2, exit_local_pos_y=0.0,
+        ),
+        rail_kind=RailKind.STRAIGHT,
+    )
+
+
+# --- Tile rotation boundary checks ---------------------------------------
+
+def test_rotation_tile_valid_boundaries_pass() -> None:
+    """Rotations 0 and 5 are the inclusive boundaries — both valid."""
+    course = _course_with(_layer(
+        _cell_with_rot(TileKind.CURVE, rot=0, y=0, x=0),
+        _cell_with_rot(TileKind.CURVE, rot=5, y=1, x=0),
+    ))
+    assert _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_rotation_tile_all_valid_values_pass() -> None:
+    """Every value in [0, 5] is valid — no violations across all six."""
+    cells = [_cell_with_rot(TileKind.CURVE, rot=r, y=r, x=0) for r in range(6)]
+    course = _course_with(_layer(*cells))
+    assert _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_rotation_tile_six_is_out_of_range() -> None:
+    """6 is just past the valid upper bound — one violation."""
+    course = _course_with(_layer(_cell_with_rot(TileKind.CURVE, rot=6, y=0, x=0)))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.ROTATION_OUT_OF_RANGE
+    assert v.severity is Severity.ERROR
+    assert "hex_rotation" in v.message
+    assert "value=6" in v.message
+    assert "CURVE" in v.message
+    assert "[0, 5]" in v.message
+
+
+def test_rotation_tile_negative_is_out_of_range() -> None:
+    """-1 is below the valid lower bound — one violation."""
+    course = _course_with(_layer(_cell_with_rot(TileKind.CURVE, rot=-1, y=0, x=0)))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "value=-1" in violations[0].message
+
+
+def test_rotation_tile_violation_populates_location() -> None:
+    """Tile rotation violations carry hex_position in Location."""
+    course = _course_with(_layer(_cell_with_rot(TileKind.CURVE, rot=7, y=3, x=-1)))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.location is not None
+    assert v.location.hex_position == HexVector(y=3, x=-1)
+
+
+def test_rotation_tile_stacked_children_checked() -> None:
+    """Bad rotations on stacked child tiles also fire."""
+    # Root rotation is valid, child rotation is bad.
+    stack = TileTowerTreeNodeData(
+        index=0,
+        construction_data=TileTowerConstructionData(
+            kind=TileKind.CURVE, height_in_small_stacker=0, hex_rotation=0,
+        ),
+        children=(
+            TileTowerTreeNodeData(
+                index=1,
+                construction_data=TileTowerConstructionData(
+                    kind=TileKind.CURVE, height_in_small_stacker=0, hex_rotation=99,
+                ),
+                children=(),
+            ),
+        ),
+    )
+    cell = CellConstructionData(
+        local_hex_position=HexVector(y=0, x=0),
+        tree_node_data=stack,
+    )
+    course = _course_with(_layer(cell))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "value=99" in violations[0].message
+
+
+def test_rotation_tile_balcony_cells_checked() -> None:
+    """Bad rotations on tiles in wall-balcony cells also fire."""
+    balcony_cell = _cell_with_rot(TileKind.CURVE, rot=10, y=5, x=5)
+    wall = WallConstructionData(
+        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_local_hex_pos=HexVector(y=0, x=0),
+        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_local_hex_pos=HexVector(y=1, x=0),
+        balcony_construction_datas=(
+            WallBalconyConstructionData(
+                retainer_id=42,
+                wall_side=WallSide.WEST,
+                wall_coordinate=WallCoordinate(column=0, row=0),
+                cell_construction_data=balcony_cell,
+            ),
+        ),
+    )
+    course = _course_with(_layer(), walls=(wall,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "value=10" in violations[0].message
+
+
+# --- Rail rotation boundary checks ---------------------------------------
+
+def test_rotation_rail_both_endpoints_valid_pass() -> None:
+    """Both endpoints at valid rotations — no violation."""
+    rail = _rail_with_rot(rot_1=0, rot_2=5)
+    course = _course_with(_layer(), rails=(rail,))
+    assert _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_rotation_rail_exit_1_out_of_range() -> None:
+    """Exit 1 bad, exit 2 valid — one violation for exit 1."""
+    rail = _rail_with_rot(rot_1=9, rot_2=2)
+    course = _course_with(_layer(), rails=(rail,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "side_hex_rot" in v.message
+    assert "value=9" in v.message
+    assert "exit 1" in v.message
+    assert "[0, 5]" in v.message
+
+
+def test_rotation_rail_exit_2_out_of_range() -> None:
+    """Exit 1 valid, exit 2 bad — one violation for exit 2."""
+    rail = _rail_with_rot(rot_1=1, rot_2=6)
+    course = _course_with(_layer(), rails=(rail,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "value=6" in v.message
+    assert "exit 2" in v.message
+
+
+def test_rotation_rail_both_endpoints_bad_fires_twice() -> None:
+    """Both ends bad on the same rail — two independent violations."""
+    rail = _rail_with_rot(rot_1=7, rot_2=8)
+    course = _course_with(_layer(), rails=(rail,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    # Exit 1 violation comes first in the course-order walk.
+    assert "exit 1" in violations[0].message
+    assert "value=7" in violations[0].message
+    assert "exit 2" in violations[1].message
+    assert "value=8" in violations[1].message
+
+
+def test_rotation_rail_violation_populates_location() -> None:
+    """Rail rotation violations carry rail_index, retainer_id, and hex_position."""
+    rail = _rail_with_rot(
+        rot_1=42, rot_2=0,
+        p1=HexVector(y=7, x=3),
+        retainer_1=123,
+    )
+    course = _course_with(_layer(), rails=(rail,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    loc = violations[0].location
+    assert loc is not None
+    assert loc.rail_index == 0
+    assert loc.retainer_id == 123
+    assert loc.hex_position == HexVector(y=7, x=3)
+
+
+# --- Combined + strict-mode checks ---------------------------------------
+
+def test_rotation_tile_and_rail_violations_both_reported() -> None:
+    """A course with both bad tile rotation and bad rail rotation reports both."""
+    bad_tile = _cell_with_rot(TileKind.CURVE, rot=99, y=0, x=0)
+    bad_rail = _rail_with_rot(rot_1=7, rot_2=0)
+    course = _course_with(_layer(bad_tile), rails=(bad_rail,))
+    violations = _rotation_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 2
+    messages = [v.message for v in violations]
+    assert any("hex_rotation" in m for m in messages)
+    assert any("side_hex_rot" in m for m in messages)
+
+
+def test_rotation_strict_raises() -> None:
+    """validate_strict raises when rotation violations exist."""
+    course = _course_with(_layer(_cell_with_rot(TileKind.CURVE, rot=7, y=0, x=0)))
+    with pytest.raises(ValidationError) as info:
+        validate_strict(course, PRO_VERTICAL_STARTER_SET)
+    rot_violations = [
+        v for v in info.value.violations
+        if v.rule is Rule.ROTATION_OUT_OF_RANGE
+    ]
+    assert len(rot_violations) == 1
+
+
 # --- Real-fixture integration test ----------------------------------------
 #
 # Validates the GDZJZA3J3T fixture against an "unlimited" inventory — one

@@ -102,13 +102,12 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
 - `traxgen/parser.py` — **done.** Reads `.course` binaries (POWER_2022).
 - `traxgen/serializer.py` — **done.** Writes `.course` binaries, byte-compare
   round-trip tested against GDZJZA3J3T.
-- `traxgen/validator.py` — **in progress (5/12 v1 rules done + 3 Phase 2
-  rules deferred + 1 rule dropped).** All four inventory-budget rules plus
-  `MISSING_STARTER_OR_GOAL` shipped; 7 v1 referential-integrity,
-  schema-validity, and reachability rules remain. Three additional
-  energy-based rules are Phase 2 scope. One rule (`TILE_INDEX_COLLISION`)
-  was dropped after empirical probing showed the original spec would
-  false-positive on real courses — see `docs/refs/tile-tree-node-index.md`.
+- `traxgen/validator.py` — **complete pending one bug (12/12 v1 rules done +
+  3 Phase 2 rules deferred + 2 rules dropped).** All v1 rules shipped. Known
+  bug in INVENTORY_BUDGET_TILES's baseplate sub-check (counts wrong LayerKind
+  — see "Known bugs" below). Also: a performance/accuracy unblock is now
+  available for INVENTORY_BUDGET_RAILS's cross-retainer skip (probe 3865bcb
+  proved world-coord addition works).
 - `traxgen/generator.py` — **not started.** Pluggable by `GenerationMode`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
@@ -127,9 +126,9 @@ contents) lives at `docs/refs/`.
    Python objects.
 3. **M3 Round-trip** — **done (bbf7e36).** Parse → serialize → byte-compare
    matches original.
-4. **M4 Validator** — **in progress (5/12 v1 rules done + 3 Phase 2
-   rules deferred + 1 rule dropped).** Given a domain object, correctly
-   answer "is this legal?"
+4. **M4 Validator** — **complete pending one bug (12/12 v1 rules done +
+   3 Phase 2 rules deferred + 2 rules dropped).** Given a domain object,
+   correctly answer "is this legal?"
 5. **M5 Generator** — not started. Produces a valid domain object using
    only inventory pieces.
 6. **M6 End-to-end** — not started. Generated file opens in the real
@@ -171,21 +170,50 @@ real GDZJZA3J3T fixture — details in "De-risking strategy" below.
    For STRAIGHT rails, a fixed-length sub-budget: distance → length
    (1=SHORT, 2=MEDIUM, 3=LONG) with no cascading coverage. Invalid spans
    (d ∉ {1,2,3}) emit per-placement violations with `Location` populated.
-   Cross-retainer STRAIGHT rails are skipped from the sub-budget — local
-   coordinates can't yield physical distance across retainers without the
-   baseplate world-arrangement answer (still-open unknown).
-5. ⬜ `BASEPLATE_COVERAGE` — every cell's layer is present in the course's
-   layer set.
-6. ⬜ `CELL_COLLISION` — no two cells share `(layer_id, local_hex_position)`.
-7. ⬜ `RAIL_ENDPOINT_MISSING` — each rail endpoint refers to a cell/retainer
-   that exists.
-8. ⬜ `PILLAR_ENDPOINT_MISSING` — pillar endpoints refer to existing cells
-   and layers.
-9. ⬜ `RETAINER_ID_COLLISION` — retainer IDs are unique across tiles,
-   pillars, walls.
-10. ⬜ `LAYER_ID_COLLISION` — layer IDs are unique.
-11. ⬜ `ROTATION_OUT_OF_RANGE` — `hex_rotation` and `side_hex_rot` are in
-    `[0, 5]`.
+   **Cross-retainer STRAIGHT rails are currently skipped** from the
+   sub-budget as a workaround. The baseplate probe (commit 3865bcb)
+   proved this skip is no longer necessary: naive
+   `world_hex_position + cell_local_hex_pos` yields physically valid
+   rail distances on cross-retainer rails. **Unblock pending** — remove
+   the skip next session.
+5. ~~`BASEPLATE_COVERAGE`~~ *(dropped from v1)* — original spec was "every
+    cell's layer is in the layer set," which doesn't match the actual
+    domain model (cells don't reference a layer_id; they're structurally
+    contained). Most natural re-interpretation is "every cell is within
+    the physical extent of some baseplate," but that requires the
+    physical-shape of a single baseplate (which hexes it covers) —
+    unknown. Dropped from v1. Revisit in M5 if baseplate-shape is
+    derivable from fixtures. See "Baseplate physical shape" in open
+    unknowns.
+6. ✅ `CELL_COLLISION` — no two cells on the same layer share a
+    `local_hex_position`. Scope: layer cells only. Balcony-mounted cells
+    use a different coordinate space. One violation per colliding
+    `(layer_id, position)` pair with root TileKinds listed.
+7. ✅ `RAIL_ENDPOINT_MISSING` — each rail endpoint's `retainer_id` must
+    resolve to something declared (layer, structural-tile retainer, or
+    balcony retainer). One violation per bad endpoint; a rail with both
+    ends bad fires twice.
+8. ✅ `PILLAR_ENDPOINT_MISSING` — pillar `lower_layer_id` and
+    `upper_layer_id` must resolve to declared retainers (not only
+    literal layers — structural-tile retainers are valid targets too,
+    per probe fb2e547).
+9. ✅ `RETAINER_ID_COLLISION` — retainer IDs must be unique across three
+    declarer sources: `LayerConstructionData.layer_id`,
+    `TileTowerConstructionData.retainer_id` (non-null), and
+    `WallBalconyConstructionData.retainer_id`. Overlaps intentionally
+    with `LAYER_ID_COLLISION` for the layer-layer case; messages are
+    complementary.
+10. ✅ `LAYER_ID_COLLISION` — every `layer_id` in `course.layer_construction_data`
+    must be unique. Pure schema-validity check; primary value is
+    guarding the M5 generator.
+11. ✅ `ROTATION_OUT_OF_RANGE` — tile `hex_rotation` and rail
+    `side_hex_rot` (both endpoints) must be in `[0, 5]`. A rail with
+    both endpoints bad fires two violations. **Hypothesis (unverified):**
+    the GraviTrax app may internally normalize via `value % 6`, making
+    our rule stricter than the app accepts. That's correct behavior for
+    a generator (emit canonical values) but means the asymmetry is
+    worth flagging if the rule ever appears to false-positive on
+    app-accepted courses.
 12. ✅ `MISSING_STARTER_OR_GOAL` — at least one tile with `is_starter=True`
     and one with `is_goal=True`. Catalog-derived: `_STARTER_KINDS` and
     `_GOAL_KINDS` are computed from `PieceSpec` flags at import time, so
@@ -206,21 +234,57 @@ real GDZJZA3J3T fixture — details in "De-risking strategy" below.
     `docs/refs/tile-tree-node-index.md` for the investigation and
     possible narrower rules that we might revisit when more fixture
     evidence exists.
-14. ⬜ `START_GOAL_CONNECTED` — a topological path exists from some
+14. ✅ `WALL_ENDPOINT_MISSING` — PRO-wall stacker-tower references
+    (`lower_stacker_tower_{1,2}_retainer_id`) must resolve to declared
+    retainers. **Not in original plan.** Surfaced during retainer-family
+    probe (commit fb2e547) — the probe revealed walls are a third
+    reference category alongside rails and pillars. Shape identical to
+    `RAIL_ENDPOINT_MISSING`: one violation per bad tower endpoint.
+15. ⬜ `START_GOAL_CONNECTED` — a topological path exists from some
     starter to some goal through the track graph. Pure graph reachability;
     no physics. Requires a track-graph representation (piece-exit
     adjacency via rails) that doesn't exist yet — probably lives in its
     own module (`traxgen/graph.py`) since the generator will reuse it
     in M5. Flagged by Colby during M4 as a fundamental playability
     requirement alongside `MISSING_STARTER_OR_GOAL`.
-15. ⬜ `SUFFICIENT_POTENTIAL_ENERGY` *(Phase 2)* — total energy along the
+16. ⬜ `SUFFICIENT_POTENTIAL_ENERGY` *(Phase 2)* — total energy along the
     path from starter to goal is positive: initial PE + energy-input-piece
     contributions ≥ cumulative losses. Aggregate check, depends on the
     Phase 2 physics model. Not v1.
-16. ⬜ `NO_ENERGY_DEADLOCK` *(Phase 2)* — KE remains positive at every
+17. ⬜ `NO_ENERGY_DEADLOCK` *(Phase 2)* — KE remains positive at every
     point along the path. Point-wise check; a flat section after a drop
     can drain KE to zero even when the aggregate energy budget is
-    positive. Harder than #15. Not v1.
+    positive. Harder than #16. Not v1.
+
+#### Known bugs & open cleanup (M4 → M5 transition)
+
+Discovered by the baseplate-arrangement probe (commit 3865bcb) at the
+end of M4. Priority items for the next session before M5 starts.
+
+1. **BUG: `INVENTORY_BUDGET_TILES` baseplate sub-check counts wrong kind.**
+   The rule counts `LayerKind.BASE_LAYER`. On GDZJZA3J3T there are zero
+   `BASE_LAYER` layers — the actual baseplates are 15 `BASE_LAYER_PIECE`
+   layers (ids 129..143). Our naming assumption (BASE_LAYER = physical
+   baseplate) was wrong. Need to re-investigate `LayerKind` semantics
+   (possibly deprecated variants, composite virtual layers, or v3-era
+   kinds) before fixing.
+   - **Test `test_budget_tiles_baseplate_does_not_count_base_layer_piece`
+     encodes the wrong assumption** and will need to flip.
+   - **Action:** write `docs/refs/layer-kinds-and-world-coords.md`
+     capturing probe findings, then fix the sub-check.
+
+2. **UNBLOCK: `INVENTORY_BUDGET_RAILS` cross-retainer skip can go.** Probe
+   proved naive `world_hex_position + cell_local_hex_pos` yields
+   physically correct rail distances across retainers. Remove the skip
+   in `_check_inventory_budget_rails`, validate via integration canary.
+
+3. **Write `docs/refs/layer-kinds-and-world-coords.md`.** Capture:
+   - The 4 LayerKinds seen in fixtures and their observed counts
+   - Retainer ID numeric conventions (layer IDs ~100-900s; tile and
+     balcony retainer IDs ~1000-2000s)
+   - World-coordinate math: `world + local = physical` works for
+     cross-retainer rails. Same logic probably applies to pillars and
+     walls but not yet verified.
 
 **Rule interaction note:** rules are nominally independent but the tiles
 rule explicitly skips kinds owned by the stackers and structural rules.
@@ -295,12 +359,20 @@ Both modes reuse ~80% of Phase 1 code.
    `docs/refs/pro-vertical-starter-set-26832.md`.
 2. **Rail `side_hex_rot` semantics** — which of 6 hex edges it identifies.
    Inferable from fixtures when M5 needs it.
-3. **Baseplate world-coordinate arrangement** — how 4 baseplates tile
-   together in world space. Now actively blocking cross-retainer rail
-   span validation (see #8 below). Inferable from a fixture that uses
-   all 4 plates.
+3. **Baseplate world-coordinate arrangement** — **partially resolved**
+   (probe 3865bcb). Naive `world_hex_position + cell_local_hex_pos`
+   addition yields physically-sensible placements without overlap, so
+   the math for derivation works. What's still unknown: the **physical
+   shape** of a single baseplate (which hexes a baseplate actually
+   covers). Needed for `BASEPLATE_COVERAGE` (dropped rule #5) and for
+   any future "cell is within baseplate extent" check. Inferable from
+   a fixture using the starter kit's 4 baseplates + knowledge of the
+   physical set.
 4. **Retainer ID assignment scheme** — sequential/hashed/arbitrary.
-   Inferable from fixtures.
+   Probe fb2e547 revealed numeric conventions: layer IDs live in
+   ~100-900s, tile/balcony retainer IDs in ~1000-2000s. The scheme
+   the app uses to assign specific values within those ranges is still
+   unknown. Inferable from more fixtures.
 5. **GUID generation** — the app may or may not validate course GUIDs.
    M6-blocking risk. Try random first; regenerate if the app rejects.
 6. **Connection rules per tile type** — not in schema. Derive from physical
@@ -308,21 +380,27 @@ Both modes reuse ~80% of Phase 1 code.
 7. **`THREE_ENTRANCE_FUNNEL` TileKind assignment** — best-guess mapping
    for the "3-in-1" / "3-way merge" piece. Confirmable by parsing a
    fixture that uses this piece.
-8. **Cross-retainer rail geometry.** Rail endpoints use
-   `cell_local_hex_pos` (local to the endpoint's retainer). For rails
-   spanning different retainers, local distance doesn't reflect physical
-   span. GDZJZA3J3T has real cross-retainer STRAIGHT rails with local
-   distances 0 and 5 (impossible for a fixed-length piece). The rails
-   validator skips cross-retainer rails from the length sub-budget as a
-   workaround. Proper validation needs world coordinates, which needs
-   unknown #3 resolved.
-9. **Track-graph representation.** Needed for `START_GOAL_CONNECTED`
-   (rule #14) and reused by the generator in M5. Nodes = piece exits;
+8. **Track-graph representation.** Needed for `START_GOAL_CONNECTED`
+   (rule #15) and reused by the generator in M5. Nodes = piece exits;
    edges = rails (and implicit through-piece connections for multi-exit
    pieces like switches, junctions, threeway). Connection semantics per
    tile type (unknown #6) feeds directly into this. Likely lands in its
    own module (`traxgen/graph.py`) rather than bolted into the validator.
    Design when #6 is answered enough to be worth it.
+9. **`LayerKind` semantics.** The baseplate probe revealed
+   `BASE_LAYER_PIECE` (not `BASE_LAYER`) is what real fixtures use for
+   baseplates. `BASE_LAYER` doesn't appear in GDZJZA3J3T at all.
+   Possibilities: deprecated variant, composite virtual layer, or
+   present in other course categories (tutorial/editorial/etc.) we
+   haven't probed. Resolution feeds the baseplate-budget bug fix.
+10. **Rotation modulo semantics (hypothesis).** The GraviTrax app may
+    internally normalize `hex_rotation`/`side_hex_rot` via `value % 6`,
+    meaning bad values like 7 silently become 1 when loaded. Our
+    `ROTATION_OUT_OF_RANGE` rule is strict (rejects anything outside
+    `[0, 5]`), which is correct for a generator emitting canonical
+    values but means the rule is stricter than the app. Worth testing
+    empirically if the rule ever appears to false-positive on
+    app-accepted courses.
 
 ### Resolved since original plan
 
@@ -371,6 +449,38 @@ Both modes reuse ~80% of Phase 1 code.
   app-produced courses, and no narrower rule has enough evidence to
   justify writing. Revisit if more fixtures reveal a pattern or a real
   failure mode emerges. See `docs/refs/tile-tree-node-index.md`.
+- **Retainer/reference namespaces (retainer family resolved).** Probe
+  fb2e547 confirmed three declarer sources (layers, structural-tile
+  retainers, balcony retainers) and three reference sources (rail
+  endpoints, pillar endpoints, wall tower endpoints). All 48 declarer
+  IDs unique, all 78 references resolve on GDZJZA3J3T. Unlocked
+  `RETAINER_ID_COLLISION`, `RAIL_ENDPOINT_MISSING`,
+  `PILLAR_ENDPOINT_MISSING`, and surfaced the then-unlisted
+  `WALL_ENDPOINT_MISSING` rule.
+- **Cross-retainer rail geometry resolved.** Probe 3865bcb proved naive
+  `world_hex_position + cell_local_hex_pos` addition yields physically
+  correct distances for cross-retainer rails. `INVENTORY_BUDGET_RAILS`
+  currently has a workaround skip that can be removed — scheduled for
+  the bug-fix session. Also: the `world + local = physical` formula
+  worked well enough to resolve retainer world positions for tile
+  retainers (containing-layer world + cell local), enabling the
+  cross-retainer rail analysis in one pass.
+- **`BASEPLATE_COVERAGE` dropped from v1.** Original spec was "every
+  cell's layer is in the layer set," which doesn't match the actual
+  domain model (cells are structurally contained in layers, don't
+  reference them by ID). Even the more interesting re-interpretation
+  ("every cell is within a baseplate's physical extent") is blocked on
+  unknown #3 (baseplate physical shape). Dropped; revisit in M5+ if
+  baseplate shape is derivable from fixtures.
+- **`WALL_ENDPOINT_MISSING` added to v1.** Not in original plan.
+  Surfaced during retainer-family probe when the declarer/reference
+  analysis revealed PRO walls have tower-retainer references same as
+  rails and pillars. Implemented as v1 rule #14.
+- **`BASE_LAYER` naming assumption was wrong.** On GDZJZA3J3T there are
+  zero `LayerKind.BASE_LAYER` layers — the actual baseplates are 15
+  `BASE_LAYER_PIECE` layers. Our types.py docstring and
+  `INVENTORY_BUDGET_TILES`'s baseplate sub-check both encoded the wrong
+  assumption. Bug fix pending (see "Known bugs" in rule status).
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -469,6 +579,11 @@ Ravensburger listings have been the least reliable in practice.
   field. Semantics are murky; schema is silent; within-cell duplicates at
   index=0 exist in real fixtures. Source for the `TILE_INDEX_COLLISION`
   drop.
+- `layer-kinds-and-world-coords.md` *(to write next session)* — probe
+  findings from commit 3865bcb: `LayerKind` variant counts in real
+  fixtures, retainer-ID numeric conventions, and the world-coord math
+  (`world + local = physical`) for cross-retainer placements. Source for
+  the `INVENTORY_BUDGET_TILES` baseplate-kind bug fix.
 - `pro-structural-notes.md` — pillars, walls, balconies for the PRO line.
   Not v1-validator-blocking; documentation for future expansion.
 - `pro-vertical-starter-set-26832.md` — full reconciled contents list for

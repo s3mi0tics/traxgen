@@ -131,6 +131,24 @@ _STRUCTURAL_TILE_KINDS: frozenset[TileKind] = frozenset({
     TileKind.DOUBLE_BALCONY,
 })
 
+# LayerKinds that represent physical baseplates in the wire format.
+#
+# The Rust source's `layer_height` doc-comment is the source of truth:
+#   "-0.2 is the layer height for all base plates"
+# The plural "all base plates" treats both `BASE_LAYER` and
+# `BASE_LAYER_PIECE` as baseplate variants. Physical intuition: legacy
+# full-plate (Core-era) vs modern modular tiles (PRO-era). GDZJZA3J3T
+# (PRO-era) has 15 `BASE_LAYER_PIECE` layers and zero `BASE_LAYER`.
+#
+# See docs/refs/layer-kinds-and-world-coords.md for the full decision
+# rationale, the alternatives considered, and the "when to revisit"
+# conditions. The integration canary (unlimited inventory on GDZJZA3J3T)
+# would catch any future fixture that contradicts this treatment.
+_BASEPLATE_LAYER_KINDS: frozenset[LayerKind] = frozenset({
+    LayerKind.BASE_LAYER,
+    LayerKind.BASE_LAYER_PIECE,
+})
+
 # Wall length is not stored on the wall itself — it's inferred from hex
 # distance between the two tower endpoints. See docs/refs/pro-structural-notes.md.
 _WALL_DISTANCE_TO_KIND: dict[int, WallKind] = {
@@ -171,11 +189,12 @@ def _check_inventory_budget_tiles(
         tile.kind for tile in _iter_placed_tiles(course)
     )
 
-    # Baseplate sub-check — count BASE_LAYER layers (not BASE_LAYER_PIECE).
+    # Baseplate sub-check — both BASE_LAYER and BASE_LAYER_PIECE count as
+    # baseplates. See _BASEPLATE_LAYER_KINDS above for rationale.
     baseplate_count = sum(
         1
         for layer in course.layer_construction_data
-        if layer.layer_kind is LayerKind.BASE_LAYER
+        if layer.layer_kind in _BASEPLATE_LAYER_KINDS
     )
     if baseplate_count > inventory.baseplates:
         violations.append(Violation(

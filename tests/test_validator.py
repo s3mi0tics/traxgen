@@ -298,6 +298,11 @@ def test_budget_tiles_counts_tiles_in_balcony_cells() -> None:
 
 
 # --- Baseplate sub-check --------------------------------------------------
+#
+# Both LayerKind.BASE_LAYER and LayerKind.BASE_LAYER_PIECE count as
+# baseplates. See docs/refs/layer-kinds-and-world-coords.md for the
+# "all base plates" rationale from the Rust doc-comment and the
+# "when to revisit" conditions.
 
 def test_budget_tiles_baseplate_overrun() -> None:
     """5 BASE_LAYER layers vs budget of 4 fires one violation."""
@@ -312,14 +317,80 @@ def test_budget_tiles_baseplate_overrun() -> None:
     assert "4" in v.message
 
 
-def test_budget_tiles_baseplate_does_not_count_base_layer_piece() -> None:
-    """BASE_LAYER_PIECE layers don't count toward baseplate budget."""
-    # 4 real baseplates + 20 BASE_LAYER_PIECE layers; still at budget.
-    real = [_layer(layer_id=i, kind=LayerKind.BASE_LAYER) for i in range(4)]
-    pieces = [
-        _layer(layer_id=100 + i, kind=LayerKind.BASE_LAYER_PIECE) for i in range(20)
+def test_budget_tiles_baseplate_piece_counts_same_as_base_layer() -> None:
+    """BASE_LAYER_PIECE layers count as baseplates (flipped from v1 behavior).
+
+    Original v1 baseplate sub-check only counted LayerKind.BASE_LAYER. The
+    GDZJZA3J3T fixture exposed that as wrong: its 15 baseplates are all
+    BASE_LAYER_PIECE and the check was returning zero. Both kinds now
+    count per the "all base plates" plural in the Rust layer_height
+    doc-comment. See docs/refs/layer-kinds-and-world-coords.md.
+    """
+    layers = tuple(
+        _layer(layer_id=100 + i, kind=LayerKind.BASE_LAYER_PIECE) for i in range(5)
+    )
+    course = _course_with(*layers)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert v.rule is Rule.INVENTORY_BUDGET_TILES
+    assert "Baseplate" in v.message
+    assert "5" in v.message
+    assert "4" in v.message
+
+
+def test_budget_tiles_baseplate_counts_mixed_kinds() -> None:
+    """A mix of BASE_LAYER and BASE_LAYER_PIECE all count together.
+
+    Sanity check that both kinds contribute to the same single budget.
+    Not expected in practice (PRO-era fixtures are pure BASE_LAYER_PIECE,
+    Core-era likely pure BASE_LAYER), but the rule shouldn't partition.
+    """
+    layers = (
+        _layer(layer_id=1, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=2, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=3, kind=LayerKind.BASE_LAYER),
+        _layer(layer_id=101, kind=LayerKind.BASE_LAYER_PIECE),
+        _layer(layer_id=102, kind=LayerKind.BASE_LAYER_PIECE),
+    )
+    course = _course_with(*layers)
+    violations = _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    # 3 + 2 = 5 total baseplates, budget 4 → one violation.
+    assert len(violations) == 1
+    v = violations[0]
+    assert "Baseplate" in v.message
+    assert "5" in v.message
+    assert "4" in v.message
+
+
+def test_budget_tiles_baseplate_piece_at_limit_passes() -> None:
+    """Exactly 4 BASE_LAYER_PIECE layers — at PRO budget, no violation."""
+    layers = tuple(
+        _layer(layer_id=100 + i, kind=LayerKind.BASE_LAYER_PIECE) for i in range(4)
+    )
+    course = _course_with(*layers)
+    assert _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
+
+
+def test_budget_tiles_baseplate_non_baseplate_layers_do_not_count() -> None:
+    """Non-baseplate LayerKinds (LARGE_LAYER, SMALL_LAYER, LARGE_GHOST_LAYER) don't consume baseplate budget.
+
+    GDZJZA3J3T has 4 LARGE_LAYER + 1 SMALL_LAYER + 15 BASE_LAYER_PIECE.
+    Only the 15 baseplate-kinds should count; adding lots of clear layers
+    must not falsely trip the baseplate budget.
+    """
+    # 4 real baseplates (at budget) + a pile of non-baseplate layers.
+    baseplates = [
+        _layer(layer_id=100 + i, kind=LayerKind.BASE_LAYER_PIECE) for i in range(4)
     ]
-    course = _course_with(*real, *pieces)
+    clears = [
+        _layer(layer_id=200, kind=LayerKind.LARGE_LAYER),
+        _layer(layer_id=201, kind=LayerKind.LARGE_LAYER),
+        _layer(layer_id=202, kind=LayerKind.LARGE_LAYER),
+        _layer(layer_id=300, kind=LayerKind.SMALL_LAYER),
+        _layer(layer_id=400, kind=LayerKind.LARGE_GHOST_LAYER),
+    ]
+    course = _course_with(*baseplates, *clears)
     assert _budget_tiles_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
 
 

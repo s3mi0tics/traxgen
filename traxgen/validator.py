@@ -111,6 +111,38 @@ def _iter_placed_tiles(course: Course) -> Iterator[TileTowerConstructionData]:
             yield node.construction_data
 
 
+def _resolve_retainer_world_positions(course: Course) -> dict[int, HexVector]:
+    """Map retainer_id -> world HexVector for layer and tile retainers.
+
+    Two retainer categories get resolved:
+
+      1. Layer retainers — the layer's own world_hex_position.
+      2. Tile retainers (structural tiles declaring retainer_id on layer
+         cells) — containing-layer world_hex_position + cell local_hex_position.
+
+    Balcony retainers are NOT resolved. Balcony cells live in their wall's
+    coordinate system, which requires separate probe work to reconcile
+    with layer world-coords. A rail touching a balcony retainer will have
+    that endpoint missing from this mapping, and callers must handle that
+    absence by skipping (same behavior as the original cross-retainer
+    skip). See docs/refs/layer-kinds-and-world-coords.md and PLAN.md open
+    unknowns.
+
+    Verified correct for GDZJZA3J3T by probe 3865bcb: cross-retainer
+    STRAIGHT rails #18 and #19 yield world-distances 3 and 2 respectively,
+    both valid fixed-length rail spans.
+    """
+    positions: dict[int, HexVector] = {}
+    for layer in course.layer_construction_data:
+        positions[layer.layer_id] = layer.world_hex_position
+        for cell in layer.cell_construction_datas:
+            for node in _iter_tree_nodes(cell.tree_node_data):
+                rid = node.construction_data.retainer_id
+                if rid is not None:
+                    positions[rid] = layer.world_hex_position + cell.local_hex_position
+    return positions
+
+
 # --- Rules -----------------------------------------------------------------
 
 # Switches are a pool: the two physical pieces can each be configured LEFT or
@@ -414,21 +446,24 @@ def _check_inventory_budget_rails(
        where their endpoints live.
     2. STRAIGHT-length sub-budget: STRAIGHT rails are fixed-length pieces
        (SHORT spans 1 hex, MEDIUM 2, LONG 3). Each placed STRAIGHT has its
-       length inferred from the hex distance between its two cell endpoints.
+       length inferred from the hex distance between its two endpoints.
        An unexpected distance (0 or >3) means no physical piece can satisfy
        that placement — we emit a per-placement violation. Otherwise we
        bucket and compare each bucket against inventory.straight_rail_limits.
 
-    Cross-retainer STRAIGHT rails (endpoints on different layers or stacker
-    towers) are SKIPPED from the sub-budget entirely. Rail endpoints use
-    cell_local_hex_pos — position within the endpoint's retainer — so for
-    cross-retainer rails, local distance doesn't reflect physical span.
-    Proper validation requires world coordinates, which in turn requires
-    knowing how baseplates tile in world space (PLAN.md open question).
-    Until that's resolved, cross-retainer rails count toward the per-kind
-    budget but aren't bucketed or span-checked. The GDZJZA3J3T fixture has
-    real cross-retainer rails with local distance 0 and 5, confirming this
-    skip is necessary to avoid false positives on real courses.
+    Distance computation:
+
+    - Same-retainer rails: use cell_local_hex_pos distance directly, since
+      both endpoints share a local frame.
+    - Cross-retainer rails where both endpoints resolve to a world position
+      (layer or tile retainer): compute world distance via
+      `world + cell_local` for each endpoint. Proved correct for the
+      GDZJZA3J3T fixture by probe 3865bcb.
+    - Cross-retainer rails where at least one endpoint cannot be resolved
+      (typically a balcony retainer): skip from the sub-budget entirely.
+      The rail still counts toward the per-kind STRAIGHT budget. Balcony
+      world-coord resolution is deferred — see
+      docs/refs/layer-kinds-and-world-coords.md and PLAN.md open unknowns.
     """
     violations: list[Violation] = []
 
@@ -450,17 +485,32 @@ def _check_inventory_budget_rails(
             ))
 
     # --- STRAIGHT sub-budget: per-placement invalid span + bucket checks -
+    # Resolve retainer world positions once up front. Balcony retainers
+    # are absent from this mapping — see docstring.
+    retainer_world = _resolve_retainer_world_positions(course)
+
     length_counts: Counter[RailLength] = Counter()
     for rail_index, rail in enumerate(course.rail_construction_data):
         if rail.rail_kind is not RailKind.STRAIGHT:
             continue
         exit_1 = rail.exit_1_identifier
         exit_2 = rail.exit_2_identifier
-        # Skip cross-retainer rails — local distance isn't physical distance.
-        # See docstring.
-        if exit_1.retainer_id != exit_2.retainer_id:
-            continue
-        distance = exit_1.cell_local_hex_pos.distance_to(exit_2.cell_local_hex_pos)
+
+        if exit_1.retainer_id == exit_2.retainer_id:
+            # Same-retainer rail: local distance is physical distance.
+            distance = exit_1.cell_local_hex_pos.distance_to(exit_2.cell_local_hex_pos)
+        else:
+            # Cross-retainer rail: need world coords for both endpoints.
+            w1 = retainer_world.get(exit_1.retainer_id)
+            w2 = retainer_world.get(exit_2.retainer_id)
+            if w1 is None or w2 is None:
+                # Unresolvable endpoint (typically a balcony retainer).
+                # Skip from sub-budget; still counts toward per-kind above.
+                continue
+            world_1 = w1 + exit_1.cell_local_hex_pos
+            world_2 = w2 + exit_2.cell_local_hex_pos
+            distance = world_1.distance_to(world_2)
+
         length = _STRAIGHT_DISTANCE_TO_LENGTH.get(distance)
         if length is None:
             # No physical STRAIGHT piece can span this distance.

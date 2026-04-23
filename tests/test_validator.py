@@ -110,13 +110,14 @@ def _cell_with_h(
 def _layer(
     *cells: CellConstructionData, layer_id: int = 0,
     kind: LayerKind = LayerKind.BASE_LAYER,
+    world_hex_position: HexVector = HexVector(y=0, x=0),
 ) -> LayerConstructionData:
     """Build a layer from the given cells."""
     return LayerConstructionData(
         layer_id=layer_id,
         layer_kind=kind,
         layer_height=0.0,
-        world_hex_position=HexVector(y=0, x=0),
+        world_hex_position=world_hex_position,
         cell_construction_datas=cells,
     )
 
@@ -876,6 +877,13 @@ def test_budget_structural_strict_raises() -> None:
 # PRO Vertical rail budget:
 #   STRAIGHT pool: 18 total (9 SHORT + 6 MEDIUM + 3 LONG by length)
 #   Bernoulli: 3 LEFT + 3 RIGHT + 2 STRAIGHT
+#
+# Cross-retainer STRAIGHT rails have their span computed via world-coord
+# math: each endpoint's retainer gets its world position (layer world +
+# cell local for tile retainers; layer world directly for layer retainers),
+# then the rail's world distance is computed. Rails touching balcony
+# retainers are still skipped — balcony world-coord resolution is deferred.
+# See docs/refs/layer-kinds-and-world-coords.md.
 
 def _rail_violations(violations: list[Violation]) -> list[Violation]:
     """Filter to just INVENTORY_BUDGET_RAILS violations."""
@@ -1082,20 +1090,28 @@ def test_budget_rails_strict_raises() -> None:
     assert len(rail_vs) == 1
 
 
-def test_budget_rails_cross_retainer_straight_is_skipped_from_sub_budget() -> None:
-    """Cross-retainer STRAIGHT rails skip the invalid-span and bucket checks.
+# --- Cross-retainer STRAIGHT rails ----------------------------------------
 
-    Local distance between endpoints on different retainers isn't physical
-    distance. Until we have world-coordinate math (blocked on baseplate
-    arrangement — PLAN.md open question), we skip these from the sub-budget
-    rather than false-positive flag them. The GDZJZA3J3T integration test
-    confirms this is necessary against real courses.
+def test_budget_rails_cross_retainer_balcony_retainer_is_skipped() -> None:
+    """Cross-retainer STRAIGHT touching a balcony retainer is skipped from the sub-budget.
 
-    The rail still counts toward the per-kind STRAIGHT budget since the
-    piece physically exists in the course.
+    Balcony retainers aren't resolved by _resolve_retainer_world_positions
+    (balcony cells live in a wall's coordinate space, not a layer's).
+    When either endpoint points to an unresolvable retainer — i.e. any
+    retainer_id not declared by a layer or a tile — the rail skips the
+    invalid-span and bucket checks. The rail still counts toward the
+    per-kind STRAIGHT budget.
+
+    This test uses retainer IDs 100/200 that aren't declared anywhere in
+    the course, which exercises the same fallback path as a balcony
+    retainer would: the helper has no mapping for those IDs, so we skip.
+
+    Balcony world-coord resolution is deferred to a probe-first follow-up
+    session — see docs/refs/layer-kinds-and-world-coords.md.
     """
-    # A rail with cross-retainer endpoints and a would-be invalid span (5).
-    # If we weren't skipping cross-retainer, this would emit "invalid span".
+    # A rail with cross-retainer endpoints pointing to unresolvable IDs
+    # and a would-be invalid local span (5). Local distance wouldn't be
+    # used anyway — the resolver lookup fails first.
     cross = _rail(
         RailKind.STRAIGHT,
         p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=5),
@@ -1104,6 +1120,108 @@ def test_budget_rails_cross_retainer_straight_is_skipped_from_sub_budget() -> No
     course = _course_with(_layer(), rails=(cross,))
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert violations == [], f"Expected no rail violations, got: {violations}"
+
+
+def test_budget_rails_cross_retainer_straight_valid_world_distance_passes() -> None:
+    """Cross-retainer STRAIGHT with a valid world distance validates through the bucket path.
+
+    Two layers with different world_hex_positions, each declaring a retainer.
+    A rail connecting them computes world distance = 2 → MEDIUM, well
+    within the 6-MEDIUM bucket budget. No violation.
+    """
+    # Layer A at world (0, 0), cell at local (0, 0) → world (0, 0).
+    # Layer B at world (0, 2), cell at local (0, 0) → world (0, 2).
+    # World distance between endpoints: 2 → MEDIUM.
+    layer_a = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=100,
+        world_hex_position=HexVector(y=0, x=0),
+    )
+    layer_b = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=200,
+        world_hex_position=HexVector(y=0, x=2),
+    )
+    # Endpoint local positions are both (0, 0). Local distance = 0.
+    # World distance = 2 (via resolver). Should validate as MEDIUM.
+    cross = _rail(
+        RailKind.STRAIGHT,
+        p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=0),
+        retainer_1=100, retainer_2=200,
+    )
+    course = _course_with(layer_a, layer_b, rails=(cross,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert violations == [], f"Expected no rail violations, got: {violations}"
+
+
+def test_budget_rails_cross_retainer_straight_invalid_world_distance_fires() -> None:
+    """Cross-retainer STRAIGHT whose world distance is outside {1,2,3} fires invalid-span.
+
+    Two layers far apart in world space. Previously (pre-unblock) this
+    would have been silently skipped because the retainer IDs differed.
+    Now the world distance gets computed and the bad span gets flagged.
+    """
+    # Layer A at world (0, 0), Layer B at world (0, 5). World distance = 5.
+    layer_a = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=100,
+        world_hex_position=HexVector(y=0, x=0),
+    )
+    layer_b = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=200,
+        world_hex_position=HexVector(y=0, x=5),
+    )
+    cross = _rail(
+        RailKind.STRAIGHT,
+        p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=0),
+        retainer_1=100, retainer_2=200,
+    )
+    course = _course_with(layer_a, layer_b, rails=(cross,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "invalid span" in v.message
+    assert "distance 5" in v.message
+    assert v.location is not None
+    assert v.location.rail_index == 0
+
+
+def test_budget_rails_cross_retainer_straight_counts_toward_bucket() -> None:
+    """Cross-retainer STRAIGHT rails count in their length bucket (not skipped).
+
+    7 cross-retainer MEDIUM rails between two world-distance-2 layers
+    against PRO Vertical's 6-MEDIUM budget → one bucket overrun violation.
+    Proves the unblock actually exercises the bucket check on cross-
+    retainer rails, not just the invalid-span check.
+    """
+    # Two layers 2 hexes apart in world space → MEDIUM bucket.
+    layer_a = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=100,
+        world_hex_position=HexVector(y=0, x=0),
+    )
+    layer_b = _layer(
+        _cell(TileKind.CURVE, y=0, x=0),
+        layer_id=200,
+        world_hex_position=HexVector(y=0, x=2),
+    )
+    # 7 cross-retainer rails, each resolving to world distance 2 (MEDIUM).
+    rails = tuple(
+        _rail(
+            RailKind.STRAIGHT,
+            p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=0),
+            retainer_1=100, retainer_2=200,
+        )
+        for _ in range(7)
+    )
+    course = _course_with(layer_a, layer_b, rails=rails)
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    v = violations[0]
+    assert "MEDIUM" in v.message
+    assert "7" in v.message
+    assert "6" in v.message
 
 
 # --- MISSING_STARTER_OR_GOAL ----------------------------------------------

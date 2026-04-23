@@ -106,7 +106,12 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
   deferred, 2 rules dropped. Baseplate sub-check fix (commit b8052e4) and
   cross-retainer rail unblock (commit a18cf87) both complete. Balcony
   world-coord resolution remains deferred as a probe-first follow-up.
-- `traxgen/generator.py` — **not started.** Pluggable by `GenerationMode`.
+- `traxgen/generator.py` — **M5.b-minimal done.** `generate_minimal()`
+  produces a 2-tile/1-rail course (STARTER + STRAIGHT + GOAL_RAIL on
+  one `BASE_LAYER_PIECE`) that passes `validate_strict` against PRO
+  Vertical and round-trips byte-perfect through the serializer. No
+  graph, no physics, hardcoded inventory. Future work: per-mode
+  dispatch via `GenerationMode`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
 Test coverage mirrors the module layout. Fixtures live at `tests/fixtures/`;
@@ -127,10 +132,23 @@ contents) lives at `docs/refs/`.
 4. **M4 Validator** — **done.** 12/12 v1 rules shipped, 3 Phase 2 rules
    deferred, 2 rules dropped. Given a domain object, correctly answer
    "is this legal?"
-5. **M5 Generator** — not started. Produces a valid domain object using
-   only inventory pieces.
-6. **M6 End-to-end** — not started. Generated file opens in the real
-   GraviTrax app.
+5. **M5 Generator** — **M5.b-minimal done** (commit 2d89e77).
+   `generate_minimal()` produces a valid domain object that passes
+   every v1 validator rule and round-trips byte-perfect. M5.a (track
+   graph) and M5.c (connection rules) not started — they unblock
+   generating anything non-adjacent or using pieces with non-trivial
+   exit geometry. Expanding the minimal generator in the meantime is
+   fair game (more tiles, more interesting shapes) as long as each
+   step continues to pass validate_strict and round-trip.
+6. **M6 End-to-end** — not started, but **sideload-ready.**
+   `scripts/dump_minimal_course.py` writes the 221-byte M5.b payload
+   to `/tmp/traxgen-minimal.course` on demand. M6 is the outcome
+   of opening that file in the GraviTrax app: either it loads (Phase
+   1 proven) or it fails with a specific symptom we debug. Likely
+   M6-blocking risks: GUID=0 rejection (fallback `secrets.randbits(128)`),
+   placeholder `side_hex_rot` values naming edges that don't exist on
+   STARTER / GOAL_RAIL, default creation_timestamp=0 triggering
+   metadata validation.
 
 ### M4 — validator design
 
@@ -351,7 +369,9 @@ Both modes reuse ~80% of Phase 1 code.
    the app uses to assign specific values within those ranges is still
    unknown. Inferable from more fixtures.
 6. **GUID generation** — the app may or may not validate course GUIDs.
-   M6-blocking risk. Try random first; regenerate if the app rejects.
+   M6-blocking risk. M5.b-minimal hardcodes GUID=0 for deterministic
+   round-trip tests; if the app rejects, the fallback is
+   `secrets.randbits(128)`.
 7. **Connection rules per tile type** — not in schema. Derive from physical
    specs and real fixtures.
 8. **`THREE_ENTRANCE_FUNNEL` TileKind assignment** — best-guess mapping
@@ -463,6 +483,24 @@ Both modes reuse ~80% of Phase 1 code.
   documented in `docs/refs/layer-kinds-and-world-coords.md`. The
   integration canary would surface any future fixture where the
   plural-baseplate treatment misfires.
+
+- **M5.b-minimal generator shipped (commit 2d89e77).**
+  `generate_minimal()` produces a 2-tile course — STARTER + GOAL_RAIL
+  bridged by a STRAIGHT rail on one `BASE_LAYER_PIECE` — that passes
+  every v1 validator rule and round-trips byte-perfect. Chose
+  `GOAL_RAIL` over `GOAL_BASIN` for the minimal goal: `GOAL_RAIL` is
+  a full tile (places at a cell root trivially), `GOAL_BASIN` is an
+  insert that needs a basic-tile-frame host. Both satisfy
+  `MISSING_STARTER_OR_GOAL`; the full-tile form is structurally
+  simpler. `scripts/dump_minimal_course.py` writes the 221-byte
+  payload to disk as the M6 handoff artifact.
+- **f32 precision breaks Python-equality in round-trip tests.** `-0.2`
+  stored as f32 reads back as `-0.20000000298023224`. Asserting
+  `reparse(serialize(course)) == course` fails on Python-float
+  mismatch despite the bytes round-tripping perfectly. The byte
+  round-trip is the real correctness contract; Python-float equality
+  after f32 serialization is not a promise we make. Don't write tests
+  that assume otherwise.
 
 ### Phase 2+ unknowns (don't block v1)
 

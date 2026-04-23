@@ -7,7 +7,14 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 ## Status
 
-Early development. Phase 1 goal: generate a topologically valid single-track course using the PRO Vertical Starter-Set (26832) that opens in the GraviTrax app.
+Early development. Parser, serializer, and validator are complete; the
+minimal generator (M5.b) produces a 2-tile / 1-rail course that passes
+every validation rule and round-trips byte-perfect through the
+serializer. Next: verify the generated file opens in the real GraviTrax
+app (M6).
+
+Phase 1 goal: generate a topologically valid single-track course using
+the PRO Vertical Starter-Set (26832) that opens in the GraviTrax app.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap including race mode and perpetual mode (Phase 3).
 
@@ -19,8 +26,13 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 git clone https://github.com/s3mi0tics/traxgen.git
 cd traxgen
 uv sync
-uv run python -m traxgen generate --set vertical-starter
+uv run python -m scripts.dump_minimal_course
+# wrote 221 bytes to /tmp/traxgen-minimal.course
 ```
+
+The unified `traxgen generate` CLI is not wired up yet — `dump_minimal_course`
+is a thin wrapper around the M5.b-minimal generator that writes to disk
+for app sideloading.
 
 ## Development
 

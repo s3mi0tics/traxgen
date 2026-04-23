@@ -7,7 +7,7 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 ## Status
 
-Early development. Phase 1 goal: generate a topologically valid single-track course using the Core Starter-Set (22410) that opens in the GraviTrax app.
+Early development. Phase 1 goal: generate a topologically valid single-track course using the PRO Vertical Starter-Set (26832) that opens in the GraviTrax app.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap including race mode and perpetual mode (Phase 3).
 
@@ -19,7 +19,7 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 git clone https://github.com/s3mi0tics/traxgen.git
 cd traxgen
 uv sync
-uv run python -m traxgen generate --set starter
+uv run python -m traxgen generate --set vertical-starter
 ```
 
 ## Development
@@ -39,8 +39,10 @@ uv run mypy traxgen               # type-check
 traxgen/
 ├── traxgen/              # main package
 ├── tests/                # pytest suite
-├── scripts/              # one-off utilities (fixture fetchers, etc.)
-└── docs/                 # planning + design docs
+├── scripts/              # one-off utilities (fixture fetchers, probes, etc.)
+└── docs/
+    ├── PLAN.md           # roadmap + design decisions
+    └── refs/             # reference material (rail specs, set contents, etc.)
 ```
 
 ## License

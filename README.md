@@ -10,11 +10,16 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 Early development. Parser, serializer, and validator are complete; the
 minimal generator (M5.b) produces a 2-tile / 1-rail course that passes
 every validation rule and round-trips byte-perfect through the
-serializer. Next: verify the generated file opens in the real GraviTrax
-app (M6).
+serializer. The transport path to the official app is reverse-engineered
+and verified: Ravensburger's share-code upload endpoint accepts
+traxgen-compatible binaries and returns a share code that loads in the
+app. Next: implement the upload client as a first-class module (M6.a),
+then round-trip a generated course through the share-code system into
+the real app (M6.b).
 
 Phase 1 goal: generate a topologically valid single-track course using
-the PRO Vertical Starter-Set (26832) that opens in the GraviTrax app.
+the PRO Vertical Starter-Set (26832) that loads in the GraviTrax app
+via its share-code system.
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap including race mode and perpetual mode (Phase 3).
 

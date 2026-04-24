@@ -105,6 +105,85 @@ Studio's Network Inspector won't attach. Worth knowing before
 spending time on mitmproxy setup for a third-party app — the
 apparently-obvious path is closed.
 
+### Time-box exploratory and reverse-engineering work up front
+When the work is exploratory (will this even succeed?) with a capped
+upside and open-ended downside, declare the budget before starting,
+not mid-session. The 2026-04-24 traxgen session had a 4-hour ceiling
+for app-integration work written into the opening plan. In practice
+the answer came at ~2 hours. The budget was still useful in that
+scenario because it made "stop now, we've won" a principled decision
+rather than a judgment call. Had the work gone sideways, the same
+budget would have made "stop now, this isn't working" principled
+too. Without a pre-declared budget, both endpoints are harder — the
+"we've won" case drifts into over-verification, and the "not working"
+case drifts into sunk-cost pushing.
+
+Applies to: reverse-engineering, debugging an unknown failure mode,
+evaluating whether a library/approach will work, any "spike" in the
+XP sense. Doesn't apply to: incremental feature work where progress
+is linear and a budget would just be noise.
+
+### Name the project's purpose before picking a technical direction
+When a project could reasonably go several technical directions,
+the deciding question is often non-technical: what is this *for*?
+The 2026-04-24 traxgen session surfaced this explicitly — "portfolio
+project that also has real user value" changed the path from "defer
+M6 and build the generator" to "bound the M6 investigation, then
+generator." Without naming the purpose, we'd have debated paths on
+technical merits alone and missed that portfolio value + fan value
+together argued for a different shape than either alone.
+
+Signs the project's purpose should be named explicitly: when
+reasonable options point in incompatible directions, when "what
+should I build next" has no clear answer, when you notice yourself
+re-litigating the same tradeoff across sessions. The question to
+ask (of oneself, or of the user): "A vs B vs C — which of these
+outcomes do you actually want?" Not "which is technically better."
+
+### "Each fix creates a new problem" — applied proactively
+The 2026-04-22 traxgen session surfaced this pattern the painful
+way (iOS → Android → writable-system → APEX → broken network).
+The 2026-04-24 session applied it proactively: before starting the
+iOS retry, we pre-declared "if GraviTrax traffic shows a TLS error
+in mitmproxy, we stop iOS and pivot — we do not start debugging
+cert pinning." The rule never triggered (no pinning), but having
+the rule in place meant there was no ambiguity about what "stop"
+meant if it had.
+
+Generalizes to: any session where we can predict the failure mode
+in advance. State the stop condition before starting. If the
+condition is met, stop is the default, "push through" requires
+explicit argument.
+
+### Multi-edit patch scripts with exact-match validation beat sed for documentation edits
+When updating a document with multiple independent edits (e.g.,
+PLAN.md with 9 edits across milestones, decisions table, unknowns,
+resolved list), a Python script that applies each edit with strict
+"old must match exactly once" validation is strictly better than
+sed. Reasons: (a) you see exactly which edit is about to run, with
+a description; (b) if the document has drifted from what you saw,
+the script errors out on the specific mismatched edit instead of
+silently applying wrong changes; (c) delta accounting (net chars
+added/removed per edit) is visible, giving a sanity check on
+whether each edit is the size you expected.
+
+Minimal pattern:
+
+    EDITS: list[tuple[str, str, str]] = [
+        (description, old, new),
+        ...
+    ]
+
+    for desc, old, new in EDITS:
+        count = text.count(old)
+        if count != 1:
+            raise SystemExit(f"edit {desc!r}: matched {count} times, expected 1")
+        text = text.replace(old, new)
+
+The "matched {count} times, expected 1" check is the critical part
+— it catches both "old text has drifted" (matches 0) and "old text
+is too generic and matches in multiple places" (matches N > 1).
+
 ---
 
 ## Patterns from building agentic systems (placeholder)

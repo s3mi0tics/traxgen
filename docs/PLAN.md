@@ -47,6 +47,10 @@ What to watch for when updating:
 | Project layout | Flat package (`traxgen/traxgen/`), not src-layout |
 | Validator API | Soft validation (returns list of Violations) + `validate_strict` wrapper |
 | Rail data model | Flat `Mapping[RailKind, int]` with separate `straight_rail_limits` for per-length counts |
+| Upload transport | Stdlib only (`urllib`), no `requests` dep |
+| Upload headers | Hardcoded as module constants matching real iOS app |
+| Upload error model | Rich exception types per failure mode |
+| Upload test strategy | In-process mock server default; live-endpoint canary gated by `network` marker |
 
 ### Inventory target change (from Core 22410 → PRO Vertical 26832)
 
@@ -81,10 +85,19 @@ without a rewrite.** Pieces carry energy metadata from day one (via
 A single command — `python -m traxgen generate --set vertical-starter` —
 produces a `.course` binary file that:
 
-1. Opens in the official GraviTrax app without errors.
-2. Uses only pieces from the PRO Vertical Starter-Set (26832) inventory.
-3. Has a valid ball path from a starter tile to a goal tile.
-4. Fits on the 4 baseplates the starter ships with.
+1. Is accepted by Ravensburger's share-code upload endpoint, which
+   returns a 10-character share code.
+2. When that share code is entered in the official GraviTrax app, the
+   course loads without errors.
+3. Uses only pieces from the PRO Vertical Starter-Set (26832) inventory.
+4. Has a valid ball path from a starter tile to a goal tile.
+5. Fits on the 4 baseplates the starter ships with.
+
+The original framing was "opens in the official app" via sideload.
+Sideload is architecturally unsupported — the iOS app does not accept
+`.course` files via AirDrop, Files, or any other local data-in path.
+The only way into the app is via Ravensburger's share-code system.
+See `docs/refs/upload-api.md` for the reverse-engineered upload endpoint.
 
 Non-goals for v1: interesting tracks, variety, physics simulation, aesthetics,
 race mode, perpetual mode. We are proving "the pipeline works end-to-end."
@@ -112,6 +125,15 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
   Vertical and round-trips byte-perfect through the serializer. No
   graph, no physics, hardcoded inventory. Future work: per-mode
   dispatch via `GenerationMode`.
+- `traxgen/uploader.py` — **not started, scope decided.** POSTs a
+  `.course` binary to Ravensburger's share-code endpoint and returns the
+  assigned code. Stdlib-only (no `requests` dependency), hardcoded headers
+  matching the real iOS app (v2.8.0.31080908, Unity 6000.0.66f2), rich
+  exception types (`UploadError` base + `UploadClientError`,
+  `UploadServerError`, `UploadMalformedResponse`, `UploadNetworkError`
+  subtypes), go-deep tests against an in-process mock server plus one
+  live-endpoint canary gated behind the `network` pytest marker. See
+  M6.a in the milestone list.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
 Test coverage mirrors the module layout. Fixtures live at `tests/fixtures/`;
@@ -140,15 +162,31 @@ contents) lives at `docs/refs/`.
    exit geometry. Expanding the minimal generator in the meantime is
    fair game (more tiles, more interesting shapes) as long as each
    step continues to pass validate_strict and round-trip.
-6. **M6 End-to-end** — not started, but **sideload-ready.**
-   `scripts/dump_minimal_course.py` writes the 221-byte M5.b payload
-   to `/tmp/traxgen-minimal.course` on demand. M6 is the outcome
-   of opening that file in the GraviTrax app: either it loads (Phase
-   1 proven) or it fails with a specific symptom we debug. Likely
-   M6-blocking risks: GUID=0 rejection (fallback `secrets.randbits(128)`),
-   placeholder `side_hex_rot` values naming edges that don't exist on
-   STARTER / GOAL_RAIL, default creation_timestamp=0 triggering
-   metadata validation.
+6. **M6 End-to-end** — **partially unblocked.** Split into two
+   sub-milestones after the 2026-04-24 session reverse-engineered the
+   share-code upload API:
+
+   - **M6.a Upload implementation** — not started, scope decided.
+     Implement `traxgen/uploader.py` per the module plan. Success: a
+     committed `.course` file from `tests/fixtures/` can be uploaded
+     via the new module's `upload_course()` function and a share code
+     returned. Tests pass against the mock server; the live-endpoint
+     canary passes when run manually.
+
+   - **M6.b Round-trip verification** — not started. Take the M5.b
+     minimal course, upload via M6.a, type the returned share code
+     into the real GraviTrax app on an iPhone, observe whether it
+     loads. This is the actual Phase 1 proof point. Likely M6.b-blocking
+     risks (unchanged from original M6 list): GUID=0 rejection
+     (fallback `secrets.randbits(128)`), placeholder `side_hex_rot`
+     values naming edges that don't exist on STARTER / GOAL_RAIL,
+     default creation_timestamp=0 triggering metadata validation.
+
+   Note on original M6 framing: the sideload-ready wording was from
+   before the iOS app was confirmed to reject all local data-in paths.
+   `scripts/dump_minimal_course.py` still exists and is useful for
+   producing test payloads, but the artifact now feeds M6.a (upload),
+   not sideload.
 
 ### M4 — validator design
 
@@ -369,9 +407,12 @@ Both modes reuse ~80% of Phase 1 code.
    the app uses to assign specific values within those ranges is still
    unknown. Inferable from more fixtures.
 6. **GUID generation** — the app may or may not validate course GUIDs.
-   M6-blocking risk. M5.b-minimal hardcodes GUID=0 for deterministic
-   round-trip tests; if the app rejects, the fallback is
-   `secrets.randbits(128)`.
+   M6.b-blocking risk (no longer M6.a — upload is content-agnostic
+   from the server's perspective as far as we've tested). M5.b-minimal
+   hardcodes GUID=0 for deterministic round-trip tests; if the app
+   rejects, the fallback is `secrets.randbits(128)`. Testing this is
+   cheaper post-M6.a: upload a GUID=0 course, type the code in, see
+   what happens.
 7. **Connection rules per tile type** — not in schema. Derive from physical
    specs and real fixtures.
 8. **`THREE_ENTRANCE_FUNNEL` TileKind assignment** — best-guess mapping
@@ -400,6 +441,19 @@ Both modes reuse ~80% of Phase 1 code.
     values but means the rule is stricter than the app. Worth testing
     empirically if the rule ever appears to false-positive on
     app-accepted courses.
+12. **Upload error response shapes.** The only upload response tested
+    is `200 OK` with `{"code": "..."}`. We don't know the status codes
+    or bodies returned for: malformed binary, oversized payload,
+    missing required headers, rate limiting, unsupported schema
+    versions. Needed for M6.a error handling — probe before writing
+    error-handling code. See `docs/refs/upload-api.md`.
+13. **Which upload headers are strictly required.** Real iOS app sends
+    `x-unity-version: 6000.0.66f2`, a specific `user-agent`, `accept: */*`,
+    and standard multipart headers. We've only verified the complete
+    set works. Whether `x-unity-version` is checked, whether any
+    user-agent works, whether `accept` matters — untested. Cargo-culting
+    the real app's headers is safe; stripping headers is a useful
+    experiment for a future session.
 
 ### Resolved since original plan
 
@@ -501,6 +555,30 @@ Both modes reuse ~80% of Phase 1 code.
   round-trip is the real correctness contract; Python-float equality
   after f32 serialization is not a promise we make. Don't write tests
   that assume otherwise.
+- **Sideload into the GraviTrax iOS app is architecturally
+  unsupported** (from the 2026-04-22 session). The app doesn't
+  register `.course` as an openable document type (AirDrop dead-
+  ends, Files app doesn't expose a per-app directory). The only
+  data-in path is Ravensburger's share-code API. Original M6 framing
+  ("sideload a generated file") is dead; new framing is "upload via
+  the share-code API."
+- **Upload API reverse-engineered and verified end-to-end**
+  (2026-04-24 session). `POST https://gravitrax.link.ravensburger.com
+  /api/upload/`, `multipart/form-data` with a single `file` field
+  named `course.trax`, raw binary payload, `x-unity-version` and
+  `user-agent` headers matching the real iOS app. Response is
+  `{"code": "<10-char-code>"}`. Verified by uploading
+  `tests/fixtures/GDZJZA3J3T.course` and receiving a valid code back.
+  Full details: `docs/refs/upload-api.md`.
+- **Ravensburger's server deduplicates uploads by content hash.**
+  Re-uploading GDZJZA3J3T's binary returned code `GDZJZA3J3T` — the
+  same code we started with. Implications: safe to re-upload for
+  testing, generator producing identical bytes gets an idempotent
+  code, new codes require distinct binary content.
+- **iOS GraviTrax app does not pin certs.** All app traffic
+  decrypted cleanly through mitmproxy with a trusted user CA. This
+  was the open question from the prior session. Answered empirically
+  in about 15 minutes once the proxy was back up.
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -560,6 +638,18 @@ starter-set-only fixtures if specific validator rules need a clean oracle.
 
 Endpoint for fetching fixtures: `murmelbahn.fly.dev/api/course/{code}/raw`.
 
+**Exploration under a time budget.** The 2026-04-24 session had a
+hard 4-hour budget for app-integration work (iOS mitmproxy, and
+Android apktool as fallback if iOS pinned). The budget was written
+into the session's opening plan, not discovered mid-work. Useful
+because: (a) it forced a real "stop when we've won" decision at
+~2 hours when the upload was captured, instead of drifting into
+over-verification, and (b) it gave a principled stopping point if
+pinning had blocked iOS — avoiding the "each fix creates a new
+problem" pattern that sank the previous session's Android pivot.
+Worth repeating for future exploratory/reverse-engineering work
+where the upside is capped and the downside is open-ended.
+
 ---
 
 ## Environment notes
@@ -616,3 +706,7 @@ Ravensburger listings have been the least reliable in practice.
   26832, plus behavioral quirks (switch state, cannon single-use).
 - `starter-set-manual/` — photos of relevant manual pages; primary source
   for rail Δheight specs.
+- `upload-api.md` — reverse-engineered GraviTrax share-code upload
+  endpoint. Captured 2026-04-24 via mitmproxy on the real iOS app.
+  Endpoint shape, headers, response format, deduplication behavior,
+  and explicit "tested vs untested" markers.

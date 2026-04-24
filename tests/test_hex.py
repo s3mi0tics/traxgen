@@ -12,7 +12,8 @@ Path: traxgen/tests/test_hex.py
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from traxgen.hex import HEX_DIRECTIONS, ORIGIN, CubeVector, HexVector
 
@@ -30,7 +31,7 @@ class TestHexVectorBasics:
     """Basic construction, equality, conversion."""
 
     def test_origin_is_zero_zero(self) -> None:
-        assert ORIGIN == HexVector(0, 0)
+        assert HexVector(0, 0) == ORIGIN
 
     def test_hex_vectors_are_equal_when_coords_match(self) -> None:
         assert HexVector(1, 2) == HexVector(1, 2)

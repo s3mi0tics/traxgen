@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from traxgen.parser import parse_course
 
 data = Path("tests/fixtures/GDZJZA3J3T.course").read_bytes()

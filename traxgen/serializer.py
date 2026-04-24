@@ -33,7 +33,6 @@ from traxgen.domain import (
 from traxgen.hex import HexVector
 from traxgen.types import CourseSaveDataVersion
 
-
 # Null / unset sentinels — must match parser.py exactly.
 _RETAINER_ID_NULL_SENTINEL = -2147483647
 _POWER_SIGNAL_NONE_SENTINEL = 0x80000000

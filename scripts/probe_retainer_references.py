@@ -36,7 +36,7 @@ from traxgen.parser import parse_course
 
 def _iter_all_tile_retainer_ids(course: Course) -> list[tuple[int, str]]:
     """Yield (retainer_id, source_description) for every non-null tile retainer_id."""
-    from traxgen.domain import CellConstructionData, TileTowerTreeNodeData
+    from traxgen.domain import TileTowerTreeNodeData
 
     def walk(node: TileTowerTreeNodeData, source: str) -> list[tuple[int, str]]:
         out: list[tuple[int, str]] = []
@@ -191,10 +191,10 @@ def main() -> None:
     print("\n" + "=" * 72)
     print("SUMMARY")
     print("=" * 72)
-    print(f"Declarers:")
+    print("Declarers:")
     print(f"  {len(layer_ids)} layer_ids + {len(tile_retainer_ids)} tile retainer_ids + "
           f"{len(balcony_retainer_ids)} balcony retainer_ids = {len(all_ids)} total")
-    print(f"References:")
+    print("References:")
     print(f"  {len(rail_refs)} rail endpoints + {len(pillar_refs)} pillar endpoints + "
           f"{len(wall_refs)} wall tower refs")
     print(f"Missing references: rail={len(rail_missing)}, pillar={len(pillar_missing)}, "

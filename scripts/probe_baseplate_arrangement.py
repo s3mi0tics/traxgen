@@ -98,8 +98,8 @@ def main() -> None:
         max_dist_from_origin = max(HexVector(0, 0).distance_to(o) for o in origins)
         print(f"    furthest cell from local (0,0): {max_dist_from_origin} hexes")
         # Sample cell positions (first 6, sorted).
-        positions_sorted = sorted(((c.local_hex_position.y,
-                                     c.local_hex_position.x) for c in cells))[:6]
+        positions_sorted = sorted((c.local_hex_position.y,
+                                     c.local_hex_position.x) for c in cells)[:6]
         print(f"    sample positions: {positions_sorted}")
 
     # --- Q3: World-position relationships between baseplates -------------

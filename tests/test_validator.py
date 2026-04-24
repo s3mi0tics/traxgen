@@ -44,7 +44,6 @@ from traxgen.validator import (
     validate_strict,
 )
 
-
 # --- Builders -------------------------------------------------------------
 
 def _empty_course() -> Course:
@@ -2544,7 +2543,7 @@ def test_wall_endpoint_missing_strict_raises() -> None:
 # This is our canary for assumption drift as we add more rules. If this
 # starts failing after a rule change, we investigate before shipping.
 
-def _unlimited_inventory() -> "Inventory":  # type: ignore[name-defined]
+def _unlimited_inventory() -> Inventory:  # type: ignore[name-defined]
     """Build an inventory with huge budgets for every TileKind, rail, and structural piece."""
     from types import MappingProxyType
 
@@ -2558,16 +2557,16 @@ def _unlimited_inventory() -> "Inventory":  # type: ignore[name-defined]
     big = 10_000
     return Inventory(
         name="unlimited (integration test)",
-        tiles=MappingProxyType({kind: big for kind in TileKind}),
-        rails=MappingProxyType({kind: big for kind in RailKind}),
-        straight_rail_limits=MappingProxyType({length: big for length in RailLength}),
+        tiles=MappingProxyType(dict.fromkeys(TileKind, big)),
+        rails=MappingProxyType(dict.fromkeys(RailKind, big)),
+        straight_rail_limits=MappingProxyType(dict.fromkeys(RailLength, big)),
         baseplates=big,
         transparent_levels=big,
         marbles=big,
         basic_tile_frames=big,
         structural=StructuralInventory(
-            pillars=MappingProxyType({kind: big for kind in PillarKind}),
-            walls=MappingProxyType({kind: big for kind in WallKind}),
+            pillars=MappingProxyType(dict.fromkeys(PillarKind, big)),
+            walls=MappingProxyType(dict.fromkeys(WallKind, big)),
             single_balconies=big,
             double_balconies=big,
         ),

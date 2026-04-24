@@ -551,7 +551,7 @@ def _check_inventory_budget_rails(
 
 
 def _check_missing_starter_or_goal(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """MISSING_STARTER_OR_GOAL: course must contain at least one starter and one goal tile.
 
@@ -602,7 +602,7 @@ def _check_missing_starter_or_goal(
 
 
 def _check_layer_id_collision(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """LAYER_ID_COLLISION: every layer_id in course.layer_construction_data must be unique.
 
@@ -647,7 +647,7 @@ def _check_layer_id_collision(
 
 
 def _check_rotation_out_of_range(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """ROTATION_OUT_OF_RANGE: hex_rotation and side_hex_rot must be in [0, 5].
 
@@ -721,7 +721,7 @@ def _check_rotation_out_of_range(
 
 
 def _check_cell_collision(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """CELL_COLLISION: no two cells on the same layer share a local_hex_position.
 
@@ -807,7 +807,7 @@ def _collect_retainer_declarers(course: Course) -> list[tuple[int, str]]:
 
 
 def _check_retainer_id_collision(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """RETAINER_ID_COLLISION: retainer IDs must be unique across all declarer sources.
 
@@ -860,7 +860,7 @@ def _check_retainer_id_collision(
 
 
 def _check_rail_endpoint_missing(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """RAIL_ENDPOINT_MISSING: every rail endpoint must reference a declared retainer.
 
@@ -910,7 +910,7 @@ def _check_rail_endpoint_missing(
 
 
 def _check_pillar_endpoint_missing(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """PILLAR_ENDPOINT_MISSING: pillar endpoints must reference declared retainers.
 
@@ -956,7 +956,7 @@ def _check_pillar_endpoint_missing(
 
 
 def _check_wall_endpoint_missing(
-    course: Course, inventory: Inventory  # noqa: ARG001
+    course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
     """WALL_ENDPOINT_MISSING: wall stacker-tower references must resolve.
 

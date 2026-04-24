@@ -125,15 +125,19 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
   Vertical and round-trips byte-perfect through the serializer. No
   graph, no physics, hardcoded inventory. Future work: per-mode
   dispatch via `GenerationMode`.
-- `traxgen/uploader.py` — **not started, scope decided.** POSTs a
-  `.course` binary to Ravensburger's share-code endpoint and returns the
-  assigned code. Stdlib-only (no `requests` dependency), hardcoded headers
-  matching the real iOS app (v2.8.0.31080908, Unity 6000.0.66f2), rich
-  exception types (`UploadError` base + `UploadClientError`,
-  `UploadServerError`, `UploadMalformedResponse`, `UploadNetworkError`
-  subtypes), go-deep tests against an in-process mock server plus one
-  live-endpoint canary gated behind the `network` pytest marker. See
-  M6.a in the milestone list.
+- `traxgen/uploader.py` — **done.** `upload_course(binary, *,
+  timeout=30.0) -> str` POSTs a `.course` binary to Ravensburger's
+  share-code endpoint and returns the assigned 10-character code.
+  Stdlib-only (no `requests` dependency), hardcoded headers matching
+  the real iOS app (v2.8.0.31080908, Unity 6000.0.66f2). Exception
+  hierarchy: `UploadError` base + `UploadClientError` (4xx),
+  `UploadServerError` (5xx), `UploadMalformedResponseError` (2xx with
+  unexpected body), `UploadNetworkError` (DNS/TLS/connection/timeout).
+  16 unit tests against an in-process `http.server` mock covering
+  wire shape, payload integrity, boundary collision regeneration,
+  response parsing, and all four error paths. One live-endpoint canary
+  (`@pytest.mark.network`) verified against the real endpoint.
+  CLI wrapper at `scripts/upload_course.py`.
 - `traxgen/physics.py` — **not started.** Stub for Phase 2.
 
 Test coverage mirrors the module layout. Fixtures live at `tests/fixtures/`;
@@ -166,12 +170,14 @@ contents) lives at `docs/refs/`.
    sub-milestones after the 2026-04-24 session reverse-engineered the
    share-code upload API:
 
-   - **M6.a Upload implementation** — not started, scope decided.
-     Implement `traxgen/uploader.py` per the module plan. Success: a
-     committed `.course` file from `tests/fixtures/` can be uploaded
-     via the new module's `upload_course()` function and a share code
-     returned. Tests pass against the mock server; the live-endpoint
-     canary passes when run manually.
+   - **M6.a Upload implementation** — **done.** Shipped
+     `traxgen/uploader.py` with the full exception hierarchy, in-process
+     mock-server tests, and one live-endpoint canary. Committed
+     `tests/fixtures/GDZJZA3J3T.course` round-trips through
+     `upload_course()` and returns `GDZJZA3J3T` (content-hash dedup).
+     `scripts/upload_course.py` provides the CLI wrapper. Default
+     pytest addopts updated with `-m 'not network'` so the canary is
+     skipped unless requested via `uv run pytest -m network`.
 
    - **M6.b Round-trip verification** — not started. Take the M5.b
      minimal course, upload via M6.a, type the returned share code
@@ -441,19 +447,14 @@ Both modes reuse ~80% of Phase 1 code.
     values but means the rule is stricter than the app. Worth testing
     empirically if the rule ever appears to false-positive on
     app-accepted courses.
-12. **Upload error response shapes.** The only upload response tested
-    is `200 OK` with `{"code": "..."}`. We don't know the status codes
-    or bodies returned for: malformed binary, oversized payload,
-    missing required headers, rate limiting, unsupported schema
-    versions. Needed for M6.a error handling — probe before writing
-    error-handling code. See `docs/refs/upload-api.md`.
-13. **Which upload headers are strictly required.** Real iOS app sends
+12. **Which upload headers are strictly required.** Real iOS app sends
     `x-unity-version: 6000.0.66f2`, a specific `user-agent`, `accept: */*`,
     and standard multipart headers. We've only verified the complete
     set works. Whether `x-unity-version` is checked, whether any
     user-agent works, whether `accept` matters — untested. Cargo-culting
     the real app's headers is safe; stripping headers is a useful
-    experiment for a future session.
+    experiment for a future session. (Previously numbered #13; #12
+    resolved during M6.a — see "Resolved since original plan".)
 
 ### Resolved since original plan
 
@@ -579,6 +580,16 @@ Both modes reuse ~80% of Phase 1 code.
   decrypted cleanly through mitmproxy with a trusted user CA. This
   was the open question from the prior session. Answered empirically
   in about 15 minutes once the proxy was back up.
+- **Upload endpoint does not validate payload content** (2026-04-24
+  M6.a session). Probed with a deliberately truncated payload — 100
+  bytes of GDZJZA3J3T.course sent to the upload endpoint. Server
+  returned `200 OK` with a fresh 10-character code. Implications:
+  `upload_course()`'s 4xx/5xx exception paths exist for completeness
+  but are unreachable via normal use; payload validation (if any)
+  happens at render time when the app downloads and parses the code,
+  not at upload. Error-handling code in `uploader.py` is therefore
+  transport-level only (DNS, TLS, connection, timeout, and defensive
+  handling of surprising server responses).
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -610,6 +621,17 @@ Both modes reuse ~80% of Phase 1 code.
   `goal_kinds` parameters on `validate()`, or a future `ValidatorConfig`
   object, or mode-aware dispatch from `GenerationMode`. Design when a
   real consumer forces the shape — don't pre-build.
+- **Pre-existing lint debt.** `uv run ruff check .` surfaces 38
+  remaining issues across `traxgen/`, `tests/`, and `scripts/` after the
+  auto-fix pass in commit c37bc22. Categories: `E501` long lines
+  (docstring summaries, long f-string messages), `B008`
+  function-call-in-default (HexVector defaults in test builders),
+  `RUF002` ambiguous Unicode `×` in docstrings, `RUF005`
+  tuple-concatenation → unpacking, one `F821` forward-reference
+  suppressed with `# type: ignore[name-defined]` that could be a
+  proper import. All pre-existing — none introduced by M6.a work.
+  None are bugs; they need per-case judgment and are worth a dedicated
+  cleanup session rather than mixing with feature work.
 
 ---
 

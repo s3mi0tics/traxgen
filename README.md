@@ -7,15 +7,13 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 ## Status
 
-Early development. Parser, serializer, and validator are complete; the
-minimal generator (M5.b) produces a 2-tile / 1-rail course that passes
-every validation rule and round-trips byte-perfect through the
-serializer. The transport path to the official app is reverse-engineered
-and verified: Ravensburger's share-code upload endpoint accepts
-traxgen-compatible binaries and returns a share code that loads in the
-app. Next: implement the upload client as a first-class module (M6.a),
-then round-trip a generated course through the share-code system into
-the real app (M6.b).
+Early development. Parser, serializer, validator, and minimal generator
+(M5.b) are complete; the uploader (M6.a) is complete and verified
+against the live endpoint. `upload_course()` POSTs a `.course` binary
+to Ravensburger's share-code endpoint and returns the 10-character
+code. Next: round-trip a generated course through the share-code
+system into the real app (M6.b) — upload a generated minimal course,
+type the code into the GraviTrax iOS app, see if it loads.
 
 Phase 1 goal: generate a topologically valid single-track course using
 the PRO Vertical Starter-Set (26832) that loads in the GraviTrax app
@@ -31,13 +29,21 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 git clone https://github.com/s3mi0tics/traxgen.git
 cd traxgen
 uv sync
+
+# Generate the M5.b minimal course (2 tiles + 1 rail, writes 221 bytes).
 uv run python -m scripts.dump_minimal_course
 # wrote 221 bytes to /tmp/traxgen-minimal.course
+
+# Upload a .course binary and print the assigned share code.
+uv run python -m scripts.upload_course tests/fixtures/GDZJZA3J3T.course
+# uploading GDZJZA3J3T.course (6342 bytes) to https://gravitrax.link.ravensburger.com/api/upload/
+# share code: GDZJZA3J3T
+# GDZJZA3J3T
 ```
 
 The unified `traxgen generate` CLI is not wired up yet — `dump_minimal_course`
-is a thin wrapper around the M5.b-minimal generator that writes to disk
-for app sideloading.
+is a thin wrapper around the M5.b-minimal generator and `upload_course`
+is a thin wrapper around `traxgen.uploader.upload_course`.
 
 ## Development
 

@@ -203,3 +203,78 @@ _Learnings that started as session-specific but generalized.
 Promote here when they've survived at least one subsequent session._
 
 (empty for now)
+
+
+## 2026-04-24 M6.a session
+
+### "Probe minimally, write, iterate" worked
+
+Session opened with exactly one open question that probing could answer:
+what the upload endpoint returns on malformed input. Policy going in
+was "one probe, then write." One truncated-payload probe resolved it —
+server returned 200 and a fresh code, telling us the endpoint is
+content-agnostic at upload time. No further probing (oversized,
+missing headers, rate limits) because the answer to the first probe
+already told us there's nothing useful to design around.
+
+The rule of thumb: probe until the next probe would not change what
+you write, then stop. "Probe until you understand everything" is a
+trap — you can always think of another experiment. For M6.a, "one
+probe" was correct; for the retainer-family probe in M4, "many probes"
+was correct. The difference is that M4's probes each updated the
+schema interpretation (changing what the validator would do); M6.a's
+hypothetical second probe would have updated nothing.
+
+### Narrow lint scope when there's pre-existing debt
+
+Ran `uv run ruff check .` at the start of the final-checks step and
+got 61 errors. Looked alarming for a moment — then every single one
+turned out to be in files we hadn't touched (probe scripts, test_hex,
+test_validator, _diff, hex, serializer, validator). Our three M6.a
+files were clean.
+
+Lesson: when a repo has accumulated pre-existing lint debt, a broad
+lint run during review buries the signal. Narrow to the files actually
+changed in the current work. Once the current work is confirmed
+clean, then a separate pass can triage the pre-existing debt as its
+own chore — don't mix "this session's lint" with "the repo's lint."
+
+We did the triage anyway (auto-fixed 23 of the 61, left 38 as a new
+deferred-cleanup item) but committed it as its own commit, not as
+part of M6.a.
+
+### Four-cluster commit untangling
+
+When `git status` came up at the end of M6.a, the working tree had
+four overlapping change clusters that had never been properly
+separated:
+
+1. Last session's doc updates (README, PLAN, agentic-workflow-notes,
+   upload-api.md) — never committed in the previous session.
+2. This session's M6.a work (uploader.py, test_uploader.py,
+   pyproject.toml addopts change).
+3. The CLI wrapper (scripts/upload_course.py).
+4. Ruff auto-fixes touching 7 unrelated files (validator.py,
+   serializer.py, probe_*.py, tests/test_hex.py, tests/test_validator.py).
+
+Instead of one giant "M6.a and everything else" commit, we staged and
+committed each cluster separately — four commits, each with a focused
+message. The extra two minutes of filepath juggling paid off: if any
+one commit breaks something later, bisect points at it cleanly.
+
+Generalizable rule: before committing a session's work, run
+`git status` and categorize the changes by *why* they exist. If
+there's more than one "why," commit them separately. A commit's
+mental model should be one paragraph — if you'd need two to explain
+it, it's two commits.
+
+### Living-docs commit at session end, not mid-session
+
+Handoff prompt says "propose updated versions at session end" and
+this session confirmed the value. The PLAN.md changes needed to
+reflect M6.a's completion — not an intermediate state. Attempting to
+update PLAN.md mid-session would have meant revising it every time we
+learned something new (the probe finding, the 38-remaining-lint
+number, the exact commit hashes). By batching at the end, each
+living-doc change is a single stable edit against a known state of
+the world.

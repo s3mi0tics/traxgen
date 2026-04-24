@@ -64,6 +64,8 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    "-m",
+    "not network",
 ]
 markers = [
     "integration: integration tests, may be slow",

@@ -4,12 +4,12 @@ version = "0.0.1"
 description = "Procedural generator for GraviTrax marble run courses"
 readme = "README.md"
 requires-python = ">=3.12"
-license = "MIT"
+license = "Apache-2.0"
 authors = [{ name = "s3mi0tics" }]
 keywords = ["gravitrax", "marble-run", "procedural-generation", "hex-grid"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.12",
     "Topic :: Games/Entertainment",
 ]

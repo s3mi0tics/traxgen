@@ -43,3 +43,7 @@ htmlcov/
 # Course fixtures ARE committed (they're test data from public API).
 # Exclude only private scratch files:
 tests/scratch/
+
+# One-shot patch scripts that apply living-doc updates and aren't reused.
+# Each session writes its own and runs it once; the diff is committed, not the script.
+scripts/update_docs_*.py

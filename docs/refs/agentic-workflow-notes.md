@@ -278,3 +278,102 @@ learned something new (the probe finding, the 38-remaining-lint
 number, the exact commit hashes). By batching at the end, each
 living-doc change is a single stable edit against a known state of
 the world.
+
+
+## 2026-04-24 M6.b session
+
+### Silent clipboard failures can invalidate hours of test results
+
+When a test loop involves copy-pasting short strings between two
+devices (Mac → iPhone in this case, via iCloud Universal Clipboard),
+and the clipboard sync silently fails, the user keeps pasting the
+*last successful* string while believing they're pasting the new
+one. Every test renders the same output because it's literally the
+same input. From the debug perspective, this looks like "the
+generator produces consistent output regardless of what we change"
+— which sends debugging in exactly the wrong direction.
+
+Lesson: in any manual test loop with a copy-paste step, **verify the
+input got through** before interpreting the output. Options: type a
+sentinel character the user doesn't expect, display the code on-screen
+at the testing device for visual comparison, or (the real fix)
+automate the step so there's no clipboard involved.
+
+This failure mode is particularly insidious because:
+- The user had no indication the clipboard was broken (it worked
+  for normal copy-paste during other tasks).
+- The "same result every time" pattern rationalizes well as
+  "something about our generator is wrong in a specific way" — i.e.
+  the false hypothesis is plausible.
+- Every new hypothesis test gets "confirmation" from the ghost data.
+
+Related lesson: **confirmation of a result must include confirmation
+that the input reached the system.** This is a pattern that should
+appear in any automation we build going forward — log the exact bytes
+that were sent to the target, not just the result from the target.
+
+### Build an oracle from the real system's own output
+
+When reverse-engineering a data format, it's tempting to guess-and-
+check: write some bytes, feed them to the target, see what happens.
+This burns iterations. A much cheaper technique: use the real
+system to produce its own output, capture those bytes, then you have
+a reference to compare against.
+
+For traxgen this meant: build a minimal course inside the real
+GraviTrax app, save it to get a share code, download the bytes via
+the existing download API, and now we have byte-level ground truth
+for what the real system considers a valid minimal course. Immediately
+revealed a schema version mismatch (app writes v7, we know v4) that
+could have been chased for hours otherwise.
+
+This works whenever the target system has:
+- A persistent storage/export path (save, share, download).
+- A way to read back its own exports (download API, share-code
+  resolution, etc).
+- A minimal input surface (the ability to create a small example).
+
+Generalizes to: protocol reverse-engineering, binary format work,
+API response diffing, storage schema inference. Any time the question
+is "what would the real system produce for case X?", ask the real
+system instead of guessing.
+
+### Byte-by-byte parser traces reveal schema deltas precisely
+
+When a parser fails on a file at an unexpected point ("100 is not a
+valid LayerKind" when we expected kind=0 for a baseplate), the
+useful debugging move is to walk the reader through the file
+manually up to that point, printing each read with its offset and
+value. You see exactly where alignment starts to drift.
+
+For this session, the parser failed at "read layer_kind = 100"; the
+byte-trace showed the reader was at offset 0x3A trying to interpret
+bytes that we'd read in v4 at offset 0x3E as layer_kind. The 4-byte
+offset delta — plus the clear presence of the value `0x0d = 13` at
+the spot where v4 has nothing — revealed the v7 schema insertion
+with high confidence.
+
+Pattern to reuse: when a parse fails at field X with a surprising
+value, print each field the parser just read with its offset. The
+alignment drift tells you where the structural difference lives.
+`scripts/trace_both.py` in this repo is a concrete template for
+doing this against two files simultaneously (the failing one vs. a
+known-good one).
+
+### Manual verification is a production blocker, not just a speed issue
+
+Intuition going into M6.b was "typing share codes is slow but it
+works." Reality: the slow loop *plus* the silent-failure mode
+(copy-paste ghost) meant verification was unreliable, not just slow.
+Those are very different problems. Slow verification can drive
+iteration if each cycle is trustworthy. Unreliable verification
+poisons debugging because "same output" could mean "my change
+didn't take effect" or "my change took effect and was silently
+ignored" or "my change was discarded by the test harness." You
+can't tell which.
+
+Automation was the right pivot — not because it's faster, but
+because it collapses the ambiguity: the automation log shows the
+exact code that was typed and the exact screenshot that resulted.
+The same failure mode becomes a 5-line diff in a log, not an
+undetectable ghost.

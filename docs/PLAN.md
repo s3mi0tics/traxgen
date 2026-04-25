@@ -179,20 +179,85 @@ contents) lives at `docs/refs/`.
      pytest addopts updated with `-m 'not network'` so the canary is
      skipped unless requested via `uv run pytest -m network`.
 
-   - **M6.b Round-trip verification** — not started. Take the M5.b
-     minimal course, upload via M6.a, type the returned share code
-     into the real GraviTrax app on an iPhone, observe whether it
-     loads. This is the actual Phase 1 proof point. Likely M6.b-blocking
-     risks (unchanged from original M6 list): GUID=0 rejection
-     (fallback `secrets.randbits(128)`), placeholder `side_hex_rot`
-     values naming edges that don't exist on STARTER / GOAL_RAIL,
-     default creation_timestamp=0 triggering metadata validation.
+   - **M6.b Round-trip verification** — in progress. Multiple
+     generated courses uploaded and typed into the GraviTrax iOS
+     app during the 2026-04-24 session. Outcomes: the pipeline is
+     alive (courses render, not all correctly), several original
+     risks disproved, new unknowns surfaced, and a manual-loop
+     bottleneck made M6.c (automation) the prerequisite for
+     finishing M6.b.
+
+     **Disproved risks** (no longer M6.b-blocking):
+     - GUID=0 is accepted by the app.
+     - `creation_timestamp=0` is accepted by the app.
+     - `exit_local_pos_y=0.0` was speculated to break rails; tested
+       with 0.27 (fixture convention) and rail still doesn't render
+       — so 0.0-vs-0.27 wasn't the blocker.
+
+     **Tentative findings** (consistent with the data we have but
+     not tightly verified, because the session had a separately-
+     discovered silent-copy-paste failure mode that invalidates
+     intermediate observations):
+     - `local_hex_position` appears to be honored. An 8-code sweep
+       (y ∈ {-2, -3}, x ∈ {0, 1, 2, 3}, single STARTER each) was
+       run and the user reported visual confirmation of distinct
+       positions, but the manual loop is exactly what makes this
+       observation hard to trust. M6.c's automation should
+       re-verify before this gets promoted to "Resolved".
+     - GOAL_RAIL appears to be a full root-placeable tile (catalog
+       was right). When placed at a plate-edge position (observed
+       in share code LTYSMDY9GG at local (-1, 1)), it rendered as
+       a cantilevered piece extending past the plate edge.
+
+     **Remaining unknowns for M6.b**:
+     - Why do rails not render alongside multi-cell courses? In the
+       STARTER+GOAL_RAIL+rail test at (-1, 0) ↔ (-1, 1), the two
+       tiles rendered but no visible rail connected them.
+       `side_hex_rot` semantics (open unknown #2) is the leading
+       candidate.
+     - Schema version 7 delta. An app-saved minimal course came
+       back at version=7 (not our version=4 POWER_2022), with 4
+       extra bytes post-metadata at offset 0x2E-0x31 whose value
+       is `0x0d = 13`. Meaning unknown. Plus a new `LayerKind =
+       100` enum value neither we nor murmelbahn's Rust source
+       knows about.
+
+     **Artifacts from the session (uncommitted, preserved locally)**:
+     - `tests/fixtures/oracle/4YCV8JHLX7.course` — 206-byte oracle,
+     app-built minimal course (STARTER + rail + GOAL_RAIL),
+     version 7. Kept uncommitted until M6.c confirms the
+     automation harness can use it.
+     - `scripts/trace_both.py` — byte-by-byte diagnostic that
+     parses the oracle as v7 (via monkey-patched enum) and
+     prints the metadata region side-by-side with GDZJZA3J3T.
 
    Note on original M6 framing: the sideload-ready wording was from
    before the iOS app was confirmed to reject all local data-in paths.
    `scripts/dump_minimal_course.py` still exists and is useful for
    producing test payloads, but the artifact now feeds M6.a (upload),
    not sideload.
+
+   - **M6.c Automated render verification** — not started, but is
+     the prerequisite for finishing M6.b. The 2026-04-24 session
+     established that manual typing of share codes into a physical
+     iPhone is too slow and error-prone to drive generator
+     iteration (one session lost several hours to silent Mac→iPhone
+     copy-paste failures that produced ghost results). Plan: install
+     the GraviTrax Android app in an Android Studio emulator, drive
+     the code-entry flow via `adb` (typed input + tap injection),
+     and capture screenshots for each generated course. Once the
+     loop is under 30 seconds per candidate, M6.b's remaining
+     unknowns (rail rendering, `side_hex_rot` convention, v7 schema
+     delta) become tractable. See `docs/HANDOFF_M6c.md`.
+
+     Known risk: a previous session's Android work (mitmproxy
+     cert-pinning) sank into the "each fix creates a new problem"
+     pattern. UI automation is a different technical problem than
+     HTTPS interception, but the failure mode is worth remembering.
+     Pre-declare a time budget (4 hours for emulator setup) and a
+     stop condition (if GraviTrax won't install or render in the
+     emulator, pivot to physical-device automation via adb over
+     USB).
 
 ### M4 — validator design
 
@@ -389,7 +454,14 @@ Both modes reuse ~80% of Phase 1 code.
    observe which TileKind shows up. See
    `docs/refs/pro-vertical-starter-set-26832.md`.
 2. **Rail `side_hex_rot` semantics** — which of 6 hex edges it identifies.
-   Inferable from fixtures when M5 needs it.
+   M6.b confirmed it matters: generated courses with STARTER + GOAL_RAIL
+   + STRAIGHT rail using our guess (0 = East exit on STARTER, 3 = West
+   entrance on GOAL_RAIL neighbor) render both tiles but no visible
+   rail. Fixtures have rail `side_hex_rot` values 0-5 spread across
+   rails, so the range is right — the convention or our endpoint
+   assignment is wrong. A 6-way sweep on exit_1 (with exit_2 fixed)
+   was the next diagnostic planned at session end; prerequisite is
+   M6.c automation.
 3. **Baseplate physical shape.** World-coord arithmetic
    (`world_hex_position + cell_local_hex_pos = physical hex`) is resolved
    for layer and tile retainers — probe 3865bcb confirmed disjoint
@@ -455,6 +527,25 @@ Both modes reuse ~80% of Phase 1 code.
     the real app's headers is safe; stripping headers is a useful
     experiment for a future session. (Previously numbered #13; #12
     resolved during M6.a — see "Resolved since original plan".)
+13. **Schema version 7 delta.** Courses saved by the current iOS
+    GraviTrax app (v2.8.0.31080908) come back as version = 7, not
+    version = 4 (POWER_2022). Neither our code nor murmelbahn's
+    Rust source knows about version 6 or 7. Byte trace of the
+    oracle `4YCV8JHLX7.course` (uncommitted, local only) shows:
+    header + metadata are structurally identical through offset
+    0x28; then 4 extra bytes appear at offset 0x2E-0x31 with value
+    `0x0d = 13`; then the layer_count / layer_id / layer_kind /
+    etc. sequence resumes. Meaning of the `13` is unknown. Might
+    be a new `CourseElementGeneration` value, a schema sub-version,
+    or something else. Until resolved, the parser can't read
+    app-saved courses. See `scripts/trace_both.py`.
+14. **Unknown LayerKind value 100 in v7 courses.** The oracle's
+    first layer declares `layer_kind = 100`. Neither our enum nor
+    murmelbahn's stops above 4. Could be a new layer type
+    introduced since 2023 (possibly related to the Skytrax update
+    per App Store changelog), or could be a parse-alignment
+    artifact if #13's delta is larger than we think. Resolving
+    #13 is a prerequisite.
 
 ### Resolved since original plan
 
@@ -590,6 +681,25 @@ Both modes reuse ~80% of Phase 1 code.
   not at upload. Error-handling code in `uploader.py` is therefore
   transport-level only (DNS, TLS, connection, timeout, and defensive
   handling of surprising server responses).
+- **Mac→iPhone clipboard is unreliable for share codes.** Multiple
+  hours of the M6.b session were wasted diagnosing "courses that
+  looked identical across many test variants" that turned out to
+  be the same original cached code being pasted repeatedly while
+  iCloud Universal Clipboard silently failed. The first code that
+  verifiably rendered fresh was HKN3ZZYUI7. This discovery is the
+  core driver for M6.c — manual-loop verification has an
+  invisible failure mode that automation avoids. It also means
+  almost all intermediate render results from the M6.b session
+  are unreliable; only results confirmed with a fresh code-typing
+  after the discovery can be trusted.
+- **Oracle fixture technique works.** A freshly-saved course
+  built inside the real GraviTrax app can be downloaded via
+  murmelbahn's `/api/course/{code}/raw` endpoint (which decodes
+  the base64-wrapped response from Ravensburger), giving byte-
+  level ground truth. Used this in M6.b to get the oracle for a
+  STARTER+rail+GOAL_RAIL course (share code `4YCV8JHLX7`, local
+  at `tests/fixtures/oracle/4YCV8JHLX7.course`, not committed).
+  Immediately revealed that the app now writes schema version 7.
 
 ### Phase 2+ unknowns (don't block v1)
 

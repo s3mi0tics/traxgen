@@ -11,9 +11,13 @@ Early development. Parser, serializer, validator, and minimal generator
 (M5.b) are complete; the uploader (M6.a) is complete and verified
 against the live endpoint. `upload_course()` POSTs a `.course` binary
 to Ravensburger's share-code endpoint and returns the 10-character
-code. Next: round-trip a generated course through the share-code
-system into the real app (M6.b) — upload a generated minimal course,
-type the code into the GraviTrax iOS app, see if it loads.
+code. M6.b (end-to-end round-trip verification) is in progress: the
+pipeline renders courses in the real app, but rails don't yet render
+alongside tiles, and the app writes a newer schema version (7) than
+our parser knows about (4). M6.c will install the GraviTrax Android
+app in an emulator and automate the render-and-verify loop via `adb`
+— the manual loop of typing share codes into a physical iPhone proved
+too slow and too error-prone to drive generator iteration.
 
 Phase 1 goal: generate a topologically valid single-track course using
 the PRO Vertical Starter-Set (26832) that loads in the GraviTrax app

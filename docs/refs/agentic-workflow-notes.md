@@ -377,3 +377,133 @@ because it collapses the ambiguity: the automation log shows the
 exact code that was typed and the exact screenshot that resulted.
 The same failure mode becomes a 5-line diff in a log, not an
 undetectable ghost.
+
+
+## 2026-04-25 M6.c session
+
+### Tooling-first preference (Colby's working style, made explicit)
+
+Colby strongly prefers building tooling that automates a repeated
+manual step over executing the manual step many times. If a workflow
+involves more than ~3 manual clicks/drag-and-drops/copy-pastes that
+will need to be repeated, the right move is to stop and build the
+tool, even if it means a 20-30 minute detour.
+
+Claude should proactively flag this, not wait to be asked:
+
+- If a flow is being done manually that could be scripted — propose
+  the script. Don't keep walking through the manual flow.
+- If file-sharing through chat upload is becoming the bottleneck —
+  recommend Claude Desktop with filesystem MCP, or Claude Code (which
+  has direct file access). Setup is a one-time ~5-min cost that pays
+  back immediately.
+- If the same coordinate sequence is being typed repeatedly — wrap
+  it in a Python function or shell function before the third
+  repetition.
+- If the same diagnostic is being run by hand each session — make
+  it a `scripts/` entry.
+
+Concrete examples from the M6.c session that should have been caught
+earlier:
+- Dragging emulator screenshots from the side-toolbar camera into
+  Claude chat: should have suggested an `adb screencap`-based shell
+  function (`shot <name>`) at message ~2, not message ~30.
+- Walking through 12 emulator taps manually for two test codes:
+  should have offered the Python harness *before* the first walk-
+  through, not after the second was about to start.
+
+### Use the target system's own UI as a validity oracle
+
+Generalization of the "oracle from real system's output" pattern
+from the M6.b session. Beyond binary-format ground truth, the target
+system often has UI affordances that classify input correctness for
+free. For traxgen: the GraviTrax app's play button is solid-green
+when a course is valid by the app's rules and outline-only when it's
+not. We don't need to write a validator that reproduces the app's
+judgment — we capture a screenshot and sample the button color.
+
+More generally: when reverse-engineering or building a generator
+for a real system, look for places the system already exposes its
+own correctness judgments. Disabled buttons, validation badges,
+error toasts, status indicators — these are oracles you don't have
+to build. Cheaper than recreating the system's logic in your code,
+and self-updating: if the system's rules change, the oracle reflects
+that automatically.
+
+Limit: only works when the oracle is observable in a screenshot or
+automation-readable state. Some systems hide their judgments inside
+internal animation timing or sound effects — those don't generalize.
+
+### Pixel sampling beats CV for fixed-position UI elements
+
+The M6.c validity oracle is implemented as a 12×12 pixel sample at
+a fixed coordinate, classified on min-RGB-channel. Total: 20 lines
+of code, ~50ms per classification, no model files, no training. We
+considered piece-level computer vision ("is the STARTER at hex
+(-2,3)?") and rejected it as overkill — the play-button signal is
+a binary classification at a known location, not an open-ended
+scene-understanding problem.
+
+Rule of thumb: for fixed-resolution, fixed-position UI elements with
+known visual states, sample the pixels and threshold the values.
+Reach for CV only when (a) position varies (camera pans, scrolls),
+(b) state space is open-ended (object detection, OCR), or (c) the
+visual difference between states is subtle and noise-prone.
+
+Calibration: collect a known-state pair (one positive, one negative),
+sample both, pick a threshold midway between the readings. The M6.c
+session pair X3WEQ6F296 (valid, min_channel ~234) and MT756NLLMI
+(invalid, min_channel ~124) gave a wide enough gap that any
+threshold in [180, 220] would work; we picked 220 for safety margin
+on the negative side.
+
+### Heredocs scale; long-file copy-paste doesn't
+
+When Claude generates a 200+ line file in chat, the user has two
+ways to land it on disk:
+1. Copy-paste from the artifact panel into a text editor.
+2. Run a `cat > path << 'EOF' ... EOF` heredoc that Claude generates.
+
+Option 2 is faster *if* the file content has no nested heredocs and
+no characters that interact with shell quoting. The M6.c session's
+200-line `traxgen/android.py` landed cleanly via heredoc. The
+previous M6.b session had an attempted heredoc fail because the
+file content contained markdown backticks and triple-quoted Python
+strings that interacted with the shell parser.
+
+Rule: heredocs work for pure code (Python, JSON, etc.) without
+embedded shell metacharacters, single quotes around the EOF
+delimiter (`<< 'EOF'`) to suppress shell expansion, and no nested
+heredocs. For files containing heredocs themselves, or markdown
+with code blocks, use the artifact-copy path.
+
+### Multi-edit patch script reused effectively
+
+The pattern from M6.a (Python patch script with exact-match
+validation) reused twice in M6.c: once for the gitignore update,
+once for the multi-doc living-doc updates at session end. Worth
+promoting from "useful technique" to "default approach for any
+documentation edit involving more than one location."
+
+Specifically: if you're updating PLAN.md, README.md, or any other
+doc, and the edit is more than "add one paragraph at the end," use
+the patch-script pattern. Inline edits in chat are error-prone
+for documents Claude can't see directly — having the script error
+out on a mismatch is much better than silently writing wrong text.
+
+### Screenshot file-naming convention
+
+Adopted convention: `<phase>_<code>_<shape>.png`
+
+- **phase**: `menu` | `dialog` | `rendered` | `error`
+- **code**: 10-char share code, source of truth for the test case
+- **shape**: terse description of contents — `S(-2,3)+G(-3,3)` for
+  STARTER + GOAL_RAIL at those hexes, with `R` for rails, `P` for
+  pillars, `W` for walls, `B` for balconies. Multi-piece example:
+  `3x-S(-1,0,n3,2,n5,4)`. Append `_valid` or `_invalid` if the
+  state is meaningful for the test.
+
+Example: `rendered_X3WEQ6F296_S(-2,3)+G(-3,3)_valid.png`
+
+Future automation will write `<code>_<timestamp>.png` automatically;
+this convention is for the manual-screenshot phase only.

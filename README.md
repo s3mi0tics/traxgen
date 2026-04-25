@@ -9,15 +9,14 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 Early development. Parser, serializer, validator, and minimal generator
 (M5.b) are complete; the uploader (M6.a) is complete and verified
-against the live endpoint. `upload_course()` POSTs a `.course` binary
-to Ravensburger's share-code endpoint and returns the 10-character
-code. M6.b (end-to-end round-trip verification) is in progress: the
-pipeline renders courses in the real app, but rails don't yet render
-alongside tiles, and the app writes a newer schema version (7) than
-our parser knows about (4). M6.c will install the GraviTrax Android
-app in an emulator and automate the render-and-verify loop via `adb`
-— the manual loop of typing share codes into a physical iPhone proved
-too slow and too error-prone to drive generator iteration.
+against the live endpoint. M6.c (Android emulator automation) is
+complete: `traxgen.android.render_course()` drives the GraviTrax
+Android app to render a share code and capture a screenshot in
+~25 seconds, with optional play-button-state classification
+(`active` = course valid by app rules, `inactive` = invalid).
+M6.b (rail rendering, `side_hex_rot` convention, v7 schema delta)
+is in progress, now unblocked for fast iteration via the M6.c
+automation harness.
 
 Phase 1 goal: generate a topologically valid single-track course using
 the PRO Vertical Starter-Set (26832) that loads in the GraviTrax app
@@ -43,6 +42,13 @@ uv run python -m scripts.upload_course tests/fixtures/GDZJZA3J3T.course
 # uploading GDZJZA3J3T.course (6342 bytes) to https://gravitrax.link.ravensburger.com/api/upload/
 # share code: GDZJZA3J3T
 # GDZJZA3J3T
+
+# Render a share code in the Android emulator and capture a screenshot.
+# Requires AVD `traxgen_m6c` running with GraviTrax at the main menu.
+uv run python -m scripts.render_course X3WEQ6F296 --detect-validity
+# rendering X3WEQ6F296 via emulator...
+# screenshot saved: ~/Desktop/Hub/Projects/traxgen/screenshots/rendered_X3WEQ6F296.png
+# play button: active
 ```
 
 The unified `traxgen generate` CLI is not wired up yet — `dump_minimal_course`

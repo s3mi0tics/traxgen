@@ -125,6 +125,7 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
   Vertical and round-trips byte-perfect through the serializer. No
   graph, no physics, hardcoded inventory. Future work: per-mode
   dispatch via `GenerationMode`.
+- `traxgen/android.py` — **done.** Emulator UI automation. `render_course(code) -> RenderResult` drives the GraviTrax Android app via `adb` to render a share code and capture a screenshot, end-to-end in ~25 seconds. Companion `detect_play_button_state()` samples the rendered screen's play-button triangle and classifies the course as `'active'` (valid by app rules) or `'inactive'` (invalid). CLI wrapper at `scripts/render_course.py`. Uses fixed `time.sleep` delays between UI actions; works reliably but may need polling-based waits if rendering ever gets laggy.
 - `traxgen/uploader.py` — **done.** `upload_course(binary, *,
   timeout=30.0) -> str` POSTs a `.course` binary to Ravensburger's
   share-code endpoint and returns the assigned 10-character code.
@@ -237,27 +238,37 @@ contents) lives at `docs/refs/`.
    producing test payloads, but the artifact now feeds M6.a (upload),
    not sideload.
 
-   - **M6.c Automated render verification** — not started, but is
-     the prerequisite for finishing M6.b. The 2026-04-24 session
-     established that manual typing of share codes into a physical
-     iPhone is too slow and error-prone to drive generator
-     iteration (one session lost several hours to silent Mac→iPhone
-     copy-paste failures that produced ghost results). Plan: install
-     the GraviTrax Android app in an Android Studio emulator, drive
-     the code-entry flow via `adb` (typed input + tap injection),
-     and capture screenshots for each generated course. Once the
-     loop is under 30 seconds per candidate, M6.b's remaining
-     unknowns (rail rendering, `side_hex_rot` convention, v7 schema
-     delta) become tractable. See `docs/HANDOFF_M6c.md`.
+   - **M6.c Automated render verification** — **done** (commits
+     e916a2d, f77181e). AVD `traxgen_m6c` (Pixel 6, Android 14,
+     google_apis_playstore, arm64-v8a, 2400×1080 landscape) runs
+     the GraviTrax Android app installed via Play Store (no APK
+     sourcing, no cert-injection — we don't need MITM for UI
+     automation). The harness in `traxgen/android.py` drives the
+     full flow: open share-code dialog, dismiss disclaimer, type
+     code via native IME, submit, load, screenshot, clean up.
+     ~25 seconds end-to-end per code. CLI: `uv run python -m
+     scripts.render_course <CODE> [--detect-validity]`.
 
-     Known risk: a previous session's Android work (mitmproxy
-     cert-pinning) sank into the "each fix creates a new problem"
-     pattern. UI automation is a different technical problem than
-     HTTPS interception, but the failure mode is worth remembering.
-     Pre-declare a time budget (4 hours for emulator setup) and a
-     stop condition (if GraviTrax won't install or render in the
-     emulator, pivot to physical-device automation via adb over
-     USB).
+     Validity oracle works: `detect_play_button_state()` samples
+     the play-button triangle's interior and classifies
+     active/inactive based on color (white triangle = valid,
+     pale-green = invalid). Calibrated against known-state pair
+     X3WEQ6F296 (valid: STARTER@(-2,3) + GOAL_RAIL@(-3,3), rail
+     present, button green) vs MT756NLLMI (invalid: same starter
+     but GOAL_RAIL@(-2,1), rail disconnected, button outlined).
+     Threshold: min RGB channel ≥ 220 = active. Wide margin in
+     both directions on the calibration pair.
+
+     Pre-declared 4-hour time budget proved unnecessary — Unity
+     rendered fine in the emulator on first launch, no GPU
+     compatibility issues. The Play Store image avoided the
+     writable-system / cert-injection pitfalls that sank the
+     previous Android pivot.
+
+     Known limitation: harness uses fixed `time.sleep` delays
+     between UI actions, not state polling. Robust enough on
+     current emulator; if rendering ever gets laggy, upgrade
+     to polling-based waits (capture, check stability, re-capture).
 
 ### M4 — validator design
 
@@ -698,8 +709,48 @@ Both modes reuse ~80% of Phase 1 code.
   the base64-wrapped response from Ravensburger), giving byte-
   level ground truth. Used this in M6.b to get the oracle for a
   STARTER+rail+GOAL_RAIL course (share code `4YCV8JHLX7`, local
-  at `tests/fixtures/oracle/4YCV8JHLX7.course`, not committed).
-  Immediately revealed that the app now writes schema version 7.
+  at `tests/fixtures/oracle/4YCV8JHLX7.course`, committed in
+  b17a9e1). Immediately revealed that the app now writes schema
+  version 7.
+- **Android emulator works for Unity third-party apps**
+  (2026-04-25 M6.c session). AVD `traxgen_m6c` (Pixel 6, API 34,
+  google_apis_playstore, arm64-v8a) runs GraviTrax fine — Unity
+  rendering works, no GPU-compatibility issues, no need for
+  writable-system or cert injection. The Play Store path avoids
+  the previous session's Android pitfalls entirely. Setup took
+  ~30 minutes including Play Store sign-in (separate throwaway
+  Google account). Once installed, GraviTrax persists across
+  reboots — no re-sign-in needed per session.
+- **The app's play button is a usable validity oracle.** The
+  green play-button hex in the lower-right of the rendered-course
+  screen is solid-green-filled when the app considers the course
+  valid (path from starter to goal exists), and outline-only when
+  invalid. Detection via pixel sampling at (2190, 980) on a
+  2400×1080 screencap — the white interior of the play triangle
+  shifts to pale-green when inactive, giving a >100-unit min-channel
+  difference. Calibrated against known-state pair X3WEQ6F296
+  (valid) and MT756NLLMI (invalid); threshold min_channel ≥ 220
+  classifies both correctly with wide margin. Eliminates the need
+  for human eyeballing or computer-vision piece detection — the
+  app's own UI tells us if our generator's output is structurally
+  legal.
+- **Unity apps render to a single SurfaceView; no UI selectors.**
+  `uiautomator dump` against GraviTrax returns one
+  `unitySurfaceView` covering [0,0][2400,1080] — the entire UI
+  is opaque to Android's accessibility tree. Exception: when a
+  text input field is tapped, Unity opens a *native* Android IME
+  with a real `EditText` overlay — that part *is* selectable and
+  responds to `adb shell input text`. Means: raw coordinates for
+  taps, native text injection for typing. Works fine for our
+  fixed-flow automation; ruled out Appium/uiautomator-selector
+  approaches.
+- **iOS Simulator can't install third-party apps from the App
+  Store.** Considered as an alternative to Android for the M6.c
+  automation but ruled out: iOS Simulator is for running your
+  own builds, not arbitrary third-party software. Without
+  GraviTrax source code, the simulator path is dead. Android
+  emulator is the only viable automated-render-loop option for
+  this app.
 
 ### Phase 2+ unknowns (don't block v1)
 
@@ -804,6 +855,14 @@ Known gotchas:
   may be wiped. Re-clone if needed:
   `git clone https://github.com/lfrancke/murmelbahn /tmp/murmelbahn-src`.
 - `ctree` command outputs project structure — ask if needed.
+- Android SDK at `~/Library/Android/sdk`. AVD `traxgen_m6c` for
+  M6.c automation. Boot with `$ANDROID_HOME/emulator/emulator
+  -avd traxgen_m6c -no-snapshot-load > /tmp/emulator.log 2>&1 &`.
+  GraviTrax persists across reboots; no re-sign-in needed.
+- Filenames containing parens, commas, or coordinates need careful
+  quoting. `screenshots/rendered_X3WEQ6F296_S(-2,3)+G(-3,3)_valid.png`
+  works fine on the filesystem but breaks if you forget quotes
+  in shell commands referencing it.
 
 Editor: VS Code, optionally Cursor. `.cursorrules` at repo root carries
 project conventions.
@@ -842,3 +901,7 @@ Ravensburger listings have been the least reliable in practice.
   endpoint. Captured 2026-04-24 via mitmproxy on the real iOS app.
   Endpoint shape, headers, response format, deduplication behavior,
   and explicit "tested vs untested" markers.
+- `android-automation.md` — Android emulator UI map for the M6.c
+  render harness. AVD config, tap coordinates, flow steps, and
+  validity oracle calibration. *(deferred — to be written at next
+  session start when expanding test-case sweep.)*

@@ -15,6 +15,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 # --- Configuration ---------------------------------------------------------
 
@@ -186,6 +187,13 @@ def launch(ctx: AdbContext) -> None:
 
 # --- High-level flow -------------------------------------------------------
 
+class RenderResult(NamedTuple):
+    """Result of a render_course call: screenshot path + optional validity."""
+
+    screenshot: Path
+    validity: str | None  # 'active' | 'inactive' | None (when not detected)
+
+
 def render_course(
     code: str,
     *,
@@ -194,7 +202,8 @@ def render_course(
     screenshot_name: str | None = None,
     cleanup: bool = True,
     expect_disclaimer: bool = True,
-) -> Path:
+    detect_validity: bool = False,
+) -> RenderResult:
     """Drive the app: main menu -> render share code -> screenshot."""
     ctx = ctx or resolve_context()
     assert_emulator_ready(ctx)
@@ -214,6 +223,8 @@ def render_course(
     time.sleep(WAITS["after_render_load"])
     screencap(ctx, out_path)
 
+    validity = detect_play_button_state(out_path) if detect_validity else None
+
     if cleanup:
         tap(ctx, "back_save_icon")
         time.sleep(WAITS["after_back"])
@@ -223,7 +234,7 @@ def render_course(
         tap(ctx, "delete_confirm")
         time.sleep(WAITS["after_delete"])
 
-    return out_path
+    return RenderResult(screenshot=out_path, validity=validity)
 
 
 def reset_to_main_menu(ctx: AdbContext | None = None) -> None:
@@ -232,3 +243,40 @@ def reset_to_main_menu(ctx: AdbContext | None = None) -> None:
     force_stop(ctx)
     time.sleep(1.0)
     launch(ctx)
+
+
+# --- Validity oracle: play-button color sampling ---------------------------
+
+# Sampling region for the play button's interior triangle. Mapped from the
+# valid/invalid screenshot pair captured 2026-04-25:
+#   valid (white triangle):  R=247 G=250 B=234, min_channel=234
+#   invalid (pale-green):    R=207 G=222 B=124, min_channel=124
+# Threshold of 220 leaves a wide margin on both sides.
+PLAY_BUTTON_SAMPLE_CENTER = (2190, 980)
+PLAY_BUTTON_SAMPLE_HALF = 6
+PLAY_BUTTON_ACTIVE_MIN_CHANNEL = 220.0
+
+
+def detect_play_button_state(screenshot_path: Path) -> str:
+    """Sample the play-button triangle and return 'active' or 'inactive'.
+
+    Active (course is valid by app's rules): triangle is white -> all RGB
+    channels near 255. Inactive (invalid): triangle is pale-green-tinted
+    -> blue channel drops markedly.
+
+    Importing PIL here (not at module top) keeps Pillow optional for callers
+    that only want the automation flow without validity classification.
+    """
+    from PIL import Image
+
+    img = Image.open(screenshot_path).convert("RGB")
+    cx, cy = PLAY_BUTTON_SAMPLE_CENTER
+    h = PLAY_BUTTON_SAMPLE_HALF
+    box = img.crop((cx - h, cy - h, cx + h, cy + h))
+    pixels = list(box.getdata())
+    n = len(pixels)
+    avg_r = sum(p[0] for p in pixels) / n
+    avg_g = sum(p[1] for p in pixels) / n
+    avg_b = sum(p[2] for p in pixels) / n
+    min_channel = min(avg_r, avg_g, avg_b)
+    return "active" if min_channel >= PLAY_BUTTON_ACTIVE_MIN_CHANNEL else "inactive"

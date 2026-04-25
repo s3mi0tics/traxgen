@@ -72,6 +72,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip the Load tracks disclaimer tap. Use after dismissed in current session.",
     )
+    parser.add_argument(
+        "--detect-validity",
+        action="store_true",
+        help="After capture, classify the play button as active/inactive (validity oracle).",
+    )
     return parser.parse_args(argv)
 
 
@@ -91,20 +96,23 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         ctx = resolve_context()
-        out_path = render_course(
+        result = render_course(
             code,
             ctx=ctx,
             screenshot_dir=args.screenshot_dir,
             screenshot_name=args.name,
             cleanup=not args.no_cleanup,
             expect_disclaimer=not args.no_disclaimer,
+            detect_validity=args.detect_validity,
         )
     except AndroidAutomationError as exc:
         print(f"render failed: {exc}", file=sys.stderr)
         return 3
 
-    print(f"screenshot saved: {out_path}", file=sys.stderr)
-    print(out_path)
+    print(f"screenshot saved: {result.screenshot}", file=sys.stderr)
+    if result.validity is not None:
+        print(f"play button: {result.validity}", file=sys.stderr)
+    print(result.screenshot)
     return 0
 
 

@@ -119,12 +119,19 @@ race mode, perpetual mode. We are proving "the pipeline works end-to-end."
   deferred, 2 rules dropped. Baseplate sub-check fix (commit b8052e4) and
   cross-retainer rail unblock (commit a18cf87) both complete. Balcony
   world-coord resolution remains deferred as a probe-first follow-up.
-- `traxgen/generator.py` — **M5.b-minimal done.** `generate_minimal()`
-  produces a 2-tile/1-rail course (STARTER + STRAIGHT + GOAL_RAIL on
-  one `BASE_LAYER_PIECE`) that passes `validate_strict` against PRO
-  Vertical and round-trips byte-perfect through the serializer. No
-  graph, no physics, hardcoded inventory. Future work: per-mode
-  dispatch via `GenerationMode`.
+- `traxgen/generator.py` — **M5.b-minimal done, but emits the wrong
+  rail model — fix pending (M5.b-fix).** `generate_minimal()` produces
+  a 2-tile/1-rail course (STARTER + explicit STRAIGHT rail + GOAL_RAIL
+  on one `BASE_LAYER_PIECE`) that passes `validate_strict` and round-
+  trips byte-perfect. **However, the 2026-06-12 M6.b breakthrough
+  showed that explicit rail is spurious** — valid app courses connect
+  STARTER→GOAL_RAIL via tile adjacency + `GOAL_RAIL`'s integrated rail,
+  with `rail_count = 0`. The validated shape (STARTER@(0,0) rot 0 +
+  GOAL_RAIL@(-1,0) rot 3, zero rails) renders with an active play
+  button (share code `FLW4TMLP5V`). Next task: rewrite
+  `generate_minimal()` to this no-rail adjacency shape. No graph, no
+  physics, hardcoded inventory. Future work: per-mode dispatch via
+  `GenerationMode`.
 - `traxgen/android.py` — **done.** Emulator UI automation. `render_course(code) -> RenderResult` drives the GraviTrax Android app via `adb` to render a share code and capture a screenshot, end-to-end in ~25 seconds. Companion `detect_play_button_state()` samples the rendered screen's play-button triangle and classifies the course as `'active'` (valid by app rules) or `'inactive'` (invalid). CLI wrapper at `scripts/render_course.py`. Uses fixed `time.sleep` delays between UI actions; works reliably but may need polling-based waits if rendering ever gets laggy.
 - `traxgen/uploader.py` — **done.** `upload_course(binary, *,
   timeout=30.0) -> str` POSTs a `.course` binary to Ravensburger's
@@ -180,13 +187,50 @@ contents) lives at `docs/refs/`.
      pytest addopts updated with `-m 'not network'` so the canary is
      skipped unless requested via `uv run pytest -m network`.
 
-   - **M6.b Round-trip verification** — in progress. Multiple
-     generated courses uploaded and typed into the GraviTrax iOS
-     app during the 2026-04-24 session. Outcomes: the pipeline is
-     alive (courses render, not all correctly), several original
-     risks disproved, new unknowns surfaced, and a manual-loop
-     bottleneck made M6.c (automation) the prerequisite for
-     finishing M6.b.
+   - **M6.b Round-trip verification** — **core question resolved
+     (2026-06-12 session).** The central M6.b unknown — *how does a
+     generated course actually connect a starter to a goal* — is
+     answered, and the app itself certified a traxgen-generated
+     course as valid (active play button). See "Rail model
+     breakthrough" below. Earlier history: multiple generated
+     courses uploaded and typed into the GraviTrax iOS app during
+     the 2026-04-24 session; the pipeline was alive (tiles rendered)
+     but rails never did, several original risks were disproved, new
+     unknowns surfaced, and a manual-loop bottleneck made M6.c
+     (automation) the prerequisite for finishing M6.b.
+
+     **Rail model breakthrough (2026-06-12).** The minimal
+     STARTER + STRAIGHT-rail + GOAL_RAIL course never rendered a
+     rail, regardless of `side_hex_rot`. A 6-way `side_hex_rot`
+     sweep on exit_1 (`scripts/sweep_side_hex_rot.py`, run under the
+     M6.c automated harness) returned all-inactive, and mining the
+     v4 fixture `GDZJZA3J3T` showed our generator's default rail
+     rotations were *already* the natural edge-facing convention —
+     falsifying `side_hex_rot` as the blocker. Fetching a known-
+     **valid** app-built course (`X3WEQ6F296`) and the existing
+     oracle (`4YCV8JHLX7`) and parsing them (both schema v7, read
+     via a one-off v7-tolerant reader) revealed the real model:
+     **both valid courses have `rail_count = 0`.** There is no
+     explicit rail object. A valid minimal course is just two
+     adjacent tiles — STARTER + GOAL_RAIL — where **`GOAL_RAIL`
+     (TileKind 19) is a goal-with-integrated-rail piece**; the
+     connection is made by tile adjacency plus the goal tile's
+     `hex_rotation`, NOT by a `RailConstructionData`. Verified by
+     building a v4 no-rail replica of the oracle geometry
+     (STARTER@(0,0) rot 0 + GOAL_RAIL@(-1,0) rot 3, zero rails),
+     uploading it (share code `FLW4TMLP5V`), and rendering it: the
+     app shows a connected course with an **active** play button.
+     This is the first traxgen-generated course the app certifies as
+     structurally valid.
+
+     **Remaining for full M6.b closure:**
+     - `generate_minimal()` still emits the old spurious-rail model
+       and must be rewritten to the validated no-rail adjacency
+       shape (M5.b-fix — next task).
+     - `GOAL_RAIL` rotation rule is not generalized. Both valid
+       oracles share one geometry (goal NW of starter, hexrot 3), so
+       the mapping from relative position → required goal rotation
+       needs a couple more data points (a goal-rotation sweep).
 
      **Disproved risks** (no longer M6.b-blocking):
      - GUID=0 is accepted by the app.
@@ -210,18 +254,21 @@ contents) lives at `docs/refs/`.
        in share code LTYSMDY9GG at local (-1, 1)), it rendered as
        a cantilevered piece extending past the plate edge.
 
-     **Remaining unknowns for M6.b**:
-     - Why do rails not render alongside multi-cell courses? In the
-       STARTER+GOAL_RAIL+rail test at (-1, 0) ↔ (-1, 1), the two
-       tiles rendered but no visible rail connected them.
-       `side_hex_rot` semantics (open unknown #2) is the leading
-       candidate.
+     **Former M6.b unknowns — now resolved or reframed**:
+     - ~~Why do rails not render alongside multi-cell courses?~~
+       **Resolved**: there was no rail to render. We were emitting a
+       spurious explicit `STRAIGHT` rail; valid courses use
+       `GOAL_RAIL`'s integrated rail via adjacency. `side_hex_rot`
+       (open unknown #2) was a red herring for this case.
      - Schema version 7 delta. An app-saved minimal course came
-       back at version=7 (not our version=4 POWER_2022), with 4
-       extra bytes post-metadata at offset 0x2E-0x31 whose value
-       is `0x0d = 13`. Meaning unknown. Plus a new `LayerKind =
-       100` enum value neither we nor murmelbahn's Rust source
-       knows about.
+       back at version=7 (not our version=4 POWER_2022). The
+       2026-06-12 v7 parse pinned this down: one `u32 = 13` appears
+       immediately after the metadata block (offset 0x2E), before
+       `layer_count`. Meaning of `13` still unknown, but precisely
+       located (open unknown #13). The previously-reported "new
+       `LayerKind = 100`" was a **misread** — that 100 is the layer
+       *id*; the layer *kind* is plain `BASE_LAYER_PIECE` (0). See
+       open unknown #14, now dissolved.
 
      **Artifacts from the session (uncommitted, preserved locally)**:
      - `tests/fixtures/oracle/4YCV8JHLX7.course` — 206-byte oracle,
@@ -465,14 +512,18 @@ Both modes reuse ~80% of Phase 1 code.
    observe which TileKind shows up. See
    `docs/refs/pro-vertical-starter-set-26832.md`.
 2. **Rail `side_hex_rot` semantics** — which of 6 hex edges it identifies.
-   M6.b confirmed it matters: generated courses with STARTER + GOAL_RAIL
-   + STRAIGHT rail using our guess (0 = East exit on STARTER, 3 = West
-   entrance on GOAL_RAIL neighbor) render both tiles but no visible
-   rail. Fixtures have rail `side_hex_rot` values 0-5 spread across
-   rails, so the range is right — the convention or our endpoint
-   assignment is wrong. A 6-way sweep on exit_1 (with exit_2 fixed)
-   was the next diagnostic planned at session end; prerequisite is
-   M6.c automation.
+   **De-prioritized (2026-06-12).** The original framing assumed the
+   STARTER↔GOAL_RAIL connection was an explicit rail whose
+   `side_hex_rot` we'd mis-set. That was wrong: valid courses have no
+   explicit rail there (`GOAL_RAIL` carries its own rail; see M6.b
+   "Rail model breakthrough"). The 6-way exit_1 sweep
+   (`scripts/sweep_side_hex_rot.py`) returned all-inactive, and the
+   v4 fixture `GDZJZA3J3T` shows our generator's default rotations
+   already match the natural edge-facing convention. `side_hex_rot`
+   semantics still matters for *explicit* rails between two
+   non-integrated-rail tiles (e.g. STARTER → some mid-tile → GOAL),
+   which v1 doesn't generate yet. Revisit when the generator places
+   explicit rails; until then it's not blocking.
 3. **Baseplate physical shape.** World-coord arithmetic
    (`world_hex_position + cell_local_hex_pos = physical hex`) is resolved
    for layer and tile retainers — probe 3865bcb confirmed disjoint
@@ -541,22 +592,27 @@ Both modes reuse ~80% of Phase 1 code.
 13. **Schema version 7 delta.** Courses saved by the current iOS
     GraviTrax app (v2.8.0.31080908) come back as version = 7, not
     version = 4 (POWER_2022). Neither our code nor murmelbahn's
-    Rust source knows about version 6 or 7. Byte trace of the
-    oracle `4YCV8JHLX7.course` (uncommitted, local only) shows:
-    header + metadata are structurally identical through offset
-    0x28; then 4 extra bytes appear at offset 0x2E-0x31 with value
-    `0x0d = 13`; then the layer_count / layer_id / layer_kind /
-    etc. sequence resumes. Meaning of the `13` is unknown. Might
-    be a new `CourseElementGeneration` value, a schema sub-version,
-    or something else. Until resolved, the parser can't read
-    app-saved courses. See `scripts/trace_both.py`.
-14. **Unknown LayerKind value 100 in v7 courses.** The oracle's
-    first layer declares `layer_kind = 100`. Neither our enum nor
-    murmelbahn's stops above 4. Could be a new layer type
-    introduced since 2023 (possibly related to the Skytrax update
-    per App Store changelog), or could be a parse-alignment
-    artifact if #13's delta is larger than we think. Resolving
-    #13 is a prerequisite.
+    Rust source knows about version 6 or 7. **Narrowed
+    (2026-06-12):** a full v7-tolerant parse of two 206-byte
+    oracles (`X3WEQ6F296`, `4YCV8JHLX7`) confirms exactly one extra
+    field — a `u32 = 13` immediately after the metadata block
+    (offset 0x2E), before `layer_count`. With that 4-byte field
+    skipped, the rest of the v7 layout (layers / cells / rails)
+    parses cleanly with the v4 field order and yields sane values
+    (positions, tile kinds 1=STARTER / 19=GOAL_RAIL, rotations,
+    `rail_count`). Meaning of `13` still unknown — candidate
+    interpretations: a schema sub-version, a `CourseElementGeneration`-
+    like tag, or a feature flag. Teaching the parser v7 is now a
+    small, well-scoped change (allow version 7, skip the 4 bytes);
+    not yet done. See `scripts/trace_both.py` and the one-off reader
+    in the 2026-06-12 session.
+14. ~~**Unknown LayerKind value 100 in v7 courses.**~~ **Dissolved
+    (2026-06-12) — it was a misread.** The "100" is the layer
+    *id* (`LayerConstructionData.layer_id`), not the layer *kind*.
+    Both v7 oracles declare `layer_id = 100`, `layer_kind = 0`
+    (`BASE_LAYER_PIECE`) — entirely ordinary. The earlier misread
+    came from the tainted 2026-04-24 session (silent clipboard-copy
+    failure mode). No unknown `LayerKind` value exists.
 
 ### Resolved since original plan
 
@@ -712,6 +768,20 @@ Both modes reuse ~80% of Phase 1 code.
   at `tests/fixtures/oracle/4YCV8JHLX7.course`, committed in
   b17a9e1). Immediately revealed that the app now writes schema
   version 7.
+- **STARTER→GOAL_RAIL connects with no explicit rail (the M6.b
+  rail model).** (2026-06-12.) `GOAL_RAIL` (TileKind 19) is a
+  goal-with-integrated-rail tile. A valid minimal course is two
+  adjacent tiles (STARTER + GOAL_RAIL) with `rail_count = 0`; the
+  connection is tile adjacency + the goal's `hex_rotation`. Proven
+  end-to-end: a v4 no-rail replica of the valid oracle geometry
+  (STARTER@(0,0) rot 0 + GOAL_RAIL@(-1,0) rot 3) uploaded as
+  `FLW4TMLP5V` and rendered with an **active** play button — the
+  first traxgen-generated course the app certifies as valid.
+  Falsified `side_hex_rot` (open unknown #2) as the rail-render
+  blocker. New diagnostic script: `scripts/sweep_side_hex_rot.py`
+  (uploads + renders a `side_hex_rot` sweep and reads the validity
+  oracle). Still open: generalizing the goal-rotation rule (only
+  one valid geometry observed so far).
 - **Android emulator works for Unity third-party apps**
   (2026-04-25 M6.c session). AVD `traxgen_m6c` (Pixel 6, API 34,
   google_apis_playstore, arm64-v8a) runs GraviTrax fine — Unity

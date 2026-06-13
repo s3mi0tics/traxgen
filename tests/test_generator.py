@@ -38,12 +38,17 @@ def test_generate_minimal_roundtrips() -> None:
 
 
 def test_generate_minimal_has_expected_shape() -> None:
-    """Sanity checks on the minimal course's structure."""
+    """Sanity checks on the minimal course's structure.
+
+    The minimal valid course is two adjacent tiles with NO explicit rail:
+    the connection is GOAL_RAIL's integrated rail via adjacency. See
+    docs/PLAN.md "Rail model breakthrough" (verified active as FLW4TMLP5V).
+    """
     course = generate_minimal()
 
-    # One layer, one rail, no pillars, no walls.
+    # One layer, NO explicit rail, no pillars, no walls.
     assert len(course.layer_construction_data) == 1
-    assert len(course.rail_construction_data) == 1
+    assert len(course.rail_construction_data) == 0
     assert len(course.pillar_construction_data) == 0
     assert len(course.wall_construction_data) == 0
 
@@ -52,9 +57,16 @@ def test_generate_minimal_has_expected_shape() -> None:
     assert len(layer.cell_construction_datas) == 2
 
     # Exactly one STARTER and one GOAL_RAIL present.
-    root_kinds = {
-        cell.tree_node_data.construction_data.kind
+    cells_by_kind = {
+        cell.tree_node_data.construction_data.kind: cell
         for cell in layer.cell_construction_datas
     }
-    assert TileKind.STARTER in root_kinds
-    assert TileKind.GOAL_RAIL in root_kinds
+    assert TileKind.STARTER in cells_by_kind
+    assert TileKind.GOAL_RAIL in cells_by_kind
+
+    # The two tiles are adjacent (hex distance 1), and the goal is rotated
+    # so its integrated rail faces the starter — the proven-valid geometry.
+    starter = cells_by_kind[TileKind.STARTER]
+    goal = cells_by_kind[TileKind.GOAL_RAIL]
+    assert starter.local_hex_position.distance_to(goal.local_hex_position) == 1
+    assert goal.tree_node_data.construction_data.hex_rotation == 3

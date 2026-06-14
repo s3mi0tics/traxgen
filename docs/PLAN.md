@@ -863,6 +863,10 @@ Both modes reuse ~80% of Phase 1 code.
   proper import. All pre-existing — none introduced by M6.a work.
   None are bugs; they need per-case judgment and are worth a dedicated
   cleanup session rather than mixing with feature work.
+- **Render/testing protocol should record outcomes as text, not PNGs.**
+  Each render's outcome should be recorded as text (validity verdict +
+  share code) and the screenshot deleted afterward, instead of
+  accumulating PNGs in `screenshots/`.
 
 ---
 

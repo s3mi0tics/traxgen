@@ -1,21 +1,14 @@
-# traxgen — Claude Code adapter
+# traxgen
 
 Mode: **software engineering** (Python 3.12+, `uv`, pytest).
 
 ## Orient first
 
-Before acting on anything substantive, read **`docs/PLAN.md`** — it is the
-canonical living document for this project (status, confirmed decisions,
-module plan, current milestone, known unknowns). Start with its top sections;
-read deeper as the task requires. It is the single source of truth for "where
-are we." This file does not duplicate it — it points at it.
-
-## Living-document discipline
-
-`docs/PLAN.md` drifts as we work and is meant to. At the end of any session
-where something substantive changed — a decision made, a milestone completed,
-scope shifted, a file became relevant — propose an updated PLAN.md. See its
-"Living document discipline" section for what to watch.
+Session state and routines live in the `allostat/` files imported below. Follow
+`allostat/workflow.md`'s open routine before acting on anything substantive;
+`allostat/plan.md` is the single source of truth for "where are we." The former
+living document, `docs/PLAN.md`, is **archived** — historical detail only; do
+not orient from it or propose updates to it.
 
 ## Code conventions
 
@@ -26,7 +19,30 @@ here too, even though it is named for the Cursor surface.
 ## Why this file is thin
 
 This is one execution-surface adapter over a shared core. Cursor reads
-`.cursorrules`; Claude Code auto-loads this `CLAUDE.md`; both point at the
-same canonical living docs rather than copying them. Keep the payload (which
-docs to read, which mode) identical to the other surfaces so it stays liftable
-into a shared template if this pattern proves out.
+`.cursorrules`; Claude Code auto-loads this `CLAUDE.md`; both point at the same
+canonical files rather than copying them.
+
+<!-- BEGIN allostat (managed — edits here are overwritten on `allostat init`) -->
+
+This region is contributed by Allostat. It declares this as an Allostat project and lists the project-scope files Claude loads each session. Architectural background for this pattern lives in the methodology's `README.md` — not duplicated here.
+
+## This is an Allostat project
+
+The project's context lives in the `allostat/` files below. At session start, load them and follow `allostat/workflow.md` — its open routine runs the drift + session-log-freshness checks before work begins. Your own Custom Instructions apply as they always do: Allostat is project-scoped and neither requires nor manages your personal/global layer.
+
+## Project-scope `@`-imports
+
+These files are loaded into every session for traxgen:
+
+@allostat/project-instructions.md
+@allostat/workflow.md
+@allostat/plan.md
+@allostat/decisions.md
+@allostat/observations.md
+@allostat/vision.md
+
+Loaded when relevant (optional):
+
+@allostat/knowledge/environment.md
+
+<!-- END allostat (managed) -->

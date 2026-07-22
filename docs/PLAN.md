@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-07-22.** Folded into the canonical `allostat/` files (see `allostat/plan.md` and the migration row in `allostat/decisions.md`). Historical detail only — do not orient from this file or update it.
+
 # traxgen — Plan
 
 A procedural generator for GraviTrax marble run courses. Takes a piece

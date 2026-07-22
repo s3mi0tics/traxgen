@@ -1,0 +1,28 @@
+# traxgen — Observations
+
+Patterns noticed about how you and Claude work together on this project — frictions, recurring habits, things worth not losing. Numbered cumulatively across sessions; the numbers are stable references, so don't renumber when an observation moves.
+
+This file has two sections. **Candidates** are patterns still being validated. **Promoted** are the ones durable enough to count as baseline expectations — a candidate promotes after it fires roughly three times across separate sessions (adjust the threshold in `workflow.md` if that doesn't fit your tempo).
+
+A separate path runs to `decisions.md`: when an observation hardens into a commitment that constrains future work, it becomes a locked decision there, with the originating number noted for lineage. The two paths are independent — an observation can promote within this file, get locked as a decision, both, or neither.
+
+**Update protocol.** The capture cadence lives in `workflow.md`; this file just holds the results. At session close: add new candidates, note any that fired again, promote the ones past the threshold, and retire candidates that have gone several sessions without firing.
+
+**Last updated:** 2026-07-22
+
+## Promoted
+
+1. **Integration canaries catch what synthetic unit tests miss.** Validating a real parsed fixture (GDZJZA3J3T, unlimited inventory) on every validator-rule commit has caught two real rule bugs that per-rule unit tests passed. Baseline expectation: any new rule ships with the canary green.
+2. **Probe first, implement second.** When schema semantics are unknown, a small probe script against real fixtures beats reasoning from the spec — the retainer-family probe (fb2e547), the world-coord probe (3865bcb), the tile-index investigation, and the v7 byte-trace each settled a question that prose analysis had stalled on. Fired 4+ times. Stopping rule (refined 2026-07-22 from agentic-workflow-notes): probe until the next probe wouldn't change what you write — M6.a needed one probe, M4's retainer work needed many; the difference is whether each probe updates what gets built.
+3. **App-built oracle fixtures are the ground truth of last resort.** Building a course in the real app and fetching its bytes via murmelbahn's `/api/course/{code}/raw` resolves format questions definitively — used for GDZJZA3J3T, 4YCV8JHLX7, and X3WEQ6F296; the last of these broke the rail-model question wide open.
+7. **Tooling-first is the working style — flag automation before the third repetition.** If a manual flow involves more than ~3 repeated clicks/pastes/drags that will recur, stop and build the tool, even at a 20–30 minute detour — and Claude proposes this proactively rather than continuing the manual walk-through. Declared explicitly and demonstrated across M6.c (screenshot shell function, tap harness). Folded 2026-07-22 from `docs/refs/agentic-workflow-notes.md`.
+8. **Multi-edit patch scripts with exact-match validation are the default for doc edits.** "Old must match exactly once" catches both drifted text (0 matches) and over-generic text (N matches); sed silently does neither. Validate against the *evolving* text, not a pre-pass on the original — a separate pre-validation phase breaks chained edits (discovered 2026-07-22 when this very fold-in aborted on its first run). Fired in M6.a, twice in M6.c, and throughout the migration.
+
+## Candidates
+
+4. **Pre-declared time budgets keep exploratory work honest.** The 2026-04-24 session's 4-hour app-integration budget forced a clean "stop when we've won" at ~2 hours and would have given a principled abort if cert-pinning had blocked. One firing; PLAN.md explicitly flags it as worth repeating for reverse-engineering work with capped upside.
+5. **Manual verification loops hide silent failure modes — automate the loop.** The Mac→iPhone clipboard silently re-pasting a stale share code invalidated most of a session's observations. One firing, but severe enough that it's already locked as a decision (harness-only render verification — see `decisions.md`); tracked here for the general pattern beyond rendering.
+6. **Chat-session file transfers flatten folders — stage collision-proof copies first.** Fired twice in the 2026-07-22 migration: two `README.md`s collided (one silently replaced the other) and a hidden dotfile didn't survive a Finder drag. When moving project files into a paste-based session, stage renamed, visible copies rather than dragging in place. (Amended 2026-07-22: originally credited a staging-folder maneuver that turned out never to have run — the pattern stands, the anecdote didn't.)
+9. **Pre-declare stop conditions when the failure mode is predictable.** "If X happens, we stop — pushing through requires explicit argument." Applied proactively 2026-04-24 (the TLS-error rule for the iOS retry); sibling of #4's time budgets. One deliberate firing.
+10. **Commit by "why," not by session.** Categorize the working tree by reason-for-existence and make one commit per reason (M6.a's four-cluster untangling); includes narrowing lint runs to touched files when the repo carries pre-existing debt. If explaining a commit takes two paragraphs, it's two commits.
+11. **One command at a time in interactive sessions.** Issue exactly one command and wait for real output rather than stacking predicted next steps — keeps the agent's reasoning grounded in what actually happened. From agentic-workflow-notes; validated informally throughout the 2026-07-22 migration.

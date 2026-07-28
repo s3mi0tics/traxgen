@@ -14,9 +14,6 @@ dist/
 venv/
 env/
 
-# uv
-.python-version
-
 # Testing
 .pytest_cache/
 .coverage

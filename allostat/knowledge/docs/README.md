@@ -4,7 +4,7 @@ Local copies of reference material for this project — vendored docs, PDFs, sav
 
 Entries use the same shape as `resources.md` and skills — `name`, a `description` (when to reach for it), and a `location` (here, the filename in this folder).
 
-**Last updated:** [YYYY-MM-DD]
+**Last updated:** 2026-07-22
 
 ## Files
 

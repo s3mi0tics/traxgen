@@ -25,9 +25,9 @@ Phase 1 (single-track pipeline proof), late-stage. Milestone status:
 | M2 Domain + parser | done |
 | M3 Round-trip (byte-compare) | done (bbf7e36) |
 | M4 Validator | done — 12/12 v1 rules; 3 Phase-2 rules deferred, 2 dropped |
-| M5 Generator | M5.b-minimal done (2d89e77) **but emits the falsified explicit-rail model — M5.b-fix is the next task.** M5.a (track graph) and M5.c (connection rules) not started |
+| M5 Generator | M5.b-minimal done (2d89e77); M5.b-fix done (f6e5717) — `generate_minimal()` emits the validated no-rail adjacency shape, app-certified via `FLW4TMLP5V`. M5.a (track graph) and M5.c (connection rules) not started |
 | M6.a Upload | done — `uploader.py`, mock-server tests + live canary |
-| M6.b Round-trip verification | core question resolved (2026-06-12 rail-model breakthrough); closure blocked on M5.b-fix + goal-rotation generalization |
+| M6.b Round-trip verification | core question resolved (2026-06-12 rail-model breakthrough); closure blocked on goal-rotation generalization |
 | M6.c Automated render verification | done — Android harness + play-button validity oracle, ~25s/code |
 
 First traxgen-generated course certified valid by the app: share code `FLW4TMLP5V` (no-rail STARTER + GOAL_RAIL adjacency shape). The validated geometry: STARTER@(0,0) rot 0 + GOAL_RAIL@(-1,0) rot 3, `rail_count = 0`.
@@ -42,13 +42,12 @@ Artifact status: nothing was lost with the deleted `~/Desktop/Hub` checkout — 
 
 ## Sequenced work in flight
 
-1. **M5.b-fix — rewrite `generate_minimal()` to the no-rail adjacency shape** (STARTER + GOAL_RAIL, zero rails, hardcoded inventory). *dependency* — everything downstream of the generator needs it emitting the validated model, not the falsified one.
-2. **Goal-rotation sweep** — generalize relative-position → required `GOAL_RAIL` `hex_rotation` beyond the single observed geometry; run under the M6.c harness. *learning* — the mapping feeds M5.c connection rules and closes half of M6.b.
-3. **Close M6.b** — declare it done once 1 and 2 land and a generated course renders active end-to-end via the harness. *dependency* on items 1–2.
-4. **Teach the parser schema v7** — accept `version = 7`, skip the `u32 = 13` at offset 0x2E. Small and well-scoped. *blast radius* — smallest reversible next step; unblocks native oracle parsing without the one-off reader.
-5. **Re-verify `local_hex_position` honoring under the harness** — promote the tentative finding to resolved or falsify it; the manual-loop evidence is tainted by the clipboard failure. *bake-time* — cheap once sweeps are routine.
-6. **M5.a track graph + M5.c connection rules** (`traxgen/graph.py`; also unlocks validator rule #15 `START_GOAL_CONNECTED`). *dependency* — blocked on connection-semantics evidence (open unknown #7), fed by item 2.
-7. **Dedicated lint-cleanup session** — the 38 pre-existing ruff findings. *relatedness* — batch as one session; not mixed into feature work.
+1. **Goal-rotation sweep** — generalize relative-position → required `GOAL_RAIL` `hex_rotation` beyond the single observed geometry; run under the M6.c harness. *learning* — the mapping feeds M5.c connection rules and closes the rest of M6.b.
+2. **Close M6.b** — declare it done once 1 lands and a generated course renders active end-to-end via the harness. *dependency* on item 1.
+3. **Teach the parser schema v7** — accept `version = 7`, skip the `u32 = 13` at offset 0x2E. Small and well-scoped. *blast radius* — smallest reversible next step; unblocks native oracle parsing without the one-off reader.
+4. **Re-verify `local_hex_position` honoring under the harness** — promote the tentative finding to resolved or falsify it; the manual-loop evidence is tainted by the clipboard failure. *bake-time* — cheap once sweeps are routine.
+5. **M5.a track graph + M5.c connection rules** (`traxgen/graph.py`; also unlocks validator rule #15 `START_GOAL_CONNECTED`). *dependency* — blocked on connection-semantics evidence (open unknown #7), fed by item 1.
+6. **Dedicated lint-cleanup session** — the 38 pre-existing ruff findings. *relatedness* — batch as one session; not mixed into feature work.
 
 ## Triggered reviews
 

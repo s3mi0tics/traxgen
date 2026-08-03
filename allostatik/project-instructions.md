@@ -1,21 +1,21 @@
 # traxgen — Project Instructions
 
-Canonical template source: allostat/templates/project-boilerplate/allostat/project-instructions.md
-Project-scope location: /Users/colbykauk/Claude/Projects/traxgen/allostat/project-instructions.md
-Paste destination: claude.ai Project "traxgen" → Project Instructions field holds the Allostat pointer block (not a copy of this file); files load per session via the Standing essentials bundle below. Claude Code loads this file directly via the CLAUDE.md `@`-imports.
+Canonical template source: allostatik/templates/project-boilerplate/allostatik/project-instructions.md
+Project-scope location: /Users/colbykauk/Claude/Projects/traxgen/allostatik/project-instructions.md
+Paste destination: claude.ai Project "traxgen" → Project Instructions field holds the Allostatik pointer block (not a copy of this file); files load per session via the Standing essentials bundle below. Claude Code loads this file directly via the CLAUDE.md `@`-imports.
 Edit at the project-scope location above; sync to the paste destination per your storage mode. Drift-checked at session start and end.
 
 ---
 
 ## Session rituals
 
-This project's current state lives in files in the `allostat/` folder — not in these instructions, which describe the *system*, not where it currently is. On a filesystem surface (Claude Code, Cursor, Claude Desktop with file access) those files load from the repo, and `workflow.md` holds the full routines. These two rituals are the short version:
+This project's current state lives in files in the `allostatik/` folder — not in these instructions, which describe the *system*, not where it currently is. On a filesystem surface (Claude Code, Cursor, Claude Desktop with file access) those files load from the repo, and `workflow.md` holds the full routines. These two rituals are the short version:
 
-**Opening.** Before answering anything that depends on current state — "where are we," "what's next," the status of any work — load the `allostat/` files if you don't already have them, then run the open checks: is `plan.md`'s session log current (if it's behind, a prior close was skipped — backfill it before new work), and do the deployed surfaces still match canonical? Don't reconstruct state from these instructions alone.
+**Opening.** Before answering anything that depends on current state — "where are we," "what's next," the status of any work — load the `allostatik/` files if you don't already have them, then run the open checks: is `plan.md`'s session log current (if it's behind, a prior close was skipped — backfill it before new work), and do the deployed surfaces still match canonical? Don't reconstruct state from these instructions alone.
 
 **Closing.** When a session wraps up, update the canonical files for whatever changed (`plan.md`, `decisions.md`, `observations.md`) and confirm the writes landed **before** producing any handoff — the handoff *points at* those files, it doesn't carry state. This is what makes each session build on the last rather than start over.
 
-*(Full open/close routines — the four drift-checks, capture, and handoff shape — live in `allostat/workflow.md`, which loads alongside these files.)*
+*(Full open/close routines — the four drift-checks, capture, and handoff shape — live in `allostatik/workflow.md`, which loads alongside these files.)*
 
 ## Mode
 
@@ -27,7 +27,7 @@ traxgen procedurally generates GraviTrax marble-run courses: given a piece inven
 
 ## Known references
 
-Project reference material lives in `allostat/knowledge/` (project-scope Layer 3) — Claude reads it from there rather than from a list restated here. This project's local reference corpus lives at `docs/refs/` in the repo (rail specs, set contents, upload API, probe findings), indexed by `docs/refs/README.md` and pointed at from `allostat/knowledge/resources.md`. (`allostat/knowledge/` also holds `environment.md`, the project-runtime environment.)
+Project reference material lives in `allostatik/knowledge/` (project-scope Layer 3) — Claude reads it from there rather than from a list restated here. This project's local reference corpus lives at `docs/refs/` in the repo (rail specs, set contents, upload API, probe findings), indexed by `docs/refs/README.md` and pointed at from `allostatik/knowledge/resources.md`. (`allostatik/knowledge/` also holds `environment.md`, the project-runtime environment.)
 
 ## Project-specific working notes
 
@@ -43,12 +43,12 @@ Bundle command to load the project's canonical files into a new conversation. Pr
 {
   cd /Users/colbykauk/Claude/Projects/traxgen && \
   for f in \
-    allostat/project-instructions.md \
-    allostat/plan.md \
-    allostat/workflow.md \
-    allostat/decisions.md \
-    allostat/observations.md \
-    allostat/vision.md ; do
+    allostatik/project-instructions.md \
+    allostatik/plan.md \
+    allostatik/workflow.md \
+    allostatik/decisions.md \
+    allostatik/observations.md \
+    allostatik/vision.md ; do
     echo "===== FILE: $f ====="
     cat "$f"
     echo ""

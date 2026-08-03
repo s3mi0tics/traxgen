@@ -84,7 +84,7 @@ Backfilled from the dated history embedded in PLAN.md — earlier sessions left 
 - **2026-04-24:** Upload API captured via mitmproxy under a pre-declared 4-hour budget (endpoint, headers, dedup-by-content-hash). M6.a shipped: `uploader.py`, exception hierarchy, mock-server tests, live canary. First uploads rendered tiles but never rails — new unknowns surfaced; manual loop identified as the bottleneck. → automation (M6.c).
 - **2026-04-25:** M6.c shipped — AVD `traxgen_m6c`, Play-Store GraviTrax, `android.py` harness, play-button validity oracle calibrated on X3WEQ6F296/MT756NLLMI. → resume M6.b under automation.
 - **2026-06-12:** Rail-model breakthrough — valid courses have `rail_count = 0`; GOAL_RAIL carries its own rail; adjacency + goal rotation is the connection. `FLW4TMLP5V` is the first app-certified generated course. v7 delta narrowed to one u32. Clipboard failure mode discovered — pre-discovery manual observations demoted to tentative. → M5.b-fix.
-- **2026-07-22 (migration):** Project migrated onto Allostat. `docs/PLAN.md` folded into the canonical files and archived; `.cursorrules`, README, `docs/refs/` classified live-in-place; CLAUDE.md rewritten as adapter over the allostat files; `docs/refs/android-automation.md` written from the archive + `android.py` (closing the deferred item); original checkout at `~/Desktop/Hub` confirmed deleted — artifact survival flagged for verification. → M5.b-fix.
+- **2026-07-22 (migration):** Project migrated onto Allostatik. `docs/PLAN.md` folded into the canonical files and archived; `.cursorrules`, README, `docs/refs/` classified live-in-place; CLAUDE.md rewritten as adapter over the allostatik files; `docs/refs/android-automation.md` written from the archive + `android.py` (closing the deferred item); original checkout at `~/Desktop/Hub` confirmed deleted — artifact survival flagged for verification. → M5.b-fix.
 
 ## Cross-references
 
@@ -95,4 +95,4 @@ Backfilled from the dated history embedded in PLAN.md — earlier sessions left 
 - `vision.md` — the project's longer-arc direction.
 - `knowledge/` — project-scope reference material (Layer 3).
 - `docs/refs/` (repo) — the project's committed reference corpus, indexed by its README.
-- Archived: `docs/PLAN.md` — the pre-Allostat living document; historical detail beyond what the files above carry.
+- Archived: `docs/PLAN.md` — the pre-Allostatik living document; historical detail beyond what the files above carry.

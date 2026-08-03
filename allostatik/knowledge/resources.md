@@ -7,9 +7,9 @@ External references for this project — docs, repos, and sites Claude pulls in 
 ## References
 
 ```yaml
-- name: allostat
+- name: allostatik
   description: the methodology this project's configuration is built on; reach for it when revisiting how the setup is structured or extending it
-  location: "https://github.com/allostat/allostat"
+  location: "https://github.com/allostatik/allostatik"
 
 - name: lfrancke/murmelbahn
   description: the reverse-engineered GraviTrax course format — Rust source is schema ground truth (lib/src/app/layer.rs; imhex-schema.txt mirrors it); reach for it on any binary format question. Apache-2.0 — attribution required

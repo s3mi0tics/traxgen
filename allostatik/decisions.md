@@ -2,7 +2,7 @@
 
 Locked decisions about how this project works — architectural choices, conventions, and resolved tradeoffs. Once something is locked here, don't renegotiate it without raising a checkpoint. This file is the project's reasoning trail: it records not just *what* was decided but *why*, so a later session doesn't relitigate settled ground.
 
-This is the decisions layer, distinct from its `allostat/` siblings — `plan.md` holds current operational state (what's in flight), `observations.md` holds process patterns (how the work tends to go). Point at those rather than restating them here.
+This is the decisions layer, distinct from its `allostatik/` siblings — `plan.md` holds current operational state (what's in flight), `observations.md` holds process patterns (how the work tends to go). Point at those rather than restating them here.
 
 **Update protocol.** At session close, append decisions locked during the session. If a locked decision later changes, mark it rather than deleting it — the trail matters:
 
@@ -37,4 +37,4 @@ Always name the superseding or amending row so the trail stays followable.
 | `TILE_INDEX_COLLISION` dropped from v1 | Revisit if fixtures reveal a pattern | Real app courses violate it (non-root nodes default index=0); rule as specced false-positives |
 | App integration path | Share-code upload API only; sideload is dead | iOS app registers no local data-in path (2026-04-22); upload endpoint verified end-to-end |
 | Render verification | Automated harness + play-button oracle only; manual verification carries no evidentiary weight | Silent Mac→iPhone clipboard failure invalidated a session of manual observations (promoted from the pattern now in `observations.md`) |
-| Migration classification (2026-07-22) | `docs/PLAN.md` = fold-in → archive; `.cursorrules` = live (code conventions, pointed at); root README = live; `docs/refs/` = live (Layer-3 corpus); CLAUDE.md = rewritten as adapter over `allostat/` | One source of truth per domain; the required migrate-branch record |
+| Migration classification (2026-07-22) | `docs/PLAN.md` = fold-in → archive; `.cursorrules` = live (code conventions, pointed at); root README = live; `docs/refs/` = live (Layer-3 corpus); CLAUDE.md = rewritten as adapter over `allostatik/` | One source of truth per domain; the required migrate-branch record |

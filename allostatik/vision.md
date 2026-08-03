@@ -1,6 +1,6 @@
 # traxgen — Vision
 
-Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostat/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
+Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
 **Last meaningful update:** 2026-07-22
 

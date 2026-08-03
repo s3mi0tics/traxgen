@@ -9,12 +9,12 @@ This folder ships empty — you write your own skills.
 - **`standard/`** — tools with public docs elsewhere (Anthropic, third-party). The `SKILL.md` documents *your* project-specific use — scope configured, quirks, surface coverage — not the tool itself.
 - **`custom/`** — capabilities with no public docs (your own scripts, aliases, commands). Here the `SKILL.md` *is* the canonical documentation.
 
-Each skill lives in its own folder with a `SKILL.md` inside (e.g. `standard/my-tool/SKILL.md`). For the header fields, the folder-loading vs. Anthropic auto-discovery model, and the full format, see the skills-layer doc in allostat (`skills/README.md`) — that's the canonical explanation, not duplicated here.
+Each skill lives in its own folder with a `SKILL.md` inside (e.g. `standard/my-tool/SKILL.md`). For the header fields, the folder-loading vs. Anthropic auto-discovery model, and the full format, see the skills-layer doc in allostatik (`skills/README.md`) — that's the canonical explanation, not duplicated here.
 
 ## Adding a skill
 
 1. Create a folder under `standard/` or `custom/` named for the skill (e.g. `standard/my-tool/`).
-2. Copy `allostat/templates/skill_template.md` into it as `SKILL.md`; fill in the header and body.
+2. Copy `allostatik/templates/skill_template.md` into it as `SKILL.md`; fill in the header and body.
 3. Add a one-line entry to the index below — the directory listing is the index.
 4. Leave `discovery` at `methodology-folder` unless the skill genuinely needs Anthropic auto-discovery.
 

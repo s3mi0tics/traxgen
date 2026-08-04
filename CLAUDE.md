@@ -4,9 +4,9 @@ Mode: **software engineering** (Python 3.12+, `uv`, pytest).
 
 ## Orient first
 
-Session state and routines live in the `allostat/` files imported below. Follow
-`allostat/workflow.md`'s open routine before acting on anything substantive;
-`allostat/plan.md` is the single source of truth for "where are we." The former
+Session state and routines live in the `allostatik/` files imported below. Follow
+`allostatik/workflow.md`'s open routine before acting on anything substantive;
+`allostatik/plan.md` is the single source of truth for "where are we." The former
 living document, `docs/PLAN.md`, is **archived** — historical detail only; do
 not orient from it or propose updates to it.
 

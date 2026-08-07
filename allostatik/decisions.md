@@ -11,7 +11,7 @@ This is the decisions layer, distinct from its `allostatik/` siblings — `plan.
 
 Always name the superseding or amending row so the trail stays followable.
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-08-04
 
 | Decision | Choice | Rationale |
 |---|---|---|
@@ -38,4 +38,4 @@ Always name the superseding or amending row so the trail stays followable.
 | App integration path | Share-code upload API only; sideload is dead | iOS app registers no local data-in path (2026-04-22); upload endpoint verified end-to-end |
 | Render verification | Automated harness + play-button oracle only; manual verification carries no evidentiary weight | Silent Mac→iPhone clipboard failure invalidated a session of manual observations (promoted from the pattern now in `observations.md`) |
 | Migration classification (2026-07-22) | `docs/PLAN.md` = fold-in → archive; `.cursorrules` = live (code conventions, pointed at); root README = live; `docs/refs/` = live (Layer-3 corpus); CLAUDE.md = rewritten as adapter over `allostatik/` | One source of truth per domain; the required migrate-branch record |
-| Tool rename: Allostat → Allostatik (2026-08-03) | `allostat/` → `allostatik/` via migrate.py (folder, fences, imports, in-folder references); `scripts/update_docs_20260727.py` repointed the same day. Surviving "allostat" mentions (docs/refs, docs/PLAN.md archive banner, older prose) are historical and refer to what is now Allostatik | Upstream rename of the context tool. In-folder self-references were swept with the rename — rows here now read "allostatik" even where the recorded events happened under "Allostat" |
+| Tool rename: Allostat → Allostatik (2026-08-03) | [AMENDED 2026-08-04] `allostat/` → `allostatik/` via migrate.py (folder, fences, imports, in-folder references); `scripts/update_docs_20260727.py` repointed the same day. Surviving "allostat" mentions (docs/refs, docs/PLAN.md archive banner, older prose) are historical and refer to what is now Allostatik. The historical-prose reading holds for `docs/refs` and the `docs/PLAN.md` banner, but not universally: three surviving mentions in CLAUDE.md were live path pointers into the renamed folder, leaving the orient step reading files that no longer existed for ~25 hours. Repointed at `4988c41`; see the 2026-08-03/04 session-log row in `plan.md`. | Upstream rename of the context tool. In-folder self-references were swept with the rename — rows here now read "allostatik" even where the recorded events happened under "Allostat" |

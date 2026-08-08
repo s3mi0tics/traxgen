@@ -1,4 +1,6 @@
-> **ARCHIVED 2026-07-22.** Folded into the canonical `allostat/` files (see `allostat/plan.md` and the migration row in `allostat/decisions.md`). Historical detail only — do not orient from this file or update it.
+> **ARCHIVED 2026-07-22.** Folded into the canonical `allostatik/` files (see `allostatik/plan.md` and the migration row in `allostatik/decisions.md`). Historical detail only — do not orient from this file or update it.
+>
+> *(Paths repointed 2026-08-07: this banner's job is to send the reader to the current files, so a stale pointer defeats its purpose. The archived text below still says "Allostat" throughout; that is historical prose and stays. See the "Rename reading, narrowed" row in `allostatik/decisions.md`.)*
 
 # traxgen — Plan
 

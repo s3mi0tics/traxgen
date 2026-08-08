@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -38,10 +40,23 @@ COORDS = {
     "delete_confirm": (1200, 800),
 }
 
-# Wait durations (seconds). Tuned during M6.c manual mapping.
+# Wait durations (seconds). Tuned during M6.c manual mapping (2026-04-25) against a
+# warm emulator.
+#
+# Bumped 2026-08-07 after the goal-rotation sweep's positive control failed: on a
+# cold-booted AVD the fullscreen extract-mode IME had not finished laying out when
+# `ime_ok` fired, so the share code was never submitted and every later step ran
+# against a keyboard -- the play-button oracle sampled key pixels and returned
+# 'inactive'. The tap coordinate was verified correct against the uiautomator bounds
+# ([2216,252][2384,378] contains (2270,305)), so this is a timing failure, not a
+# geometry one.
+#
+# These are still fixed sleeps and they still assert nothing: too short is flaky,
+# too long is slow, and the right value moves with machine load. See plan.md's
+# triggered review for the polling-based replacement this is a stopgap for.
 WAITS = {
-    "after_tap": 0.5,
-    "after_text": 0.3,
+    "after_tap": 0.8,
+    "after_text": 1.5,
     "after_load": 4.0,
     "after_render_load": 5.0,
     "after_back": 1.0,
@@ -73,6 +88,14 @@ class AdbCommandFailedError(AndroidAutomationError):
 
 class EmulatorNotReadyError(AndroidAutomationError):
     """The emulator is not running, not visible to adb, or not booted."""
+
+
+class UiConditionTimeout(AndroidAutomationError):
+    """A polled UI condition did not become true within its timeout."""
+
+
+class OracleFrameError(AndroidAutomationError):
+    """The screencap does not look like a rendered course, so it wasn't classified."""
 
 
 # --- adb wrapper -----------------------------------------------------------
@@ -185,6 +208,132 @@ def launch(ctx: AdbContext) -> None:
     )
 
 
+# --- UI state polling ------------------------------------------------------
+#
+# Generation-two synchronization for the steps that have something to poll.
+# The Unity game surface is opaque to uiautomator; the native dialogs and IME
+# are not. See docs/refs/ui-automation-synchronization.md.
+
+class Bounds(NamedTuple):
+    """A uiautomator node's pixel bounds in device space."""
+
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    @property
+    def center(self) -> tuple[int, int]:
+        """Center point, suitable for passing straight to `tap`."""
+        return ((self.left + self.right) // 2, (self.top + self.bottom) // 2)
+
+    def contains(self, x: int, y: int) -> bool:
+        """Whether a point falls inside these bounds."""
+        return self.left <= x <= self.right and self.top <= y <= self.bottom
+
+
+def parse_bounds(raw: str) -> Bounds:
+    """Parse uiautomator's `[left,top][right,bottom]` bounds string."""
+    try:
+        first, second = raw.replace("]", "").split("[")[1:]
+        left, top = (int(v) for v in first.split(","))
+        right, bottom = (int(v) for v in second.split(","))
+    except (ValueError, IndexError) as exc:
+        raise ValueError(f"unparseable bounds: {raw!r}") from exc
+    return Bounds(left, top, right, bottom)
+
+
+def find_node(
+    hierarchy: str, *, cls: str | None = None, text: str | None = None
+) -> Bounds | None:
+    """Return the bounds of the first node matching every given attribute, else None."""
+    if cls is None and text is None:
+        raise ValueError("find_node needs at least one of cls or text")
+    try:
+        root = ET.fromstring(hierarchy)
+    except ET.ParseError:
+        return None
+    for node in root.iter("node"):
+        if cls is not None and node.get("class") != cls:
+            continue
+        if text is not None and node.get("text") != text:
+            continue
+        raw = node.get("bounds")
+        if raw:
+            return parse_bounds(raw)
+    return None
+
+
+def dump_ui(ctx: AdbContext, *, remote_path: str = "/sdcard/window_dump.xml") -> str | None:
+    """Return the current uiautomator hierarchy XML, or None if it can't be read.
+
+    Returning None rather than raising is deliberate. `uiautomator dump` fails
+    while a view is animating ("could not get idle state"), and to a poller
+    that is "not ready yet", not an error. Raising here would reintroduce the
+    flakiness polling exists to remove.
+    """
+    try:
+        _run_adb(ctx, "shell", "uiautomator", "dump", remote_path, timeout=15.0)
+        out = _run_adb(ctx, "shell", "cat", remote_path, timeout=15.0)
+    except AdbCommandFailedError:
+        return None
+    return out if "<hierarchy" in out else None
+
+
+def wait_until(
+    dump_fn: Callable[[], str | None],
+    predicate: Callable[[str], bool],
+    *,
+    timeout: float = 10.0,
+    interval: float = 0.25,
+    description: str = "condition",
+    sleep_fn: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Poll `dump_fn` until `predicate` holds; raise `UiConditionTimeout` otherwise.
+
+    A `dump_fn` returning None means "not readable yet" and never satisfies the
+    predicate. `sleep_fn` and `clock` are injectable so the polling logic is
+    testable without real elapsed time or an emulator.
+    """
+    deadline = clock() + timeout
+    polls = 0
+    while True:
+        polls += 1
+        hierarchy = dump_fn()
+        if hierarchy is not None and predicate(hierarchy):
+            return
+        if clock() >= deadline:
+            raise UiConditionTimeout(
+                f"timed out after {timeout:.1f}s ({polls} polls) waiting for {description}"
+            )
+        sleep_fn(interval)
+
+
+def wait_for_node(
+    ctx: AdbContext,
+    *,
+    cls: str | None = None,
+    text: str | None = None,
+    present: bool = True,
+    timeout: float = 10.0,
+    interval: float = 0.25,
+) -> None:
+    """Wait for a matching node to appear (present=True) or vanish (present=False).
+
+    For present=False an unreadable dump keeps polling rather than counting as
+    "gone" -- the conservative reading, since a failed dump is ambiguous.
+    """
+    goal = "appear" if present else "disappear"
+    wait_until(
+        lambda: dump_ui(ctx),
+        lambda h: (find_node(h, cls=cls, text=text) is not None) is present,
+        timeout=timeout,
+        interval=interval,
+        description=f"node(class={cls!r}, text={text!r}) to {goal}",
+    )
+
+
 # --- High-level flow -------------------------------------------------------
 
 class RenderResult(NamedTuple):
@@ -256,27 +405,82 @@ PLAY_BUTTON_SAMPLE_CENTER = (2190, 980)
 PLAY_BUTTON_SAMPLE_HALF = 6
 PLAY_BUTTON_ACTIVE_MIN_CHANNEL = 220.0
 
+# --- Frame guard -----------------------------------------------------------
+#
+# The sample above is a BRIGHTNESS test, not a validity test. On 2026-08-07 it
+# returned 'active' for a GraviTrax splash screen -- a near-white frame with the
+# logo on it -- because the sampled box happened to be white. That manufactured
+# a second active rotation in the goal-rotation sweep, which by the sweep's own
+# pre-declared conditions read as MODEL_WRONG. A false 'inactive' produces a null
+# result; a false 'active' produces a finding, so this is the worse direction.
+#
+# Guard: refuse to classify a frame that is mostly near-white. Measured on the
+# four screencaps that survived the 2026-08-07 run (see
+# scripts/calibrate_frame_guard.py):
+#
+#   splash screen (false 'active')     white_frac 0.942
+#   real render, control, active       white_frac 0.014
+#   real render, E rot 1, active       white_frac 0.014
+#   real render, bracket, inactive     white_frac 0.013
+#
+# ~70x of daylight, so 0.50 sits mid-gap with ~35x margin either side. `mean`
+# separates too (248 vs 124-146); `stddev` does NOT (29.6 vs 41.5-51.7) and was
+# rejected for that reason.
+FRAME_WHITE_MIN_CHANNEL = 235
+FRAME_MAX_WHITE_FRACTION = 0.50
+FRAME_GUARD_DOWNSCALE = 8
 
-def detect_play_button_state(screenshot_path: Path) -> str:
+
+def frame_white_fraction(screenshot_path: Path) -> float:
+    """Fraction of the frame whose dimmest RGB channel clears FRAME_WHITE_MIN_CHANNEL."""
+    from PIL import Image, ImageChops
+
+    img = Image.open(screenshot_path).convert("RGB")
+    small = img.resize(
+        (
+            max(1, img.width // FRAME_GUARD_DOWNSCALE),
+            max(1, img.height // FRAME_GUARD_DOWNSCALE),
+        )
+    )
+    red, green, blue = small.split()
+    min_channel = ImageChops.darker(ImageChops.darker(red, green), blue)
+    mask = min_channel.point(lambda v: 255 if v >= FRAME_WHITE_MIN_CHANNEL else 0)
+    return mask.histogram()[255] / float(small.width * small.height)
+
+
+def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True) -> str:
     """Sample the play-button triangle and return 'active' or 'inactive'.
 
     Active (course is valid by app's rules): triangle is white -> all RGB
     channels near 255. Inactive (invalid): triangle is pale-green-tinted
     -> blue channel drops markedly.
 
+    Raises `OracleFrameError` when the frame is mostly near-white, i.e. a splash
+    or loading screen rather than a rendered course. Callers that record render
+    errors separately from validity verdicts (as the sweeps do) then get "no
+    reading" instead of a confident wrong one. Pass guard_frame=False only for
+    calibration, where classifying a known-bad frame is the point.
+
     Importing PIL here (not at module top) keeps Pillow optional for callers
     that only want the automation flow without validity classification.
     """
-    from PIL import Image
+    from PIL import Image, ImageStat
+
+    if guard_frame:
+        white = frame_white_fraction(screenshot_path)
+        if white >= FRAME_MAX_WHITE_FRACTION:
+            raise OracleFrameError(
+                f"{Path(screenshot_path).name}: {white:.3f} of the frame is near-white "
+                f"(limit {FRAME_MAX_WHITE_FRACTION}) -- this looks like a splash or "
+                "loading screen, not a rendered course; refusing to classify it"
+            )
 
     img = Image.open(screenshot_path).convert("RGB")
     cx, cy = PLAY_BUTTON_SAMPLE_CENTER
     h = PLAY_BUTTON_SAMPLE_HALF
     box = img.crop((cx - h, cy - h, cx + h, cy + h))
-    pixels = list(box.getdata())
-    n = len(pixels)
-    avg_r = sum(p[0] for p in pixels) / n
-    avg_g = sum(p[1] for p in pixels) / n
-    avg_b = sum(p[2] for p in pixels) / n
+    # ImageStat.mean is the per-band mean -- identical arithmetic to the previous
+    # hand-rolled sum over getdata(), which Pillow 14 removes.
+    avg_r, avg_g, avg_b = ImageStat.Stat(box).mean
     min_channel = min(avg_r, avg_g, avg_b)
     return "active" if min_channel >= PLAY_BUTTON_ACTIVE_MIN_CHANNEL else "inactive"

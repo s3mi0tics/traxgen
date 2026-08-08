@@ -12,6 +12,9 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - Default pytest addopts include `-m 'not network'` — network-marked tests (the live upload canary) run only via `uv run pytest -m network`.
 - Android SDK at `~/Library/Android/sdk`. AVD `traxgen_m6c` (Pixel 6, API 34, google_apis_playstore, arm64-v8a) hosts the render harness. Boot: `${ANDROID_HOME:-$HOME/Library/Android/sdk}/emulator/emulator -avd traxgen_m6c -no-snapshot-load > /tmp/emulator.log 2>&1 &` — GraviTrax persists across reboots, no re-sign-in per session.
 - A second AVD, `traxgen_test`, exists and is undocumented. Either it earns a line here or it gets deleted (tracked in `plan.md` deferred cleanup).
+- `gh` CLI is installed and authenticated over SSH — GitHub operations (PRs, issues, releases) can go through `gh` rather than the web UI.
+- Hammerspoon is installed, so macOS-side automation is available if a workflow ever wants it.
+- Repo lives at `/Users/colbykauk/Claude/Projects/traxgen`. (The old `~/Desktop/Hub/Projects/traxgen` checkout is deleted — anything still naming that path is stale.)
 
 ## Gotchas (each learned the hard way)
 

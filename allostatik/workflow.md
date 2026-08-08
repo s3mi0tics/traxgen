@@ -168,6 +168,12 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 
 The *Writing the handoff* routine (Part 1) holds the universal shape — next-session goals, required reading, a pointer to the close routine, blocking carries up top, and sizing the handoff to how mature your layers are. Add here any conventions specific to *this* project's handoffs.
 
+**Deliver the handoff as a file, not as inline prose.** Write it to an outputs folder as `traxgen-handoff-<YYYY-MM-DD>.md` and hand the file over. In a chat transcript the start and end of a handoff are ambiguous — it runs into the surrounding conversation, and finding it again means scrolling. A file has unambiguous boundaries, survives scrollback, and can be opened alongside the next session instead of re-read in place. *Test (output):* the next session's opening message is a file, not a wall of text. (Raised 2026-08-07 after several handoffs delivered inline.)
+
+**Handoff files stay local.** They are artifacts, not canonical state — nothing in a handoff is the source of truth for anything, so a committed handoff goes stale the moment `plan.md` moves. Don't commit them.
+
+**Observation numbering runs cumulatively across sessions.** `observations.md` numbers are stable references; a handoff citing "#12" must mean the same thing next session. Never renumber.
+
 <!-- Project-specific handoff conventions. Examples:
   - State to always carry (e.g. the current status of each layer or workstream).
   - A numbering scheme that runs across sessions (e.g. observations numbered cumulatively — don't restart per session).

@@ -36,7 +36,7 @@ Artifact status: nothing was lost with the deleted `~/Desktop/Hub` checkout — 
 
 ## Phase 1 definition of done
 
-`python -m traxgen generate --set vertical-starter` produces a `.course` binary that: (1) is accepted by the share-code upload endpoint, (2) loads in the official app via that code without errors, (3) uses only PRO Vertical Starter-Set (26832) pieces, (4) has a valid ball path from a starter to a goal, (5) fits on the set's 4 baseplates. Closure of queue item 3 (M6.b) is measured against this.
+`python -m traxgen generate --set vertical-starter` produces a `.course` binary that: (1) is accepted by the share-code upload endpoint, (2) loads in the official app via that code without errors, (3) uses only PRO Vertical Starter-Set (26832) pieces, (4) has a valid ball path from a starter to a goal, (5) fits on the set's 4 baseplates. Closure of Sequenced work item 4 (Close M6.b) is measured against this.
 
 **Explicit v1 non-goals:** interesting tracks, variety, physics simulation, aesthetics, race mode, perpetual mode. Phase 1 proves the pipeline works end-to-end — nothing more.
 

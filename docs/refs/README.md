@@ -31,16 +31,20 @@ Layout:
   (endpoint, headers, dedup-by-content-hash behavior).
 - `android-automation.md` — the M6.c render harness: emulator config,
   tap-coordinate map, validity oracle.
+- `ui-automation-synchronization.md` — how the harness decides a screen is
+  ready: the three generations of synchronization, why Unity blocks
+  `uiautomator` polling for half the flow, and the 2026-08-07 IME timing
+  failure worked through end to end.
 - `agentic-workflow-notes.md` — cross-project learnings on working
   with AI coding agents: tool selection, session patterns, Colby's
   working style, per-session findings. Scope is wider than traxgen;
   lives here for history and is updated opportunistically at handoffs.
   Classified live-in-place 2026-07-22; its strongest traxgen-relevant
-  patterns are folded into `allostat/observations.md` (#7–#11).
+  patterns are folded into `allostatik/observations.md` (#7–#11).
 - `starter-set-manual/` — 22410 manual-page photos (per its README).
   Primary source; trust these over the wiki. Currently holds no photos —
   they were never committed (verified 2026-07-22: no .gitignore rule
   involved), so the deleted checkout took any local copies with it.
   Re-photograph, rail-height table first (primary evidence for long-rail
   Δheight = 4); PRO 26832 pages are worth adding too, post-pivot.
-  Tracked in `allostat/plan.md` deferred cleanup.
+  Tracked in `allostatik/plan.md` deferred cleanup.

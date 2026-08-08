@@ -154,6 +154,15 @@ Two surfaces ship by default — most projects have exactly these:
 
 Add a row for any other surface where a canonical file is deployed and could drift. **A surface can appear more than once** — if you merge layers into a single deployed field (e.g. L3 environment into Custom Instructions alongside L1), list each canonical file as its own row pointing at that shared surface, so the drift-check compares all of them:
 
+**The claude.ai project exposes TWO fields, and both are injected into every conversation.** Checking only one is how a stale prompt survived from 2026-07-22 to 2026-08-07: the instructions field was replaced and verified, while the *description* field still told every session that `docs/PLAN.md` was authoritative and that M2 was next. Byte-exact copies of both live under `allostatik/deployed/`, so this check is a real diff rather than a judgement call — before 2026-08-07 there was nothing to compare against, because `project-instructions.md` deliberately isn't a copy of what gets pasted.
+
+| Canonical file | Deployed at |
+|---|---|
+| `allostatik/deployed/claude-ai-description.md` | claude.ai project → **Description** field |
+| `allostatik/deployed/claude-ai-project-instructions.md` | claude.ai project → **Project instructions** field |
+
+*Test (comparison):* read both fields back and diff against those two files. On a surface that can read the project metadata, do it directly; otherwise paste each field back and compare. Do not pass this check from memory of having pasted — "I pasted it" and "it is deployed" are different claims, and on 2026-08-07 they came apart.
+
 <!-- Additional surfaces — one row per pair: `<CANONICAL-FILE>` | <where it's deployed>. -->
 <!-- Example: `.cursor/rules/*.mdc` | the Cursor rules a canonical file is mirrored into. -->
 

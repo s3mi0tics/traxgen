@@ -1,0 +1,1 @@
+Procedural generator for GraviTrax marble-run courses — Python library + CLI producing binary .course files the official Ravensburger app accepts via share codes. Allostatik project: current state lives in the repo's allostatik/ files, never in this description. Repo: github.com/s3mi0tics/traxgen

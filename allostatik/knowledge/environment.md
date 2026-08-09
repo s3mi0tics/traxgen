@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-08-07
+**Last updated:** 2026-08-08
 
 ## Runtime
 
@@ -15,6 +15,8 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - `gh` CLI is installed and authenticated over SSH — GitHub operations (PRs, issues, releases) can go through `gh` rather than the web UI.
 - Hammerspoon is installed, so macOS-side automation is available if a workflow ever wants it.
 - Repo lives at `/Users/colbykauk/Claude/Projects/traxgen`. (The old `~/Desktop/Hub/Projects/traxgen` checkout is deleted — anything still naming that path is stale.)
+
+- **Cowork sessions can read and write this repo directly, but cannot drive the emulator.** A Cowork session granted folder access gets a shell in a Linux VM with the repo mounted — `git`, `python3` and `uv` are present and file edits land straight on disk, so canonical-file and script edits need no paste round-trip. That VM has **no `adb`, no emulator, no network, and no view of `/Users`**, so every render, upload, test run and `git push` still has to come from this Mac. Verified 2026-08-08 by checking `command -v` rather than assuming.
 
 ## Gotchas (each learned the hard way)
 

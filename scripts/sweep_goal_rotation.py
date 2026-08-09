@@ -81,6 +81,11 @@ Usage:
     # Full sweep (emulator must be booted, GraviTrax at the main menu).
     uv run python -m scripts.sweep_goal_rotation
 
+    # The same 36-cell sweep with the STARTER turned one step. The 2026-08-08
+    # starter-rotation sweep showed the connectable direction set moves with
+    # the starter, so each rotation is its own slice of the space.
+    uv run python -m scripts.sweep_goal_rotation --starter-rot 1
+
     # Resume after an abort, reusing prior renders.
     uv run python -m scripts.sweep_goal_rotation --resume screenshots/goal_rotation_sweep/results.json
 
@@ -103,23 +108,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scripts.sweep_starter_rotation import build_variant
 from traxgen.android import (
     AndroidAutomationError,
     assert_emulator_ready,
     render_course,
     resolve_context,
 )
-from traxgen.domain import (
-    CellConstructionData,
-    Course,
-    TileTowerConstructionData,
-    TileTowerTreeNodeData,
-)
+from traxgen.domain import Course
 from traxgen.generator import generate_minimal
 from traxgen.hex import HEX_DIRECTIONS, ORIGIN, HexVector
 from traxgen.inventory import PRO_VERTICAL_STARTER_SET
 from traxgen.serializer import serialize_course
-from traxgen.types import TileKind
 from traxgen.uploader import UploadError, upload_course
 from traxgen.validator import validate_strict
 
@@ -145,11 +145,12 @@ DIRECTION_NAMES = ("E", "NE", "NW", "W", "SW", "SE")
 class SweepCell:
     """One (goal position, goal rotation) cell and everything observed about it."""
 
-    kind: str  # 'adjacent' | 'control_far'
+    kind: str  # 'adjacent' | 'control_far' | 'control_positive'
     direction: int | None  # HEX_DIRECTIONS index; None for the far control
     y: int
     x: int
     rot: int
+    starter_rot: int = 0
     is_positive_control: bool = False
     payload_sha256: str | None = None
     payload_bytes: int | None = None
@@ -161,44 +162,24 @@ class SweepCell:
     screenshot: str | None = None
 
     @property
+    def key(self) -> tuple[int, int, int, int]:
+        """Identity of the geometry this cell measures."""
+        return (self.starter_rot, self.y, self.x, self.rot)
+
+    @property
     def label(self) -> str:
         """Short filesystem-safe identifier: no parens, commas, or spaces."""
-        return f"goal_y{self.y}x{self.x}_rot{self.rot}"
-
-
-def _goal_variant(base: Course, *, pos: HexVector, rot: int) -> Course:
-    """Return a copy of `base` with its GOAL_RAIL cell moved to `pos` at rotation `rot`."""
-    layer = base.layer_construction_data[0]
-    starters = [
-        cell
-        for cell in layer.cell_construction_datas
-        if cell.tree_node_data.construction_data.kind is TileKind.STARTER
-    ]
-    if len(starters) != 1:
-        raise RuntimeError(
-            f"expected exactly 1 STARTER cell in the base course, found {len(starters)}"
-        )
-    goal_cell = CellConstructionData(
-        local_hex_position=pos,
-        tree_node_data=TileTowerTreeNodeData(
-            index=0,
-            construction_data=TileTowerConstructionData(
-                kind=TileKind.GOAL_RAIL,
-                height_in_small_stacker=0,
-                hex_rotation=rot,
-            ),
-            children=(),
-        ),
-    )
-    new_layer = dataclasses.replace(
-        layer, cell_construction_datas=(starters[0], goal_cell)
-    )
-    return dataclasses.replace(base, layer_construction_data=(new_layer,))
+        return f"s{self.starter_rot}_goal_y{self.y}x{self.x}_rot{self.rot}"
 
 
 def _assert_control_matches_generator(base: Course) -> None:
     """The positive-control variant must serialize byte-identically to generate_minimal()."""
-    control = _goal_variant(base, pos=POSITIVE_CONTROL_POS, rot=POSITIVE_CONTROL_ROT)
+    control = build_variant(
+        base,
+        starter_rot=0,
+        goal_pos=POSITIVE_CONTROL_POS,
+        goal_rot=POSITIVE_CONTROL_ROT,
+    )
     if serialize_course(control) != serialize_course(base):
         raise RuntimeError(
             "positive-control variant is not byte-identical to generate_minimal(); "
@@ -207,12 +188,24 @@ def _assert_control_matches_generator(base: Course) -> None:
         )
 
 
-def build_cells() -> list[SweepCell]:
-    """Enumerate the 36 adjacency cells plus the 6 distance-2 control cells."""
+def build_cells(starter_rot: int = 0) -> list[SweepCell]:
+    """Enumerate the 36 adjacency cells and 6 distance-2 controls at `starter_rot`.
+
+    The positive control is always the app-certified geometry at starter
+    rotation 0 -- it is the harness check, so it must be a course the app is
+    known to accept. At `starter_rot == 0` that cell is already one of the 36
+    and is simply flagged; at any other rotation it is appended as a separate
+    cell with kind 'control_positive', which keeps it out of `classify()`'s
+    per-direction tally. (The certified geometry is NOT valid at every starter
+    rotation -- it renders inactive at s=1, measured 2026-08-08 -- so reusing
+    the swept rotation for the control would abort every run but one.)
+    """
     if ORIGIN.distance_to(FAR_CONTROL_POS) != 2:
         raise RuntimeError(
             f"FAR_CONTROL_POS {FAR_CONTROL_POS} is not at hex distance 2 from the starter"
         )
+    if not 0 <= starter_rot <= 5:
+        raise ValueError(f"starter_rot must be 0..5, got {starter_rot}")
     cells: list[SweepCell] = []
     for direction, (dy, dx) in enumerate(HEX_DIRECTIONS):
         pos = HexVector(y=dy, x=dx)
@@ -224,8 +217,11 @@ def build_cells() -> list[SweepCell]:
                     y=pos.y,
                     x=pos.x,
                     rot=rot,
+                    starter_rot=starter_rot,
                     is_positive_control=(
-                        pos == POSITIVE_CONTROL_POS and rot == POSITIVE_CONTROL_ROT
+                        starter_rot == 0
+                        and pos == POSITIVE_CONTROL_POS
+                        and rot == POSITIVE_CONTROL_ROT
                     ),
                 )
             )
@@ -237,10 +233,25 @@ def build_cells() -> list[SweepCell]:
                 y=FAR_CONTROL_POS.y,
                 x=FAR_CONTROL_POS.x,
                 rot=rot,
+                starter_rot=starter_rot,
+            )
+        )
+    if starter_rot != 0:
+        cells.append(
+            SweepCell(
+                kind="control_positive",
+                direction=2,
+                y=POSITIVE_CONTROL_POS.y,
+                x=POSITIVE_CONTROL_POS.x,
+                rot=POSITIVE_CONTROL_ROT,
+                starter_rot=0,
+                is_positive_control=True,
             )
         )
     if sum(1 for c in cells if c.is_positive_control) != 1:
         raise RuntimeError("the positive-control cell is missing from the enumeration")
+    if len({c.key for c in cells}) != len(cells):
+        raise RuntimeError("enumeration contains duplicate geometries")
     return cells
 
 
@@ -337,10 +348,15 @@ def _write_sidecar(path: Path, cells: list[SweepCell], meta: dict) -> None:
 def _load_resume(path: Path, cells: list[SweepCell]) -> int:
     """Copy prior render verdicts onto matching cells. Returns how many were restored."""
     prior = json.loads(path.read_text())
-    index = {(c["y"], c["x"], c["rot"]): c for c in prior.get("cells", [])}
+    # Sidecars written before 2026-08-08 have no starter_rot field; they were all
+    # swept at 0, so that is the correct default rather than a guess.
+    index = {
+        (c.get("starter_rot", 0), c["y"], c["x"], c["rot"]): c
+        for c in prior.get("cells", [])
+    }
     restored = 0
     for cell in cells:
-        got = index.get((cell.y, cell.x, cell.rot))
+        got = index.get(cell.key)
         if got and got.get("validity") in ("active", "inactive"):
             cell.validity = got["validity"]
             cell.screenshot = got.get("screenshot")
@@ -360,10 +376,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--starter-rot",
+        type=int,
+        default=0,
+        choices=range(6),
+        help=(
+            "The STARTER's hex_rotation for every swept cell (default: 0). The "
+            "positive control stays at 0 regardless -- see build_cells()."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help=f"Screenshots + results JSON (default: {DEFAULT_OUTPUT_DIR}).",
+        default=None,
+        help=(
+            "Screenshots + results JSON. Defaults to "
+            f"{DEFAULT_OUTPUT_DIR} for starter rotation 0, and to the same path "
+            "suffixed _s<N> otherwise, so runs at different rotations cannot "
+            "overwrite each other's results."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -398,7 +429,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=30.0,
         help="Upload HTTP timeout in seconds (default: 30.0).",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.output_dir is None:
+        args.output_dir = (
+            DEFAULT_OUTPUT_DIR
+            if args.starter_rot == 0
+            else DEFAULT_OUTPUT_DIR.with_name(
+                f"{DEFAULT_OUTPUT_DIR.name}_s{args.starter_rot}"
+            )
+        )
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -411,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     print("precondition ok: positive-control variant is byte-identical to generate_minimal()",
           file=sys.stderr)
 
-    cells = build_cells()
+    cells = build_cells(args.starter_rot)
 
     # Phase 0: build, validate and hash every payload. Hash distinctness is
     # checked BEFORE any upload -- the endpoint dedups by content hash, so two
@@ -419,7 +459,12 @@ def main(argv: list[str] | None = None) -> int:
     # the two things we think they are.
     payloads: dict[int, bytes] = {}
     for i, cell in enumerate(cells):
-        course = _goal_variant(base, pos=HexVector(y=cell.y, x=cell.x), rot=cell.rot)
+        course = build_variant(
+            base,
+            starter_rot=cell.starter_rot,
+            goal_pos=HexVector(y=cell.y, x=cell.x),
+            goal_rot=cell.rot,
+        )
         try:
             validate_strict(course, PRO_VERTICAL_STARTER_SET)
             cell.validator = "ok"
@@ -467,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
             "rot": POSITIVE_CONTROL_ROT,
         },
         "far_control": {"y": FAR_CONTROL_POS.y, "x": FAR_CONTROL_POS.x},
+        "starter_rot": args.starter_rot,
         "budget_minutes": args.budget_minutes,
     }
 
@@ -610,7 +656,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Summary table.
     print(f"\nsweep results ({len(cells)} cells):")
-    print(f"{'direction':<10} {'position':<10} {'rot':>3}  {'code':<12} {'verdict':<12} note")
+    print(
+        f"{'direction':<10} {'starter':>7} {'position':<10} {'rot':>3}  "
+        f"{'code':<12} {'verdict':<12} note"
+    )
     for cell in _render_order(cells):
         direction = DIRECTION_NAMES[cell.direction] if cell.direction is not None else "far"
         cell_verdict = "RENDER_ERROR" if cell.render_error else (cell.validity or "-")
@@ -622,8 +671,8 @@ def main(argv: list[str] | None = None) -> int:
         if cell.upload_error:
             note = (note + " " if note else "") + "upload failed"
         print(
-            f"{direction:<10} {f'({cell.y},{cell.x})':<10} {cell.rot:>3}  "
-            f"{(cell.code or '-'):<12} {cell_verdict:<12} {note}"
+            f"{direction:<10} {cell.starter_rot:>7} {f'({cell.y},{cell.x})':<10} "
+            f"{cell.rot:>3}  {(cell.code or '-'):<12} {cell_verdict:<12} {note}"
         )
 
     rendered = [c for c in cells if c.validity is not None]

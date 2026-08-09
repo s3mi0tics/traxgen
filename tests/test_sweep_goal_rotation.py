@@ -36,13 +36,13 @@ from scripts.sweep_goal_rotation import (
     POSITIVE_CONTROL_ROT,
     ROTATIONS,
     SweepCell,
-    _goal_variant,
     _load_resume,
     _render_order,
     build_cells,
     classify,
     fit_affine_rules,
 )
+from scripts.sweep_starter_rotation import build_variant
 from traxgen.generator import generate_minimal
 from traxgen.hex import ORIGIN, HexVector
 from traxgen.serializer import serialize_course
@@ -106,19 +106,21 @@ def test_positive_control_variant_is_byte_identical_to_generator() -> None:
     """The sweep's core precondition: the control cell IS the app-certified course.
 
     `generate_minimal()` produced the bytes uploaded as FLW4TMLP5V. If
-    rebuilding that same geometry through `_goal_variant` yields different
+    rebuilding that same geometry through `build_variant` yields different
     bytes, the sweep is measuring something the app never blessed — and
     every downstream verdict is uninterpretable while still looking clean.
     """
     base = generate_minimal()
-    rebuilt = _goal_variant(base, pos=POSITIVE_CONTROL_POS, rot=POSITIVE_CONTROL_ROT)
+    rebuilt = build_variant(
+        base, starter_rot=0, goal_pos=POSITIVE_CONTROL_POS, goal_rot=POSITIVE_CONTROL_ROT
+    )
     assert serialize_course(rebuilt) == serialize_course(base)
 
 
 def test_variant_moves_the_goal_and_preserves_the_rest_of_the_shape() -> None:
     """Only the goal cell's position and rotation change; no rail is introduced."""
     base = generate_minimal()
-    variant = _goal_variant(base, pos=HexVector(y=0, x=1), rot=5)
+    variant = build_variant(base, starter_rot=0, goal_pos=HexVector(y=0, x=1), goal_rot=5)
 
     assert len(variant.layer_construction_data) == 1
     assert len(variant.rail_construction_data) == 0
@@ -142,7 +144,12 @@ def test_variant_builder_refuses_a_base_without_exactly_one_starter() -> None:
     broken_layer = dataclasses.replace(layer, cell_construction_datas=(goal_only,))
     broken = dataclasses.replace(base, layer_construction_data=(broken_layer,))
     with pytest.raises(RuntimeError, match="STARTER"):
-        _goal_variant(broken, pos=POSITIVE_CONTROL_POS, rot=POSITIVE_CONTROL_ROT)
+        build_variant(
+            broken,
+            starter_rot=0,
+            goal_pos=POSITIVE_CONTROL_POS,
+            goal_rot=POSITIVE_CONTROL_ROT,
+        )
 
 
 def test_all_42_cells_produce_distinct_payloads() -> None:
@@ -150,7 +157,14 @@ def test_all_42_cells_produce_distinct_payloads() -> None:
     base = generate_minimal()
     digests = {
         hashlib.sha256(
-            serialize_course(_goal_variant(base, pos=HexVector(y=c.y, x=c.x), rot=c.rot))
+            serialize_course(
+                build_variant(
+                    base,
+                    starter_rot=c.starter_rot,
+                    goal_pos=HexVector(y=c.y, x=c.x),
+                    goal_rot=c.rot,
+                )
+            )
         ).hexdigest()
         for c in build_cells()
     }
@@ -377,5 +391,129 @@ def test_resume_restores_inactive_verdicts_too(tmp_path) -> None:
 def test_sweep_cell_label_is_filesystem_safe() -> None:
     """Screenshot names must avoid parens and commas (see knowledge/environment.md)."""
     label = SweepCell(kind="adjacent", direction=2, y=-1, x=0, rot=3).label
-    assert label == "goal_y-1x0_rot3"
+    assert label == "s0_goal_y-1x0_rot3"
     assert not any(ch in label for ch in "(), ")
+
+
+# --- Sweeping at a non-zero starter rotation --------------------------------
+#
+# The 2026-08-08 starter-rotation sweep showed the connectable direction set
+# moves with the starter, so a sweep at s=0 measures one slice of a 6x6x6
+# space rather than the whole thing. These cover the parameterisation.
+
+
+def test_a_nonzero_starter_rotation_appends_a_dedicated_control() -> None:
+    """The control must stay at the certified rotation, not follow the sweep.
+
+    The app-certified geometry renders INACTIVE at s=1 (measured 2026-08-08),
+    so a control that followed `--starter-rot` would abort every run except
+    s=0 -- reporting HARNESS_SUSPECT for a harness that is working perfectly.
+    """
+    cells = build_cells(1)
+    assert len(cells) == 43
+    controls = [c for c in cells if c.is_positive_control]
+    assert len(controls) == 1
+    assert controls[0].kind == "control_positive"
+    assert controls[0].starter_rot == 0
+    assert (controls[0].y, controls[0].x, controls[0].rot) == (
+        POSITIVE_CONTROL_POS.y,
+        POSITIVE_CONTROL_POS.x,
+        POSITIVE_CONTROL_ROT,
+    )
+
+
+def test_at_zero_the_control_is_still_one_of_the_thirty_six() -> None:
+    """The s=0 shape is unchanged -- no extra cell, no extra render."""
+    cells = build_cells(0)
+    assert len(cells) == 42
+    control = next(c for c in cells if c.is_positive_control)
+    assert control.kind == "adjacent"
+
+
+def test_every_swept_cell_carries_the_requested_starter_rotation() -> None:
+    """Only the control is exempt."""
+    cells = build_cells(4)
+    swept = [c for c in cells if not c.is_positive_control]
+    assert {c.starter_rot for c in swept} == {4}
+
+
+def test_the_control_is_not_counted_as_an_observation_of_its_direction() -> None:
+    """At s=1 the control is an s=0 course; treating it as NW data would invent a finding."""
+    cells = build_cells(1)
+    for cell in cells:
+        cell.validity = "active" if cell.is_positive_control else "inactive"
+    verdict, detail = classify(cells)
+    assert verdict == "PARTIAL_FUNCTION"
+    # All six directions must read as dead -- including NW, whose only active
+    # cell in this list is the s=0 control.
+    for name in ("E", "NE", "NW", "W", "SW", "SE"):
+        assert name in detail
+
+
+def test_cells_at_a_nonzero_starter_rotation_are_all_distinct_payloads() -> None:
+    """43 cells, 43 courses -- content-hash dedup would silently merge any collision."""
+    base = generate_minimal()
+    cells = build_cells(1)
+    digests = {
+        hashlib.sha256(
+            serialize_course(
+                build_variant(
+                    base,
+                    starter_rot=c.starter_rot,
+                    goal_pos=HexVector(y=c.y, x=c.x),
+                    goal_rot=c.rot,
+                )
+            )
+        ).hexdigest()
+        for c in cells
+    }
+    assert len(digests) == len(cells)
+
+
+@pytest.mark.parametrize("bad", (-1, 6, 7))
+def test_build_cells_rejects_an_out_of_range_starter_rotation(bad: int) -> None:
+    """hex_rotation is 0..5; anything else is a caller bug, not a sweep."""
+    with pytest.raises(ValueError, match="starter_rot"):
+        build_cells(bad)
+
+
+def test_labels_disambiguate_the_same_geometry_at_different_starter_rotations() -> None:
+    """Screenshot filenames must not collide across runs at different rotations."""
+    a = SweepCell(kind="adjacent", direction=0, y=0, x=1, rot=1, starter_rot=0)
+    b = SweepCell(kind="adjacent", direction=0, y=0, x=1, rot=1, starter_rot=1)
+    assert a.label != b.label
+    assert not any(ch in b.label for ch in "(), ")
+
+
+def test_resume_from_a_sidecar_written_before_starter_rot_existed(tmp_path) -> None:
+    """Pre-2026-08-08 sidecars have no starter_rot; those runs were all at 0."""
+    cells = build_cells(0)
+    path = _prior_run(
+        tmp_path,
+        [{"y": -1, "x": 0, "rot": 3, "validity": "active", "code": "KN6F459ZR3"}],
+    )
+    assert _load_resume(path, cells) == 1
+    assert next(c for c in cells if c.is_positive_control).validity == "active"
+
+
+def test_resume_does_not_carry_a_verdict_across_starter_rotations(tmp_path) -> None:
+    """An s=0 result must never be restored onto the same geometry at s=1.
+
+    This is the failure the four-field key exists to prevent: NW rot 3 is
+    active at s=0 and inactive at s=1, so a three-field key would restore the
+    active verdict onto the s=1 cell and manufacture the exact finding the
+    2026-08-08 run disproved.
+    """
+    cells = build_cells(1)
+    path = _prior_run(
+        tmp_path,
+        [{"starter_rot": 0, "y": -1, "x": 0, "rot": 3, "validity": "active",
+          "code": "KN6F459ZR3"}],
+    )
+    restored = _load_resume(path, cells)
+    assert restored == 1  # the s=0 control, which genuinely is that cell
+    swept_nw3 = next(
+        c for c in cells if c.kind == "adjacent" and (c.y, c.x, c.rot) == (-1, 0, 3)
+    )
+    assert swept_nw3.starter_rot == 1
+    assert swept_nw3.validity is None

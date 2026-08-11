@@ -30,7 +30,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import scripts.sweep_goal_rotation as sweep_mod
 from scripts.sweep_goal_rotation import (
+    DEFAULT_OUTPUT_DIR,
     FAR_CONTROL_POS,
     POSITIVE_CONTROL_POS,
     POSITIVE_CONTROL_ROT,
@@ -40,9 +42,11 @@ from scripts.sweep_goal_rotation import (
     _render_order,
     build_cells,
     classify,
+    default_output_dir,
     fit_affine_rules,
 )
 from scripts.sweep_starter_rotation import build_variant
+from traxgen.android import RenderResult
 from traxgen.generator import generate_minimal
 from traxgen.hex import ORIGIN, HexVector
 from traxgen.serializer import serialize_course
@@ -517,3 +521,69 @@ def test_resume_does_not_carry_a_verdict_across_starter_rotations(tmp_path) -> N
     )
     assert swept_nw3.starter_rot == 1
     assert swept_nw3.validity is None
+
+
+# --- Output-dir naming + sidecar verdict (the queue runner's contract) -----
+
+
+def test_default_output_dir_is_unsuffixed_at_rotation_zero() -> None:
+    assert default_output_dir(0) == DEFAULT_OUTPUT_DIR
+
+
+@pytest.mark.parametrize("s", (1, 2, 5))
+def test_default_output_dir_suffixes_nonzero_rotations(s: int) -> None:
+    """Runs at different rotations must not overwrite each other's results."""
+    path = default_output_dir(s)
+    assert path.name == f"{DEFAULT_OUTPUT_DIR.name}_s{s}"
+    assert path.parent == DEFAULT_OUTPUT_DIR.parent
+
+
+@pytest.mark.integration
+def test_main_persists_verdict_and_abort_reason_into_the_sidecar(tmp_path, monkeypatch) -> None:
+    """run_sweep_queue judges a sweep by its sidecar, so main() must write its
+    verdict there rather than only printing it.
+
+    Uploads and renders are faked at the module seams (no network, no
+    emulator). The fake oracle marks exactly the payload that matches the
+    app-certified bytes as active -- the real oracle's defining property -- so
+    the run classifies as PARTIAL_FUNCTION: only the control's NW cell
+    connects, and every other direction is dead.
+    """
+    certified = serialize_course(generate_minimal())
+    uploaded: dict[str, bytes] = {}
+
+    def fake_upload(payload: bytes, timeout: float = 30.0) -> str:
+        code = "FAKE" + hashlib.sha256(payload).hexdigest()[:6].upper()
+        uploaded[code] = payload
+        return code
+
+    def fake_render(
+        code,
+        ctx=None,
+        screenshot_dir=None,
+        screenshot_name=None,
+        cleanup=True,
+        expect_disclaimer=False,
+        detect_validity=True,
+    ):
+        shot = tmp_path / f"{screenshot_name}.png"
+        shot.touch()
+        return RenderResult(
+            screenshot=shot,
+            validity="active" if uploaded[code] == certified else "inactive",
+        )
+
+    monkeypatch.setattr(sweep_mod, "upload_course", fake_upload)
+    monkeypatch.setattr(sweep_mod, "render_course", fake_render)
+    monkeypatch.setattr(sweep_mod, "resolve_context", lambda: object())
+    monkeypatch.setattr(sweep_mod, "assert_emulator_ready", lambda ctx: None)
+
+    out = tmp_path / "sweep_s0"
+    exit_code = sweep_mod.main(["--output-dir", str(out)])
+    meta = json.loads((out / "results.json").read_text())
+
+    assert exit_code == 0
+    assert meta["verdict"] == "PARTIAL_FUNCTION"
+    assert meta["verdict_detail"].startswith("no rotation connects")
+    assert meta["aborted"] is None
+    assert meta["final_control_validity"] == "active"

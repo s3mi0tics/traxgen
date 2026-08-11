@@ -365,6 +365,13 @@ def _load_resume(path: Path, cells: list[SweepCell]) -> int:
     return restored
 
 
+def default_output_dir(starter_rot: int) -> Path:
+    """Results dir for one rotation's sweep; s=0 keeps the historical unsuffixed path."""
+    if starter_rot == 0:
+        return DEFAULT_OUTPUT_DIR
+    return DEFAULT_OUTPUT_DIR.with_name(f"{DEFAULT_OUTPUT_DIR.name}_s{starter_rot}")
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the sweep."""
     parser = argparse.ArgumentParser(
@@ -431,13 +438,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     if args.output_dir is None:
-        args.output_dir = (
-            DEFAULT_OUTPUT_DIR
-            if args.starter_rot == 0
-            else DEFAULT_OUTPUT_DIR.with_name(
-                f"{DEFAULT_OUTPUT_DIR.name}_s{args.starter_rot}"
-            )
-        )
+        args.output_dir = default_output_dir(args.starter_rot)
     return args
 
 
@@ -696,6 +697,15 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif bracket == "active":
         print("\nharness bracket: control active at both ends of the run")
+
+    # Persist the verdict (and any abort reason) into the sidecar meta so a
+    # machine reader -- run_sweep_queue.py -- can judge the run without
+    # re-deriving classification. The queue's gates turn on the distinction
+    # between a mechanical hole (INCOMPLETE, no abort) and a meaningful abort.
+    meta["aborted"] = aborted
+    meta["verdict"] = verdict
+    meta["verdict_detail"] = detail
+    _write_sidecar(sidecar, cells, meta)
 
     print(f"\n=> {verdict}: {detail}")
 

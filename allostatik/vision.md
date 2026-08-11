@@ -2,7 +2,27 @@
 
 Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
-**Last meaningful update:** 2026-07-22
+**Last meaningful update:** 2026-08-10
+
+## The user story
+
+Stated by Colby 2026-08-10, and sharper than what the mode list below implies:
+
+> As a builder, I tell traxgen which pieces **I want to build with**, and it generates one or more courses that (a) use only those pieces, (b) are certified valid by the official app, and (c) arrive as a **share code** I can type into the app and then build on my table.
+
+Three things this pins that were previously implicit:
+
+- **The inventory is a build palette, not an ownership manifest.** "Pieces I want to build with" — explicitly not "pieces I own." Ownership is one way to fill the palette; wanting to use only the vortex and four curves is another. The inventory is a per-request input, which makes it the API's primary parameter rather than a configured constant.
+- **The deliverable is the share code**, not the `.course` file. The binary is an intermediate; the thing a human can act on is a code they type into the app. Phase 1's definition of done already measures this — `FLW4TMLP5V` is exactly that artifact — but the story names it as the product.
+- **"One or more."** A request can yield several candidate courses, not one canonical answer. Generation is a search over a space, and surfacing multiple results is closer to how the space actually behaves.
+
+## Special cases are dimensions, not a class
+
+Colby, 2026-08-10: there will be more special cases than energy-adders and the three-ball starter — "we just need a special case class, deal with them independently." The goal (independence) is right; a single `SpecialCase` bucket is the wrong shape for it, because every new quality lands in the same bucket and every consumer then has to know every case — the opposite of independent.
+
+What keeps them independent is giving each quality **its own declared dimension with a default**, so an ordinary piece is the boring value of the same field. The codebase already does this twice: every piece carries an `EnergyProfile` (the cannon is not special-cased — it is a nonzero `energy_input_j` on a universal field, locked in `decisions.md`), and stochastic timing is a first-class `time_variance_ms` that the vortex merely has a large value for. The three-ball starter follows the same pattern once open unknown #7 forces a port model: a piece with three exit ports, not a piece with a flag.
+
+Request-level conditions — "the three paths must converge," "they must not" — belong on the **generation request**, not on the piece. And new dimensions get added when a concrete piece plus a concrete mode needs one; that trigger is what keeps the set from being speculatively enumerated up front (YAGNI).
 
 ## Where this is going
 
@@ -27,5 +47,6 @@ Named explicitly in the 2026-04-24 session (recorded in `docs/refs/agentic-workf
 ## Open questions
 
 - **Schema v4 vs the app's v7.** traxgen emits POWER_2022 (v4); the current app *saves* v7. v4 uploads work today — but is emitting a superseded schema version viable long-term, or does the project eventually target v7 output?
-- **Beyond the starter set.** The catalog hints at expansion (`DOME_STARTER`, the POWER line). Is broader set coverage a goal, or does 26832 + Core remain the scope?
+- **Beyond the starter set.** The catalog hints at expansion (`DOME_STARTER`, the POWER line). Is broader set coverage a goal, or does 26832 + Core remain the scope? The build-palette framing above pushes toward yes: if the inventory is a per-request input rather than a constant, set coverage becomes a catalog-completeness question rather than an architectural one.
+- **How far does decoding scale?** The method has now produced one clean decoded rule (`g = (d + 1) % 6`, six exhaustive sweeps, zero violations) and one measured-but-unexplained pattern (parity of the live-direction set). Black-box sweeping does not scale combinatorially across pieces × placements × rotations; what would scale is decoding *per-piece connection semantics* (open unknown #7) well enough that a model predicts and renders become spot-checks of predictions rather than the primary instrument. Whether that inversion is reachable — model-first with render-verification — is the open question, and it is the difference between a generator that knows one certified shape and one that composes freely. A heavier alternative exists (decompiling the Unity app) and is deliberately not being pursued; the empirical route is working.
 - **The TypeScript port's purpose** — is it for a web-based generator UI, or something else? The decision is locked but its motivation isn't recorded anywhere.

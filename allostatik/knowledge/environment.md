@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-10
 
 ## Runtime
 
@@ -17,11 +17,16 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - Repo lives at `/Users/colbykauk/Claude/Projects/traxgen`. (The old `~/Desktop/Hub/Projects/traxgen` checkout is deleted — anything still naming that path is stale.)
 
 - **Cowork sessions can read and write this repo directly, but cannot drive the emulator.** A Cowork session granted folder access gets a shell in a Linux VM with the repo mounted — `git`, `python3` and `uv` are present and file edits land straight on disk, so canonical-file and script edits need no paste round-trip. That VM has **no `adb`, no emulator, no network, and no view of `/Users`**, so every render, upload, test run and `git push` still has to come from this Mac. Verified 2026-08-08 by checking `command -v` rather than assuming.
+- **Two different Cowork shapes exist — check which one you have.** 2026-08-08 had the mounted-folder VM above. 2026-08-10 had the **desktop Filesystem MCP instead**: direct read/write to the three allowed roots, but *no shell at all* on the Mac side, plus a fully networked Linux sandbox in the cloud that cannot see `/Users`. The working pattern that fell out of it and is worth repeating: clone the public repo into the cloud sandbox at the current HEAD, run the fast red-green loop there (`uv sync` + `pytest` in seconds, no paste round-trip), then write finished files to the Mac via the bridge and use the Mac's suite run as the real gate. `cd` to the repo root before `uv run` in the sandbox — the venv is resolved from the working directory, and running from the parent silently uses a different interpreter with none of the dev dependencies.
+- **The MCP allowlist is the standing permission grant.** Currently: `Claude/Projects/traxgen`, `Desktop/Hub/Projects/claude-config`, `Desktop/Hub/repos.nosync/mec-safety-program`. Anything an agent can reach on this Mac without a fresh prompt is in that list — it is the one dial worth reviewing deliberately, and keeping it repo-scoped means the blast radius of any agent mistake is a `git restore` away. (Two of those three roots are for other projects; a traxgen-only session does not need them. Pruning is hygiene, not urgency.)
 
 ## Gotchas (each learned the hard way)
 
 - **`$ANDROID_HOME` is not exported in a default shell.** A boot command written as `$ANDROID_HOME/emulator/emulator ...` expands to `/emulator/emulator`, fails, and — because the command redirects into `/tmp/emulator.log` — fails *silently* while appearing to background successfully. Use `${ANDROID_HOME:-$HOME/Library/Android/sdk}`. The library is unaffected: `android.resolve_context()` already falls back to that path.
 - **`direnv: unloading` with no matching load line means no `.envrc` here.** This repo has none. That line comes from direnv unloading whatever env the *previous* directory had as you `cd` in, and it appears on every `{ cd ...; }` one-liner. Harmless in itself — but it was misread for a whole session as confirmation that a (nonexistent) repo `.envrc` was working.
+- **A locked screen throttles the emulator, and `caffeinate -i` does not prevent it.** `-i` blocks *idle sleep*, which keeps the machine awake — but the display still sleeps, and once the emulator window is occluded macOS throttles its GPU. On 2026-08-10 that stretched a Unity course-load past the harness's fixed sleep and a render sampled a loading screen (the frame guard caught it; one auto-resume closed the hole). For any unattended run, hold the display too and let it self-terminate with the job:
+  `caffeinate -d -w "$(pgrep -f run_sweep_queue | head -1)"` in a second tab, or wrap directly: `caffeinate -di uv run python -m scripts.run_sweep_queue 2 3 4 5`.
+  Wrapping a command (`caffeinate <flags> <cmd>`) holds the assertion only for that command's lifetime and passes through its exit code — no stray `caffeinate` left running.
 - **A cold-booted AVD (`-no-snapshot-load`) needs real time before it will drive.** `reset_to_main_menu()` + 8s was not enough for the Unity app to clear its splash screen on 2026-08-07; the render fired into the loading screen and the play-button oracle read the near-white splash as `active`. Allow ~30s, or better, poll (see `docs/refs/ui-automation-synchronization.md`).
 
 - `uv run python -m scripts.foo` puts the project on `sys.path`; plain `uv run python scripts/foo.py` does NOT.

@@ -21,6 +21,7 @@ from traxgen.domain import (
     TileTowerConstructionData,
     TileTowerTreeNodeData,
 )
+from traxgen.graph import ConnectionStatus, start_goal_status
 from traxgen.hex import HexVector
 from traxgen.inventory import (
     PIECE_CATALOG,
@@ -54,6 +55,7 @@ class Rule(Enum):
     MISSING_STARTER_OR_GOAL = auto()
     TILE_INDEX_COLLISION = auto()
     WALL_ENDPOINT_MISSING = auto()
+    START_GOAL_CONNECTED = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1009,6 +1011,52 @@ def _check_wall_endpoint_missing(
     return violations
 
 
+def _check_start_goal_connected(
+    course: Course, inventory: Inventory
+) -> Iterable[Violation]:
+    """START_GOAL_CONNECTED: a rail-free course needs a measured starter->goal connection.
+
+    Scope is exactly what the sweeps measured (see traxgen/graph.py): the
+    rail-free adjacency mechanism on a single layer. Three honest outcomes:
+
+      * some pair is CONNECTED       -> silent (the course is connected)
+      * best evidence is UNMEASURED  -> WARNING (an unswept starter rotation
+        or cross-layer pair -- the record cannot claim either way)
+      * every pair is DISCONNECTED   -> ERROR (each miss is a measured miss)
+
+    Courses with explicit rails are skipped entirely: railed connection paths
+    are not modeled yet (open unknowns #2 and #7), so the rule would only
+    manufacture false findings there. Courses missing a starter or a goal are
+    also skipped -- that absence is MISSING_STARTER_OR_GOAL's finding.
+
+    Inventory is unused; signature matches the _CheckFn protocol.
+    """
+    if course.rail_construction_data:
+        return []
+    status = start_goal_status(course)
+    if status is None or status is ConnectionStatus.CONNECTED:
+        return []
+    if status is ConnectionStatus.UNMEASURED:
+        return [Violation(
+            severity=Severity.WARNING,
+            rule=Rule.START_GOAL_CONNECTED,
+            message=(
+                "Cannot verify the starter->goal connection: the best "
+                "starter/goal pair involves an unswept starter rotation or an "
+                "unmeasured configuration (see traxgen/graph.py's measured table)"
+            ),
+        )]
+    return [Violation(
+        severity=Severity.ERROR,
+        rule=Rule.START_GOAL_CONNECTED,
+        message=(
+            "No starter->goal connection: every starter/goal pair is measured "
+            "disconnected (dead direction, wrong goal rotation, or not "
+            "adjacent) and the course has no rails to connect them another way"
+        ),
+    )]
+
+
 # --- Rule registry --------------------------------------------------------
 
 # Each entry takes (course, inventory) and yields Violations. Rules register
@@ -1027,6 +1075,7 @@ _CHECKS: tuple[_CheckFn, ...] = (
     _check_rail_endpoint_missing,
     _check_pillar_endpoint_missing,
     _check_wall_endpoint_missing,
+    _check_start_goal_connected,
 )
 
 

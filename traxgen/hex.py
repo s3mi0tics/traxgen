@@ -36,6 +36,9 @@ from typing import ClassVar
 #       SW    SE
 #
 # Indices: 0=E, 1=NE, 2=NW, 3=W, 4=SW, 5=SE
+DIRECTION_NAMES: tuple[str, ...] = ("E", "NE", "NW", "W", "SW", "SE")
+"""Human-readable names for direction indices, matching HEX_DIRECTIONS order."""
+
 HEX_DIRECTIONS: tuple[tuple[int, int], ...] = (
     (0, 1),    # 0: East
     (-1, 1),   # 1: Northeast
@@ -90,6 +93,18 @@ class HexVector:
     def neighbors(self) -> tuple[HexVector, ...]:
         """All 6 neighbors, in direction order (E, NE, NW, W, SW, SE)."""
         return tuple(self.neighbor(d) for d in range(6))
+
+    def direction_to(self, other: HexVector) -> int | None:
+        """The direction index (0..5) whose single step reaches `other`, or
+        None when `other` is not an adjacent hex (including `other == self`).
+
+        Inverse of neighbor(): `v.direction_to(v.neighbor(d)) == d` for all d.
+        """
+        delta = (other.y - self.y, other.x - self.x)
+        try:
+            return HEX_DIRECTIONS.index(delta)
+        except ValueError:
+            return None
 
     def distance_to(self, other: HexVector) -> int:
         """Hex distance (number of steps) to another hex."""

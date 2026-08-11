@@ -15,7 +15,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from traxgen.hex import HEX_DIRECTIONS, ORIGIN, CubeVector, HexVector
+from traxgen.hex import DIRECTION_NAMES, HEX_DIRECTIONS, ORIGIN, CubeVector, HexVector
 
 # --- Hypothesis strategies -------------------------------------------------
 
@@ -206,3 +206,33 @@ def test_hex_directions_are_all_unit_distance_from_origin() -> None:
     for dy, dx in HEX_DIRECTIONS:
         h = HexVector(dy, dx)
         assert h.distance_to(ORIGIN) == 1
+
+def test_direction_names_match_hex_directions_in_length() -> None:
+    assert len(DIRECTION_NAMES) == len(HEX_DIRECTIONS)
+
+
+# --- direction_to (inverse of neighbor) ------------------------------------
+
+@given(hex_vectors, st.integers(min_value=0, max_value=5))
+def test_direction_to_inverts_neighbor(h: HexVector, d: int) -> None:
+    """Property: step to any neighbor, ask the direction back, recover exactly
+    the direction stepped. graph.py leans on this when it turns two world
+    positions into a table lookup."""
+    assert h.direction_to(h.neighbor(d)) == d
+
+
+@given(hex_vectors)
+def test_direction_to_self_is_none(h: HexVector) -> None:
+    assert h.direction_to(h) is None
+
+
+@given(hex_vectors, hex_vectors)
+def test_direction_to_answers_exactly_when_adjacent(a: HexVector, b: HexVector) -> None:
+    """Property: an int comes back iff the hexes are at distance 1 — and that
+    int actually steps a onto b."""
+    result = a.direction_to(b)
+    if a.distance_to(b) == 1:
+        assert result is not None
+        assert a.neighbor(result) == b
+    else:
+        assert result is None

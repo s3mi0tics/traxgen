@@ -216,6 +216,8 @@ Clipboard pipe by OS (replace <CLIPBOARD-PIPE>):
 
 Operational notes specific to how work runs in this project — conventions, quirks, and gotchas Claude should know while working. This is the *operational* half of the project's notes; identity, purpose, mode, and domain context live in `project-instructions.md` instead.
 
+- **Session naming: `s[#] Traxgen <description>`.** Sessions number cumulatively across this project's conversations — Colby back-numbered every prior conversation on 2026-08-11, making that day's session s20. The description comes from the primary commit's title (primary source), or from the work actually done if the session produced no commit. Propose the name at session open (provisional, from the planned work) and confirm or rename it at close step 7, when the commit title exists. (Declared by Colby 2026-08-11, s20.)
+
 <!-- Project-specific operational notes. Examples:
   - Tool quirks and their workarounds (e.g. a tool that needs its output verified after each use).
   - Command conventions (e.g. always stage an explicit file list rather than everything).

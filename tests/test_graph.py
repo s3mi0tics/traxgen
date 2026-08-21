@@ -33,6 +33,8 @@ from traxgen.generator import generate_minimal
 from traxgen.graph import (
     GOAL_KINDS,
     MEASURED_LIVE_DIRECTIONS,
+    MEASURED_RUNS,
+    STARTER_INTRINSIC_PORTS,
     STARTER_KINDS,
     ConnectionStatus,
     PlacedTile,
@@ -41,12 +43,16 @@ from traxgen.graph import (
     connection_status,
     goal_rotation_for,
     live_directions,
+    measured_live_directions,
     placed_tiles,
+    predict_connection,
+    predicted_live_directions,
     start_goal_status,
+    starter_world_ports,
 )
 from traxgen.hex import HexVector
 from traxgen.inventory import PRO_VERTICAL_STARTER_SET
-from traxgen.types import RailKind, TileKind
+from traxgen.types import LayerKind, RailKind, TileKind
 from traxgen.validator import Rule, Severity, ValidationError, validate, validate_strict
 
 # --- Strategies and shared data --------------------------------------------
@@ -135,12 +141,26 @@ def test_live_directions_refuses_a_rotation_outside_the_measured_range(s: int) -
 
 # --- Cell-level classification ---------------------------------------------
 
+# Every sweep behind the corner table pinned the STARTER here. Naming it is the
+# point of the s22 change: the coordinate used to be invisible.
+PLATE = LayerKind.BASE_LAYER_PIECE
+CORNER = HexVector(0, 0)
+EDGE = HexVector(0, 1)
+INTERIOR = HexVector(-3, 2)
+
+
+def _at_corner(starter_rot: int, direction: int, goal_rot: int) -> ConnectionStatus:
+    """`connection_status` at the plate corner -- the placement the table measured."""
+    return connection_status(
+        starter_rot, direction, goal_rot, layer_kind=PLATE, starter_local_pos=CORNER
+    )
+
 
 @pytest.mark.parametrize(("starter_rot", "direction", "goal_rot"), MEASURED_ACTIVE)
 def test_every_measured_active_cell_is_connected(
     starter_rot: int, direction: int, goal_rot: int
 ) -> None:
-    assert connection_status(starter_rot, direction, goal_rot) is ConnectionStatus.CONNECTED
+    assert _at_corner(starter_rot, direction, goal_rot) is ConnectionStatus.CONNECTED
 
 
 @given(st.sampled_from(LIVE_CELLS), rotations)
@@ -151,7 +171,7 @@ def test_a_live_direction_connects_only_at_the_rule_rotation(
     dead. The sweep rendered all of them; this pins that record."""
     starter_rot, direction = cell
     assume(goal_rot != goal_rotation_for(direction))
-    assert connection_status(starter_rot, direction, goal_rot) is ConnectionStatus.DISCONNECTED
+    assert _at_corner(starter_rot, direction, goal_rot) is ConnectionStatus.DISCONNECTED
 
 
 @given(swept_rotations, directions, rotations)
@@ -161,7 +181,7 @@ def test_a_dead_direction_is_disconnected_at_every_rotation(
     """Property: at a swept starter rotation, a direction outside the live set
     never connects, whatever the goal rotation."""
     assume(direction not in MEASURED_LIVE_DIRECTIONS[starter_rot])
-    assert connection_status(starter_rot, direction, goal_rot) is ConnectionStatus.DISCONNECTED
+    assert _at_corner(starter_rot, direction, goal_rot) is ConnectionStatus.DISCONNECTED
 
 
 @given(unmeasured_rotations, directions, rotations)
@@ -170,12 +190,12 @@ def test_an_unmeasured_starter_rotation_is_never_a_claim(
 ) -> None:
     """Property: outside the measured space the module answers UNMEASURED --
     never CONNECTED, never DISCONNECTED. The three-valued honesty invariant."""
-    assert connection_status(starter_rot, direction, goal_rot) is ConnectionStatus.UNMEASURED
+    assert _at_corner(starter_rot, direction, goal_rot) is ConnectionStatus.UNMEASURED
 
 
 def test_cell_classification_rejects_an_out_of_range_direction() -> None:
     with pytest.raises(ValueError):
-        connection_status(0, 6, 1)
+        _at_corner(0, 6, 1)
 
 
 # --- Placed tiles and pair classification ----------------------------------
@@ -184,7 +204,15 @@ def test_cell_classification_rejects_an_out_of_range_direction() -> None:
 def _tile(
     kind: TileKind, y: int, x: int, rot: int = 0, layer_id: int = 100
 ) -> PlacedTile:
-    return PlacedTile(kind=kind, world_pos=HexVector(y, x), hex_rotation=rot, layer_id=layer_id)
+    """A tile on a layer whose `world_hex_position` is the origin, so local == world."""
+    return PlacedTile(
+        kind=kind,
+        world_pos=HexVector(y, x),
+        local_pos=HexVector(y, x),
+        hex_rotation=rot,
+        layer_id=layer_id,
+        layer_kind=PLATE,
+    )
 
 
 def test_placed_tiles_positions_the_minimal_course_in_world_coords() -> None:
@@ -210,8 +238,16 @@ def test_a_cross_layer_pair_is_unmeasured() -> None:
 
 @given(rotations)
 def test_a_distance_two_pair_is_disconnected_at_every_goal_rotation(goal_rot: int) -> None:
-    """The sweeps' far control: (0,2) is measured dead at all rotations, and
-    a rail-free connection has no mechanism beyond adjacency."""
+    """Non-adjacent pairs do not connect, on the mechanism -- not on the far control.
+
+    This test used to cite the sweeps' distance-2 far control as its evidence.
+    It should not have: `FAR_CONTROL_POS = (0, 2)` is off the measured plate
+    footprint, so those renders measured cell invalidity rather than distance
+    (`plan.md`, sequenced item 2). What holds the claim up is that a rail-free
+    connection is tile adjacency with `rail_count = 0`, and there is nothing
+    left to carry one across a gap. An on-plate distance-2 control is owed
+    before the empirical version of this claim is made.
+    """
     starter = _tile(TileKind.STARTER, 0, 0)
     goal = _tile(TileKind.GOAL_RAIL, 0, 2, rot=goal_rot)
     assert classify_pair(starter, goal) is ConnectionStatus.DISCONNECTED
@@ -357,3 +393,253 @@ def test_a_course_without_a_goal_is_not_this_rules_finding() -> None:
     assert _start_goal_violations(starter_only) == []
     rules_fired = {v.rule for v in validate(starter_only, PRO_VERTICAL_STARTER_SET)}
     assert Rule.MISSING_STARTER_OR_GOAL in rules_fired
+
+
+# --- The conjunction: does the model reproduce every render ever run? -------
+#
+# This is the section the s22 change rests on. `plan.md`'s sequenced item 2 was
+# a defect report, not a feature request: shipped code claimed DISCONNECTED at
+# ERROR severity for valid courses, because `connection_status` was keyed on
+# starter rotation alone. The fix is only worth trusting if the model that
+# replaces the position-blind table reproduces every cell any render has ever
+# produced -- which is what these run over.
+
+
+def test_the_conjunction_reproduces_every_rendered_run() -> None:
+    """The whole class, not a named instance of it.
+
+    Eight campaigns: six exhaustive 36-cell corner sweeps (2026-08-07 through
+    2026-08-10) and the two 2026-08-21 probe runs at starter positions no sweep
+    had used. `plate_available INTERSECT starter_world_ports` has to give back
+    each one's live set exactly -- no free parameters, no per-run fudge.
+
+    Written as a sweep over `MEASURED_RUNS` rather than as eight asserts on
+    purpose: a typed list of the runs would be the same untested claim one
+    layer down, and it would go stale the moment a ninth run lands.
+    """
+    for run in MEASURED_RUNS:
+        predicted = predicted_live_directions(
+            run.starter_rot,
+            layer_kind=run.layer_kind,
+            starter_local_pos=HexVector(*run.starter_local_pos),
+        )
+        assert predicted == run.live_directions, (
+            f"{run.layer_kind.name} {run.starter_local_pos} rot {run.starter_rot}: "
+            f"model says {sorted(predicted)}, render measured "
+            f"{sorted(run.live_directions)} -- {run.provenance}"
+        )
+
+
+def test_the_rendered_record_covers_more_than_the_corner() -> None:
+    """Guards the test above from passing vacuously on corner rows alone.
+
+    If a refactor ever dropped the two 2026-08-21 runs, the sweep would still be
+    green while checking only the geometry the model was built to explain --
+    observation #12's shape, and exactly the trap this whole change is about.
+    """
+    positions = {(run.layer_kind, run.starter_local_pos) for run in MEASURED_RUNS}
+    assert (LayerKind.BASE_LAYER_PIECE, (0, 1)) in positions
+    assert (LayerKind.BASE_LAYER_PIECE, (-3, 2)) in positions
+
+
+def test_the_corner_table_is_derived_from_the_runs_not_restated() -> None:
+    """`MEASURED_LIVE_DIRECTIONS` is the six exhaustive corner sweeps, and only those."""
+    corner_rows = {
+        run.starter_rot: run.live_directions
+        for run in MEASURED_RUNS
+        if run.starter_local_pos == (0, 0) and run.goal_rotations_swept
+    }
+    assert dict(MEASURED_LIVE_DIRECTIONS) == corner_rows
+    assert set(MEASURED_LIVE_DIRECTIONS) == set(range(6))
+
+
+@pytest.mark.parametrize("starter_rot", range(6))
+def test_the_ports_term_flips_parity_with_the_rotation(starter_rot: int) -> None:
+    """Why parity was ever the shape: an even-only intrinsic set has no odd member.
+
+    Corpus mining put the STARTER's ports at even tile-relative edges {0, 2, 4}
+    (n=380, zero odd observations), so the world-frame set is all-even at even
+    rotations and all-odd at odd ones. The table's parity was this term; its
+    2-vs-1 sizes were the plate corner.
+    """
+    ports = starter_world_ports(starter_rot)
+    assert len(ports) == len(STARTER_INTRINSIC_PORTS)
+    assert all(d % 2 == starter_rot % 2 for d in ports)
+
+
+# --- Model and claim are different surfaces --------------------------------
+
+
+def test_the_model_answers_where_the_record_is_silent() -> None:
+    """The separation this module exists to keep: prediction is not measurement.
+
+    At an unrendered starter cell the conjunction has an opinion and
+    `connection_status` refuses to have one. Collapsing these would make the
+    generator's proposals indistinguishable from the harness's findings.
+    """
+    unrendered = HexVector(y=-2, x=3)
+    assert measured_live_directions(
+        0, layer_kind=PLATE, starter_local_pos=unrendered
+    ) is None
+    assert predict_connection(
+        0, 0, goal_rotation_for(0), layer_kind=PLATE, starter_local_pos=unrendered
+    )
+    assert (
+        connection_status(
+            0, 0, goal_rotation_for(0), layer_kind=PLATE, starter_local_pos=unrendered
+        )
+        is ConnectionStatus.UNMEASURED
+    )
+
+
+def test_a_probe_run_does_not_borrow_the_sweeps_goal_rotation_coverage() -> None:
+    """The 2026-08-21 runs rendered each direction only at `(d + 1) % 6`.
+
+    So at those positions the other five goal rotations are unmeasured, not
+    measured-dead. A sweep row claims all 36 cells; a probe row claims six.
+    """
+    live_at_edge = 2  # NW, the one active cell of the edge run
+    assert (
+        connection_status(
+            0,
+            live_at_edge,
+            goal_rotation_for(live_at_edge),
+            layer_kind=PLATE,
+            starter_local_pos=EDGE,
+        )
+        is ConnectionStatus.CONNECTED
+    )
+    for goal_rot in range(6):
+        if goal_rot == goal_rotation_for(live_at_edge):
+            continue
+        assert (
+            connection_status(
+                0, live_at_edge, goal_rot, layer_kind=PLATE, starter_local_pos=EDGE
+            )
+            is ConnectionStatus.UNMEASURED
+        )
+
+
+def test_the_position_cannot_go_missing_again() -> None:
+    """`layer_kind` and `starter_local_pos` are keyword-only and have no defaults.
+
+    A default would restore the exact bug: an answer measured at the plate
+    corner, applied everywhere, with nothing in the signature to say so.
+    """
+    with pytest.raises(TypeError):
+        connection_status(0, 0, 1)  # type: ignore[call-arg]
+
+
+# --- The defect, as a falsifier --------------------------------------------
+
+
+def test_the_interior_sw_course_is_no_longer_a_false_error() -> None:
+    """The bug report, executable.
+
+    SW at an interior starter rendered **active** on 2026-08-21 after being dark
+    in all six exhaustive corner sweeps. Before s22 this course classified
+    DISCONNECTED and `START_GOAL_CONNECTED` threw ERROR at it -- a validator
+    rejecting a geometry the app had certified. It now classifies from the run
+    that measured it.
+    """
+    direction = 4  # SW
+    goal_pos = INTERIOR.neighbor(direction)
+    course = build_variant(
+        generate_minimal(),
+        starter_rot=0,
+        starter_pos=INTERIOR,
+        goal_pos=goal_pos,
+        goal_rot=goal_rotation_for(direction),
+    )
+    assert start_goal_status(course) is ConnectionStatus.CONNECTED
+    assert _start_goal_violations(course) == []
+
+
+@pytest.mark.parametrize("direction", [0, 2, 4])  # E, NW, SW -- the interior run's live set
+def test_every_live_cell_of_the_interior_run_passes_at_course_level(
+    direction: int,
+) -> None:
+    """All three cells the interior run rendered active, replayed as whole courses."""
+    course = build_variant(
+        generate_minimal(),
+        starter_rot=0,
+        starter_pos=INTERIOR,
+        goal_pos=INTERIOR.neighbor(direction),
+        goal_rot=goal_rotation_for(direction),
+    )
+    assert start_goal_status(course) is ConnectionStatus.CONNECTED
+
+
+def test_an_off_plate_goal_at_a_rendered_position_is_a_measured_error() -> None:
+    """The edge run's E cell: port-allowed, off-plate, and it rendered inactive.
+
+    That is a measured negative at a rendered position, so ERROR is the honest
+    severity -- the same claim the corner rows earn, now for the plate term.
+    """
+    direction = 0  # E, off-plate from (0,1)
+    course = build_variant(
+        generate_minimal(),
+        starter_rot=0,
+        starter_pos=EDGE,
+        goal_pos=EDGE.neighbor(direction),
+        goal_rot=goal_rotation_for(direction),
+    )
+    assert start_goal_status(course) is ConnectionStatus.DISCONNECTED
+    (violation,) = _start_goal_violations(course)
+    assert violation.severity is Severity.ERROR
+
+
+def test_an_unrendered_starter_position_warns_rather_than_errors() -> None:
+    """The minimum honest behaviour off the measured positions.
+
+    The conjunction predicts this course connects, and no render has visited the
+    cell -- so the rule warns. Before s22 the position was invisible and the
+    corner table answered for it; a wrong answer here was an ERROR.
+    """
+    starter = HexVector(y=-2, x=3)
+    direction = 4  # SW: on-plate here, and port-allowed at rotation 0
+    course = build_variant(
+        generate_minimal(),
+        starter_rot=0,
+        starter_pos=starter,
+        goal_pos=starter.neighbor(direction),
+        goal_rot=goal_rotation_for(direction),
+    )
+    assert start_goal_status(course) is ConnectionStatus.UNMEASURED
+    (violation,) = _start_goal_violations(course)
+    assert violation.severity is Severity.WARNING
+    validate_strict(course, PRO_VERTICAL_STARTER_SET)
+
+
+def test_plate_membership_is_local_even_when_the_layer_sits_off_origin() -> None:
+    """The board can sit anywhere in the world; membership is a fact about the board.
+
+    Every other fixture in this suite puts the layer's world_hex_position at the
+    origin, so local and world coordinates coincide and a bug that reads the
+    starter's *world* position where its *board* position belongs is invisible
+    to all of them -- the s22 panel review demonstrated exactly that mutation
+    passing the full suite. This course breaks the coincidence: the layer is
+    translated so the interior starter's world position lands on (0, 0), the
+    plate corner. Confusing the frames turns the render-certified SW course
+    into the corner's measured-dead SW -- DISCONNECTED at ERROR severity, the
+    original s22 symptom -- while the honest local reading keeps it CONNECTED.
+    """
+    direction = 4  # SW -- rendered active at the interior on 2026-08-21
+    course = build_variant(
+        generate_minimal(),
+        starter_rot=0,
+        starter_pos=INTERIOR,
+        goal_pos=INTERIOR.neighbor(direction),
+        goal_rot=goal_rotation_for(direction),
+    )
+    moved_layers = tuple(
+        dataclasses.replace(layer, world_hex_position=HexVector(y=3, x=-2))
+        for layer in course.layer_construction_data
+    )
+    moved = dataclasses.replace(course, layer_construction_data=moved_layers)
+    starter_world = {
+        t.world_pos for t in placed_tiles(moved) if t.kind in STARTER_KINDS
+    }
+    assert starter_world == {HexVector(0, 0)}  # the trap is armed: world == corner
+    assert start_goal_status(moved) is ConnectionStatus.CONNECTED
+    assert _start_goal_violations(moved) == []

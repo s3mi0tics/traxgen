@@ -33,9 +33,11 @@ named rivals against each other:
     port_only  -- the STARTER's ports are the only constraint; position is
                   irrelevant. Predicts three live directions in every row.
     plate      -- ports AND the goal cell being on the plate. The candidate.
-    table      -- what graph.py claims *today*: the measured table, keyed on
-                  starter rotation alone, so position-blind. Not a straw man --
-                  shipped code asserts this for a starter anywhere on the plate.
+    table      -- what graph.py claimed until s22 (2026-08-21): the measured
+                  table, keyed on starter rotation alone, so position-blind. Not
+                  a straw man when these runs executed -- shipped code asserted
+                  it for a starter anywhere on the plate. s22 fixed graph.py;
+                  the rival is kept frozen as the refuted historical claim.
 
 A model that ignores one of the four coordinates is asserting that it does not
 matter, which is exactly what a render can falsify. `classify()` scores every
@@ -46,10 +48,12 @@ model the probe was built to support.
 brackets active.** E and SW -- off-plate, port-allowed -- both rendered
 inactive; on-plate NW rendered active; the three parity-dead cells stayed dark.
 Verdict MODEL_SURVIVES:plate. `port_only` died on both off-plate cells, and
-`table` died on E, which graph.py still calls live at rotation 0 regardless of
-where the starter sits. That last one is a live bug, not a hypothetical:
-`connection_status()` is missing a coordinate, so `START_GOAL_CONNECTED` can
-throw ERROR at a valid course whose starter is not on the corner.
+`table` died on E, which graph.py at the time called live at rotation 0
+regardless of where the starter sat. When these runs executed that was a live
+bug, not a hypothetical: `connection_status()` was missing a coordinate, so
+`START_GOAL_CONNECTED` could throw ERROR at a valid course whose starter was
+not on the corner. s22 fixed it -- `connection_status` now requires the
+starter's layer kind and local position, and answers UNMEASURED off the record.
 
 What that run did NOT test is the model's positive half. Both its discriminating
 cells were off-plate, so it established "off-plate kills" and left "on-plate plus
@@ -70,8 +74,9 @@ result in the project (six exhaustive 36-cell sweeps, zero violations), so each
 direction is rendered only at its connecting rotation. That assumption is stated
 here so that it is visible and falsifiable rather than buried: if a cell that
 both models call inactive turns out to be live at some other rotation, this
-probe would miss it -- and `classify()` flags any shared-negative that renders
-active as MODEL_WRONG precisely because that would break more than this probe.
+probe would miss it -- and `classify()` reports ALL_REFUTED when a cell every
+rival called dark renders active, precisely because that breaks more than this
+probe.
 
 What this probe does NOT settle: whether "off-plate" means physically off the
 board or merely outside the layer's canonical coordinate window. The operational
@@ -118,10 +123,20 @@ from traxgen.android import (
 )
 from traxgen.domain import Course
 from traxgen.generator import generate_minimal
-from traxgen.graph import ConnectionStatus, connection_status, goal_rotation_for
+from traxgen.graph import (
+    STARTER_INTRINSIC_PORTS as GRAPH_STARTER_PORTS,
+)
+from traxgen.graph import (
+    goal_rotation_for,
+)
+from traxgen.graph import (
+    starter_world_ports as graph_starter_world_ports,
+)
 from traxgen.hex import HexVector
 from traxgen.inventory import PRO_VERTICAL_STARTER_SET
+from traxgen.plates import is_on_plate, plate_footprint
 from traxgen.serializer import serialize_course
+from traxgen.types import LayerKind
 from traxgen.uploader import UploadError, upload_course
 from traxgen.validator import validate_strict
 
@@ -130,36 +145,19 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "screenshots" / "plate_membership_probe"
 
 DIRECTION_NAMES = ("E", "NE", "NW", "W", "SW", "SE")
 
-# The BASE_LAYER_PIECE cell footprint, measured from the corpus on 2026-08-21:
-# every local_hex_position used by a BASE_LAYER_PIECE layer across 640 parsed
-# courses (28,494 cell placements). Exactly 30 positions, and no course ever
-# uses one outside this set.
-#
-# This is POSITIVE EVIDENCE ONLY, in the same sense as the port records: it says
-# what the corpus shows, not what the app forbids. A position absent here has
-# never been observed; that is strong for n=28,494 but it is not a proof of
-# impossibility -- which is exactly what this probe renders to find out.
-#
-# Provenance: scripts/probe_plate_footprint.py, run against
-# ~/Claude/Projects/traxgen-corpus/raw (808 files; v1/v2/v7 skipped by declared
-# version, 60 further parse failures skipped and recorded).
-PLATE_FOOTPRINT: frozenset[tuple[int, int]] = frozenset(
-    {
-        (-6, 4), (-6, 5),
-        (-5, 2), (-5, 3), (-5, 4), (-5, 5),
-        (-4, 0), (-4, 1), (-4, 2), (-4, 3), (-4, 4), (-4, 5),
-        (-3, 0), (-3, 1), (-3, 2), (-3, 3), (-3, 4), (-3, 5),
-        (-2, 0), (-2, 1), (-2, 2), (-2, 3), (-2, 4), (-2, 5),
-        (-1, 0), (-1, 1), (-1, 2), (-1, 3),
-        (0, 0), (0, 1),
-    }
-)
+# The BASE_LAYER_PIECE cell footprint now lives in `traxgen.plates`, generated
+# from the corpus by `scripts/probe_plate_footprint.py`. It moved out of this
+# script on 2026-08-21 (s22) when `graph.py` became plate-aware and needed the
+# same constant: two copies of a measured set is one copy too many, and the
+# library is where a fact the library reasons about belongs.
+PLATE_FOOTPRINT: frozenset[tuple[int, int]] = plate_footprint(LayerKind.BASE_LAYER_PIECE)
 
-# The STARTER's intrinsic ports as tile-relative edges, from corpus mining
-# (2026-08-18): rel = (side_hex_rot - tile.hex_rotation) % 6 over 380
-# unambiguous observations, histogram {0: 130, 2: 122, 4: 128} -- even-only and
-# balanced, with zero odd-edge observations.
-STARTER_INTRINSIC_PORTS: frozenset[int] = frozenset({0, 2, 4})
+# The STARTER's intrinsic ports (even tile-relative edges {0, 2, 4}, corpus
+# mining 2026-08-18, n=380 unambiguous) also moved into the library on
+# 2026-08-21 (s22): `graph.py` composes them with the plate term, so that is
+# where the term is defined. Re-exported here under the name this probe's
+# design documentation uses.
+STARTER_INTRINSIC_PORTS: frozenset[int] = GRAPH_STARTER_PORTS
 
 # Three named starter cells, by their relationship to the plate's boundary.
 #
@@ -170,9 +168,9 @@ STARTER_INTRINSIC_PORTS: frozenset[int] = frozenset({0, 2, 4})
 #               plate models disagree there.
 #   INTERIOR -- (-3,2), all six neighbours on-plate (corpus counts 1000/1045/
 #               1036/1036/946/1015). There the port and plate models agree by
-#               construction, and the rival that separates is `table` -- what
-#               graph.py claims today, which is position-blind and so still
-#               predicts {E, NW} at even rotations.
+#               construction, and the rival that separates is `table` -- the
+#               position-blind claim graph.py made until s22, which predicts
+#               {E, NW} at even rotations here.
 CORNER_STARTER_POS = HexVector(y=0, x=0)
 EDGE_STARTER_POS = HexVector(y=0, x=1)
 INTERIOR_STARTER_POS = HexVector(y=-3, x=2)
@@ -187,20 +185,22 @@ CERTIFIED_STARTER_ROT = 0
 
 
 def on_plate(pos: HexVector) -> bool:
-    """Whether `pos` is a cell the corpus has ever shown occupied on a baseplate."""
-    return (pos.y, pos.x) in PLATE_FOOTPRINT
+    """Whether `pos` is a cell the corpus has ever shown occupied on a baseplate.
+
+    Binds `is_on_plate` to BASE_LAYER_PIECE, which is the only layer kind this
+    probe's geometries use.
+    """
+    return is_on_plate(LayerKind.BASE_LAYER_PIECE, pos)
 
 
 def starter_world_ports(starter_rot: int) -> frozenset[int]:
     """The STARTER's port edges in world frame at `starter_rot`.
 
-    A tile-relative edge r presents at world edge (r + rotation) % 6. With an
-    even-only intrinsic set, this is all-even at even rotations and all-odd at
-    odd ones -- the parity flip the measured table shows.
+    Delegates to `graph.starter_world_ports`, which is the same function this
+    probe used to own. Kept as a name here because the module docstring's
+    derivation refers to it.
     """
-    if not 0 <= starter_rot <= 5:
-        raise ValueError(f"starter_rot must be 0..5, got {starter_rot}")
-    return frozenset((r + starter_rot) % 6 for r in STARTER_INTRINSIC_PORTS)
+    return graph_starter_world_ports(starter_rot)
 
 
 def port_model_says_active(
@@ -226,19 +226,54 @@ def plate_model_says_active(
     return on_plate(starter_pos.neighbor(direction))
 
 
+# The claim graph.py shipped between 2026-08-10 and 2026-08-21, quoted as a
+# literal. Deliberately NOT derived from graph.py's measured record: a
+# historical claim is a quotation, and a quotation must not change when the
+# library corrects itself -- or when a future session re-measures the corner.
+# Transcription is guarded by a literal-vs-literal test, not by the record.
+TABLE_CLAIM_2026_08_10: Mapping[int, frozenset[int]] = MappingProxyType(
+    {
+        0: frozenset({0, 2}),  # E, NW
+        1: frozenset({1}),  # NE
+        2: frozenset({0, 2}),  # E, NW
+        3: frozenset({1}),  # NE
+        4: frozenset({0, 2}),  # E, NW
+        5: frozenset({1}),  # NE
+    }
+)
+
+
 def table_model_says_active(
     starter_pos: HexVector, starter_rot: int, direction: int, goal_rot: int
 ) -> bool:
-    """Rival: what `graph.py` currently claims -- the measured table, position-blind.
+    """Rival: the corner table applied everywhere -- what `graph.py` claimed until s22.
 
-    This is not a straw man. `connection_status()` is keyed on starter rotation
-    alone, so shipped code asserts these verdicts for a starter anywhere on the
-    plate. Naming it as a model is what lets a render refute it. It ignores
-    `starter_pos` for the same reason the port model does: because that is the
-    claim.
+    This was not a straw man. Between 2026-08-10 and 2026-08-21 `connection_status()`
+    was keyed on starter rotation alone, so shipped code asserted these verdicts
+    for a starter anywhere on the plate. The runs below refuted it, and s22 fixed
+    it -- so this function now states the refuted claim as its own frozen literal
+    (`TABLE_CLAIM_2026_08_10`), with no call into `graph.py`'s live-direction
+    record.
+
+    Why not repoint it at the corrected code instead: corrected `graph.py`
+    carries these very renders in `MEASURED_RUNS`, so a rival that asks it is
+    graded against the answer key its own answers came from -- it cannot lose,
+    and the replay stops measuring anything (observation #12's same-origin
+    shape; verified by enacting the repoint in a scratch copy, s22 panel
+    review). The failure is loud at first -- 13 fixtures go red because the
+    "loser" stops losing -- and becomes silent only after the natural-looking
+    edit that updates them; freezing the quotation removes that trap. It also
+    keeps the probe runnable: the corrected code answers UNMEASURED at any
+    fresh position, which maps to all-inactive and leaves `build_cells` unable
+    to nominate a local control.
+
+    It ignores `starter_pos` for the same reason the port model does: because
+    that is the claim.
     """
     del starter_pos
-    return connection_status(starter_rot, direction, goal_rot) is ConnectionStatus.CONNECTED
+    return direction in TABLE_CLAIM_2026_08_10.get(
+        starter_rot, frozenset()
+    ) and goal_rot == goal_rotation_for(direction)
 
 
 # The rivals this probe renders against, in the order they are reported. Each

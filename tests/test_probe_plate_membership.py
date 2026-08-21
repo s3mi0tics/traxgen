@@ -35,6 +35,7 @@ from scripts.probe_plate_membership import (
     MODELS,
     PLATE_FOOTPRINT,
     STARTER_INTRINSIC_PORTS,
+    TABLE_CLAIM_2026_08_10,
     ProbeCell,
     build_cells,
     classify,
@@ -44,9 +45,10 @@ from scripts.probe_plate_membership import (
     starter_world_ports,
     table_model_says_active,
 )
-from traxgen.graph import MEASURED_LIVE_DIRECTIONS, goal_rotation_for
+from traxgen.graph import MEASURED_LIVE_DIRECTIONS, goal_rotation_for, predict_connection
 from traxgen.hex import HexVector
 from traxgen.parser import parse_course
+from traxgen.types import LayerKind
 
 DIR_E, DIR_NE, DIR_NW, DIR_W, DIR_SW, DIR_SE = range(6)
 
@@ -156,21 +158,44 @@ def test_the_port_only_model_cannot_reproduce_the_measured_table():
         assert predicted != set(measured)
 
 
-def test_the_table_model_is_exactly_what_graph_py_claims_today():
-    """The `table` rival must be shipped code's claim, not a straw man."""
-    for starter_rot, measured in MEASURED_LIVE_DIRECTIONS.items():
-        predicted = {
-            d
-            for d in range(6)
-            if table_model_says_active(
-                CORNER_STARTER_POS, starter_rot, d, goal_rotation_for(d)
-            )
-        }
-        assert predicted == set(measured)
+def test_the_frozen_table_claim_is_transcribed_correctly():
+    """Literal against literal: the quotation matches the historical record.
+
+    The predecessor of this test compared the rival against graph.py's
+    MEASURED_LIVE_DIRECTIONS -- which is the same data the rival then read, so
+    the test could not fail (proven by mutation in the s22 panel review: a
+    corrupted record left it green). Two independent transcriptions of the
+    same historical claim can disagree only through a typo, which is exactly
+    what this version catches -- and, unlike its predecessor, it must NOT
+    track graph.py: if a future re-measurement changes the corner table, the
+    quotation of what was claimed in August 2026 stays put.
+    """
+    assert dict(TABLE_CLAIM_2026_08_10) == {
+        0: {0, 2},
+        1: {1},
+        2: {0, 2},
+        3: {1},
+        4: {0, 2},
+        5: {1},
+    }
+
+
+def test_the_frozen_claim_coincides_with_the_corner_record_today():
+    """The quotation and the record agree *now* -- documented as coincidence.
+
+    graph.py's corner table and the frozen claim are equal today because the
+    claim was a faithful (if position-blind) reading of that table. This test
+    states the coincidence so that if the record ever moves, the failure names
+    what happened -- the record changed, the quotation deliberately did not --
+    instead of leaving a silent divergence for an auditor to puzzle over.
+    """
+    assert dict(TABLE_CLAIM_2026_08_10) == {
+        s: set(dirs) for s, dirs in MEASURED_LIVE_DIRECTIONS.items()
+    }
 
 
 def test_the_table_model_ignores_position_which_is_the_claim_under_test():
-    """graph.py keys on rotation alone; at the edge that becomes falsifiable."""
+    """The frozen claim keys on rotation alone; at the edge that was falsifiable."""
     for pos in (CORNER_STARTER_POS, EDGE_STARTER_POS, INTERIOR_STARTER_POS):
         assert table_model_says_active(pos, 0, DIR_E, goal_rotation_for(DIR_E)) is True
 
@@ -296,8 +321,8 @@ def test_the_2026_08_21_edge_measurement_refutes_port_only_and_table():
     """Real evidence, not a fit: predictions were in code before these renders.
 
     Two rivals died in one run of eight renders -- `port_only` on both off-plate
-    cells, and `table` on E, which shipped code still calls live at rotation 0
-    regardless of where the starter sits.
+    cells, and `table` on E, which shipped code at the time called live at
+    rotation 0 regardless of where the starter sat (fixed in s22).
     """
     verdict, explanation = classify(_replay_edge_run(), final_control_validity="active")
     assert verdict == "MODEL_SURVIVES:plate"
@@ -511,3 +536,35 @@ def test_classify_scores_every_rival_by_the_same_rule():
         )
     verdict, _ = classify(cells, final_control_validity="active")
     assert verdict == "MODEL_SURVIVES:port_only"
+
+
+# --- the live-audit property the panel found and pinned (s22) ----------------
+
+
+def test_the_plate_rival_is_extensionally_graph_pys_live_model():
+    """The probe already audits shipped code -- through the winner, not the loser.
+
+    The s22 panel review verified that `plate_model_says_active` and graph.py's
+    `predict_connection` agree on every one of the 6,480 cells reachable on the
+    baseplate (30 footprint positions x 6 rotations x 6 directions x 6 goal
+    rotations). That equivalence is the honest version of "the probe races what
+    the library claims": the *model surface* is shared, while the *claim
+    surface* (`connection_status`) stays out of the race because it contains
+    the probe's own renders. Nothing pinned the equivalence, so drift would
+    have ended the audit silently -- this sweep is the pin, over the whole
+    class rather than sampled cells.
+    """
+    for y, x in sorted(PLATE_FOOTPRINT):
+        pos = HexVector(y=y, x=x)
+        for starter_rot in range(6):
+            for direction in range(6):
+                for goal_rot in range(6):
+                    assert plate_model_says_active(
+                        pos, starter_rot, direction, goal_rot
+                    ) == predict_connection(
+                        starter_rot,
+                        direction,
+                        goal_rot,
+                        layer_kind=LayerKind.BASE_LAYER_PIECE,
+                        starter_local_pos=pos,
+                    ), f"diverged at pos={pos} s={starter_rot} d={direction} g={goal_rot}"

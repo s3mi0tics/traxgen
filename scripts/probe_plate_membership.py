@@ -77,7 +77,7 @@ What this probe does NOT settle: whether "off-plate" means physically off the
 board or merely outside the layer's canonical coordinate window. The operational
 consequence is identical either way, and courses can add plates (Colby,
 2026-08-21) -- which makes plate membership a property of the course's declared
-layer set, not of a position. That is open unknown #16 and sequenced item 4; a
+layer set, not of a position. That is open unknown #16 and sequenced item 5; a
 follow-on probe that adds a second plate and re-renders a dead direction is the
 test that separates those readings.
 

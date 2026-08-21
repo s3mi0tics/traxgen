@@ -219,9 +219,22 @@ class StarterCell:
 
 
 def build_variant(
-    base: Course, *, starter_rot: int, goal_pos: HexVector, goal_rot: int
+    base: Course,
+    *,
+    starter_rot: int,
+    goal_pos: HexVector,
+    goal_rot: int,
+    starter_pos: HexVector | None = None,
 ) -> Course:
-    """Return a copy of `base` with the STARTER re-rotated and the GOAL_RAIL moved."""
+    """Return a copy of `base` with the STARTER re-rotated/moved and the GOAL_RAIL moved.
+
+    `starter_pos` defaults to the base course's own starter cell -- local (0,0),
+    which is what every sweep through 2026-08-10 used. It became a parameter on
+    2026-08-21 for `probe_plate_membership.py`, which must move the starter to a
+    different baseplate cell in order to separate a tile-port constraint from a
+    plate-membership one. The default keeps the byte-identity precondition and
+    every prior sweep's geometry unchanged.
+    """
     layer = base.layer_construction_data[0]
     starters = [
         cell
@@ -232,8 +245,15 @@ def build_variant(
         raise RuntimeError(
             f"expected exactly 1 STARTER cell in the base course, found {len(starters)}"
         )
+    if starter_pos is not None and starter_pos == goal_pos:
+        raise ValueError(
+            f"starter_pos and goal_pos are the same cell {starter_pos}; "
+            "the variant would place two tiles in one cell"
+        )
     starter_cell = CellConstructionData(
-        local_hex_position=starters[0].local_hex_position,
+        local_hex_position=(
+            starters[0].local_hex_position if starter_pos is None else starter_pos
+        ),
         tree_node_data=TileTowerTreeNodeData(
             index=0,
             construction_data=TileTowerConstructionData(

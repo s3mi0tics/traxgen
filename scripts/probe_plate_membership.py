@@ -112,9 +112,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 
-from scripts.run_sweep_queue import SETTLE_SECONDS
 from scripts.sweep_starter_rotation import build_variant
 from traxgen.android import (
+    SETTLE_SECONDS,
     AndroidAutomationError,
     assert_emulator_ready,
     render_course,

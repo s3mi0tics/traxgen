@@ -51,15 +51,15 @@ from pathlib import Path
 
 from scripts.sweep_goal_rotation import default_output_dir
 from scripts.sweep_goal_rotation import main as sweep_main
-from traxgen.android import AndroidAutomationError, reset_to_main_menu
+from traxgen.android import (
+    SETTLE_SECONDS,
+    AndroidAutomationError,
+    reset_to_main_menu,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUEUE_DIR = REPO_ROOT / "screenshots" / "sweep_queue"
 
-# reset_to_main_menu() force-stops and relaunches the app; a Unity splash needs
-# ~30s before the UI will drive (knowledge/environment.md, learned 2026-08-07
-# the hard way).
-SETTLE_SECONDS = 35.0
 
 # Sweep verdicts that count as a completed, trustworthy characterization.
 OK_VERDICTS = frozenset({"CLEAN_RULE", "LOOKUP_TABLE", "PARTIAL_FUNCTION"})

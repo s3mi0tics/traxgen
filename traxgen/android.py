@@ -11,13 +11,14 @@ Path: traxgen/traxgen/android.py
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 # --- Configuration ---------------------------------------------------------
 
@@ -63,6 +64,18 @@ WAITS = {
     "after_delete": 1.5,
 }
 
+# How long the Unity app needs after a force-stop-and-relaunch before it will
+# drive. Measured during the 2026-08-10 queue work; a cold splash needs real
+# time and 8s was demonstrably not enough (2026-08-07).
+#
+# Defined in `scripts/run_sweep_queue.py` from 2026-08-10, and imported from
+# there by `scripts/probe_plate_membership.py` as of ba41b2f (s21, 2026-08-21).
+# That put a fact about the *app* inside a script, and left the library-level
+# `reset_first` below unable to reach it without traxgen importing from scripts
+# -- the dependency arrow backwards. Moved here 2026-08-23 (s23); both scripts
+# now import it from the library.
+SETTLE_SECONDS = 35.0
+
 
 # --- Exceptions ------------------------------------------------------------
 
@@ -98,14 +111,70 @@ class OracleFrameError(AndroidAutomationError):
     """The screencap does not look like a rendered course, so it wasn't classified."""
 
 
+class WrongForegroundAppError(AndroidAutomationError):
+    """A different app is in front, so taps would land on it.
+
+    Deliberately neither subclasses the other: they are siblings under
+    `AndroidAutomationError`, so one `except` still catches both, but neither
+    can be caught *as* the other. "The launcher is
+    up" and "adb exited 0 saying nothing I could parse" are different findings
+    that send a human looking in different places.
+
+    Note the third case is a different class again: if adb itself fails, exits
+    non-zero, or times out, `_run_adb` raises `AdbCommandFailedError` and
+    neither of these is reached.
+    """
+
+    def __init__(self, *, expected: str, found: str) -> None:
+        self.expected = expected
+        self.found = found
+        super().__init__(
+            f"{found!r} is in the foreground, not {expected!r}. Taps would land on "
+            "the wrong app and the oracle would sample it. Launch the app (or pass "
+            "reset_first=True) before rendering."
+        )
+
+
+class ForegroundUnreadableError(AndroidAutomationError):
+    """adb answered, but nothing in the dump named a foreground package."""
+
+    def __init__(self, dump: str) -> None:
+        self.dump = dump
+        excerpt = dump.strip()[:200] or "<empty>"
+        super().__init__(
+            "could not read the foreground package from `dumpsys window`; refusing "
+            f"to proceed blind. Output was:\n  {excerpt}"
+        )
+
+
 # --- adb wrapper -----------------------------------------------------------
 
 @dataclass(frozen=True)
 class AdbContext:
-    """Resolved paths and configuration for adb invocations."""
+    """Resolved paths and configuration for adb invocations.
+
+    `runner` and `sleep` are the seams that make the automation flow testable
+    without an emulator. Both default to the real thing (`subprocess.run`,
+    `time.sleep`), and tests pass fakes -- one that records the argv the code
+    actually built, one that costs no elapsed time. Same shape as the injected
+    callables in `scripts/run_sweep_queue.py`: a real default, overridable per
+    call site, so production behaviour is unchanged by the seam existing.
+
+    `sleep` is injectable for a concrete reason, not symmetry. The flow spends
+    22.5s of fixed `WAITS` per render on the default path, 15.3s with
+    `cleanup=False`; with only `runner` faked, the offline tests in
+    tests/test_android_foreground.py took 63s against a 12s suite. A slow
+    offline test is one that stops being run.
+    """
 
     adb_path: Path
     package: str = DEFAULT_PACKAGE
+    runner: Callable[..., subprocess.CompletedProcess[Any]] = field(
+        default=subprocess.run, repr=False, compare=False
+    )
+    sleep: Callable[[float], None] = field(
+        default=time.sleep, repr=False, compare=False
+    )
 
 
 def resolve_context(android_home: Path | None = None, package: str = DEFAULT_PACKAGE) -> AdbContext:
@@ -123,7 +192,7 @@ def _run_adb(ctx: AdbContext, *args: str, timeout: float = 10.0) -> str:
     """Run an adb command and return stdout. Raise on non-zero exit."""
     cmd = [str(ctx.adb_path), *args]
     try:
-        result = subprocess.run(
+        result = ctx.runner(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired as exc:
@@ -139,7 +208,7 @@ def _run_adb_binary(ctx: AdbContext, *args: str, timeout: float = 30.0) -> bytes
     """Run an adb command that produces binary output."""
     cmd = [str(ctx.adb_path), *args]
     try:
-        result = subprocess.run(
+        result = ctx.runner(
             cmd, capture_output=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired as exc:
@@ -154,7 +223,14 @@ def _run_adb_binary(ctx: AdbContext, *args: str, timeout: float = 30.0) -> bytes
 
 
 def assert_emulator_ready(ctx: AdbContext) -> None:
-    """Verify an emulator is connected and booted."""
+    """Verify an emulator is connected and booted.
+
+    Scope, stated because misreading it cost a run. This checks the *emulator*
+    and says nothing about what is in front of it: a booted device with the app
+    closed passes here. That is what `assert_app_in_foreground` is for, and on
+    2026-08-21 the gap between the two produced a confident wrong verdict off a
+    screenshot of the Android launcher (observations #17).
+    """
     devices_out = _run_adb(ctx, "devices")
     if "emulator-" not in devices_out:
         raise EmulatorNotReadyError(
@@ -178,13 +254,13 @@ def tap(ctx: AdbContext, coord_name_or_xy: str | tuple[int, int]) -> None:
     else:
         x, y = coord_name_or_xy
     _run_adb(ctx, "shell", "input", "tap", str(x), str(y))
-    time.sleep(WAITS["after_tap"])
+    ctx.sleep(WAITS["after_tap"])
 
 
 def type_text(ctx: AdbContext, text: str) -> None:
     """Inject text via the native IME."""
     _run_adb(ctx, "shell", "input", "text", text)
-    time.sleep(WAITS["after_text"])
+    ctx.sleep(WAITS["after_text"])
 
 
 def screencap(ctx: AdbContext, dest: Path) -> Path:
@@ -206,6 +282,96 @@ def launch(ctx: AdbContext) -> None:
         ctx, "shell", "monkey", "-p", ctx.package,
         "-c", "android.intent.category.LAUNCHER", "1",
     )
+
+
+# --- Foreground guard ------------------------------------------------------
+#
+# `render_course()` opens with a blind coordinate tap. On 2026-08-21 it ran
+# against a booted emulator with GraviTrax closed: every tap landed on the
+# Android launcher, and the oracle sampled dark wallpaper -- which sits in the
+# same brightness range as a real render, so the near-white frame guard passed
+# it and returned a confident `inactive`. The probe being served *predicted*
+# its discriminating cells dark, so the harness produced a flawless-looking
+# confirmation of the hypothesis under test (observations #17, third firing).
+#
+# WHAT THIS CAN AND CANNOT SEE. Captured on AVD `traxgen_m6c` (API 34) on
+# 2026-08-23, ~3s after launch (splash) and again after a 30s settle (main
+# menu), `dumpsys window` returned byte-identical text. Both captures are
+# committed -- tests/fixtures/dumpsys_window_gravitrax_t3s.txt and
+# _t33s.txt -- and their identity is asserted by a test, so this is evidence
+# rather than a recollection.
+#
+# So this answers "is the app in front" and cannot answer "which screen is
+# showing"; the Unity surface is opaque here exactly as it is to uiautomator.
+# The launcher failure is closed. The splash failure (2026-08-07) is not.
+# Note it is NOT closed by plan.md's sequenced item 3 either: that item wires
+# in `wait_for_node`, which is uiautomator-only and therefore blind to this
+# same surface. Per plan.md's triggered review on the two Unity-surface waits,
+# a pixel-stability predicate is the only route -- `wait_until` accepts an
+# arbitrary dump_fn, so the polling primitive fits; the uiautomator predicate
+# does not.
+
+_FOREGROUND_PATTERNS = (
+    re.compile(r"mCurrentFocus=Window\{\S+\s+\S+\s+([A-Za-z0-9_.]+)/"),
+    re.compile(r"mFocusedApp=ActivityRecord\{\S+\s+\S+\s+([A-Za-z0-9_.]+)/"),
+)
+
+
+def parse_foreground_package(dumpsys_window_output: str) -> str | None:
+    """Read the foreground package out of `dumpsys window`, or None if it can't be.
+
+    Tries `mCurrentFocus` first and falls back to `mFocusedApp`, because
+    `mCurrentFocus=null` occurs legitimately between windows while
+    `mFocusedApp` still names the app. A `mCurrentFocus` naming a system window
+    with no package (`StatusBar`) also falls through, by the same rule.
+
+    None means "nothing here named a package" -- deliberately distinct from
+    naming the wrong one. Callers must not treat it as an app identity.
+    """
+    for pattern in _FOREGROUND_PATTERNS:
+        match = pattern.search(dumpsys_window_output)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _dump_foreground(ctx: AdbContext) -> str:
+    """Raw `dumpsys window` focus lines, filtered on-device to keep it small.
+
+    `dumpsys activity activities` also names the package -- both were captured
+    on the AVD (2026-08-23) and the activities capture is committed alongside.
+    Either would work. `dumpsys window` was picked because its unfiltered output
+    is the smaller of the two; that comparison was not measured, and the two
+    committed captures are both post-grep, so they do not evidence it.
+    """
+    return _run_adb(
+        ctx, "shell", "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"
+    )
+
+
+def read_foreground_package(ctx: AdbContext) -> str | None:
+    """Ask the device which package is in front. None if the dump didn't say."""
+    return parse_foreground_package(_dump_foreground(ctx))
+
+
+def assert_app_in_foreground(ctx: AdbContext) -> None:
+    """Raise unless `ctx.package` is the foreground app.
+
+    Both failure directions stop the run, because proceeding blind is the
+    failure being guarded -- but they raise *different* exceptions, since
+    "the launcher is up" and "adb would not say" send a human looking in
+    different places.
+
+    The dump is read exactly once and the unreadable error carries *that* text.
+    Re-dumping to build the message would quote a different adb call than the
+    one that failed, which is a report that can disagree with its own evidence.
+    """
+    dump = _dump_foreground(ctx)
+    found = parse_foreground_package(dump)
+    if found is None:
+        raise ForegroundUnreadableError(dump)
+    if found != ctx.package:
+        raise WrongForegroundAppError(expected=ctx.package, found=found)
 
 
 # --- UI state polling ------------------------------------------------------
@@ -352,10 +518,42 @@ def render_course(
     cleanup: bool = True,
     expect_disclaimer: bool = True,
     detect_validity: bool = False,
+    reset_first: bool = False,
+    settle_seconds: float = SETTLE_SECONDS,
 ) -> RenderResult:
-    """Drive the app: main menu -> render share code -> screenshot."""
+    """Drive the app: main menu -> render share code -> screenshot.
+
+    PRECONDITION, now enforced. This function's first action is a blind
+    coordinate tap; it assumes GraviTrax is open and on the main menu. The app
+    half of that is checked twice: before the first tap, and again immediately
+    after the frame is captured. Same reasoning as the both-ends control locked
+    2026-08-07 -- an opening check proves the app was in front at tap one and
+    says nothing about 40 seconds later.
+
+    What the second check brackets is the *frame*, not the whole function. On
+    the default `cleanup=True` path four more taps follow it (back, dont-save,
+    trash, delete-confirm) and nothing re-checks after those. They sit directly
+    behind the closing check, so a foreground change would have to land inside
+    that window to matter -- but the guarantee is "checked immediately before
+    cleanup", not "cleanup is guarded". Two of those taps are destructive,
+    which is the reason to state the gap rather than round it off.
+
+    The menu half is *not* checked, because it cannot be: splash and main menu
+    are byte-identical to `dumpsys window`. `reset_first=True` **establishes**
+    that state by force-stop-and-relaunch plus `settle_seconds`, rather than
+    verifying it. Opt-in, so existing callers keep their current cost;
+    `run_sweep_queue.py` already resets before every sweep and does not need it.
+    """
     ctx = ctx or resolve_context()
     assert_emulator_ready(ctx)
+
+    if reset_first:
+        reset_to_main_menu(ctx)
+        ctx.sleep(settle_seconds)
+
+    # Before the first tap. After it, the tap has already landed on whatever
+    # was in front, and the run is spending renders on the wrong surface.
+    assert_app_in_foreground(ctx)
 
     name = screenshot_name or f"rendered_{code}"
     out_path = screenshot_dir / f"{name}.png"
@@ -367,21 +565,28 @@ def render_course(
     type_text(ctx, code)
     tap(ctx, "ime_ok")
     tap(ctx, "load_track_button")
-    time.sleep(WAITS["after_load"])
+    ctx.sleep(WAITS["after_load"])
     tap(ctx, "loaded_track_hex")
-    time.sleep(WAITS["after_render_load"])
+    ctx.sleep(WAITS["after_render_load"])
     screencap(ctx, out_path)
+
+    # The closing bracket. Capture first, then verify, so a run that fails here
+    # still leaves the frame on disk for diagnosis -- the s21 diagnosis was
+    # ended by looking at the screenshot. Note precisely what this establishes:
+    # the app was in front immediately after the frame was taken. It is not
+    # proof of what the frame contains, and nothing here can be.
+    assert_app_in_foreground(ctx)
 
     validity = detect_play_button_state(out_path) if detect_validity else None
 
     if cleanup:
         tap(ctx, "back_save_icon")
-        time.sleep(WAITS["after_back"])
+        ctx.sleep(WAITS["after_back"])
         tap(ctx, "dont_save")
         tap(ctx, "trash_icon")
-        time.sleep(WAITS["after_delete"])
+        ctx.sleep(WAITS["after_delete"])
         tap(ctx, "delete_confirm")
-        time.sleep(WAITS["after_delete"])
+        ctx.sleep(WAITS["after_delete"])
 
     return RenderResult(screenshot=out_path, validity=validity)
 
@@ -390,7 +595,7 @@ def reset_to_main_menu(ctx: AdbContext | None = None) -> None:
     """Force-stop and relaunch the app."""
     ctx = ctx or resolve_context()
     force_stop(ctx)
-    time.sleep(1.0)
+    ctx.sleep(1.0)
     launch(ctx)
 
 

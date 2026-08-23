@@ -1,0 +1,2 @@
+  mCurrentFocus=Window{190f6df u0 com.ravensburger.gravitrax/com.unity3d.player.UnityPlayerActivity}
+  mFocusedApp=ActivityRecord{7496e4f u0 com.ravensburger.gravitrax/com.unity3d.player.UnityPlayerActivity t42}

@@ -163,6 +163,10 @@ Add a row for any other surface where a canonical file is deployed and could dri
 
 *Test (comparison):* read both fields back and diff against those two files. On a surface that can read the project metadata, do it directly; otherwise paste each field back and compare. Do not pass this check from memory of having pasted — "I pasted it" and "it is deployed" are different claims, and on 2026-08-07 they came apart.
 
+**Compare the rev tag before diffing any body — the check has a blind spot it cannot see from inside.** A conversation's Custom Instructions and project fields are injected **once, at its start, and frozen there**. So a session opened before the last paste holds a stale snapshot, and a body diff cannot tell that from real drift. The other direction is worse and silent: a session opened before an *unpasted* canonical edit sees both sides stale, agreeing with each other, and reports a false PASS. `global_preferences.md` (L1) now carries a `Rev:` stamp that changes on **every** edit, corrections included — matching tags mean the body diff is meaningful, differing tags mean the older side is stale rather than drifted. The claude.ai fields have no such stamp yet; until they do, treat a FAIL from a long-running conversation as *probably stale snapshot* and confirm in a freshly opened one.
+
+Found 2026-08-24 (s25), when a parallel conversation reported L1 FAIL against a correction that had already been pasted — its snapshot predated the second paste, and nothing in either copy could say so. **This belongs upstream in Allostatik rather than here**: the blind spot is in the universal Part 1 routine, not in anything specific to traxgen. Recorded in Part 2 deliberately so this project's copy does not fork from the template.
+
 <!-- Additional surfaces — one row per pair: `<CANONICAL-FILE>` | <where it's deployed>. -->
 <!-- Example: `.cursor/rules/*.mdc` | the Cursor rules a canonical file is mirrored into. -->
 

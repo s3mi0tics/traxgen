@@ -49,4 +49,10 @@ scripts/update_docs_*.py
 screenshots/
 # UI hierarchy dumps from uiautomator. One-off diagnostics.
 window_dump_*.xml
+# Session handoffs. workflow.md's handoff conventions say these stay local --
+# they are artifacts, not canonical state, and a committed handoff goes stale
+# the moment plan.md moves. That rule had no enforcement until 2026-08-23; this
+# line is the cheap test for it (a convention without one decorates rather than
+# constrains).
+outputs/
 

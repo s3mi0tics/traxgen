@@ -94,9 +94,19 @@ def normalised(positions: PlatePositions) -> PlatePositions:
 def scan(corpus_dir: Path) -> tuple[list[PlatePositions], collections.Counter]:
     """Return (one plate-position tuple per parsed course, a parse tally).
 
-    The tally also carries two figures cited elsewhere in the library --
-    `plates_total`, `plates_empty`, and a `height=` count per distinct
-    `layer_height` -- so they are regenerable rather than remembered.
+    The tally also carries figures cited elsewhere in the library --
+    `plates_total`, `plates_empty`, a `height=` count per distinct
+    `layer_height`, and a `kind=` count per `LayerKind` -- so they are
+    regenerable rather than remembered.
+
+    The `kind=` counts were added 2026-08-24 (s25) for a claim that had none.
+    `graph.py` cites "zero of the 640 parsed corpus courses use `BASE_LAYER`",
+    which nothing in the repo could produce: this script filtered
+    `BASE_LAYER_PIECE` before counting, and `probe_plate_footprint.py` tallies
+    kinds only from within `cell_construction_datas`, so an **empty** layer --
+    exactly the shape at issue -- is invisible to it. Counting every layer's
+    kind, cells or not, is what makes the sentence checkable (observations
+    #24: an artifact can be durable and a claim still un-rerunnable).
     """
     arrangements: list[PlatePositions] = []
     tally: collections.Counter = collections.Counter()
@@ -113,7 +123,11 @@ def scan(corpus_dir: Path) -> tuple[list[PlatePositions], collections.Counter]:
             continue
         tally["parsed"] += 1
         arrangements.append(plate_positions(course))
+        kinds_here = {layer.layer_kind for layer in course.layer_construction_data}
+        for kind in kinds_here:
+            tally[f"courses_with_kind={kind.name}"] += 1
         for layer in course.layer_construction_data:
+            tally[f"layers_of_kind={layer.layer_kind.name}"] += 1
             if layer.layer_kind is not LayerKind.BASE_LAYER_PIECE:
                 continue
             tally["plates_total"] += 1
@@ -165,6 +179,16 @@ def report(arrangements: list[PlatePositions], tally: collections.Counter) -> No
     print(f"    plates with zero cells: {tally['plates_empty']}")
     for key in sorted(k for k in tally if k.startswith("height=")):
         print(f"    {key}: {tally[key]}")
+    print()
+
+    # Counted over every layer, empty ones included -- which is the whole point:
+    # the claim this produces is about an empty BASE_LAYER, and a cell-driven
+    # tally cannot see one. Cited by traxgen/graph.py.
+    print("=== layer kinds across the corpus (cited by traxgen/graph.py) ===")
+    print(f"    courses parsed: {tally['parsed']}")
+    for key in sorted(k for k in tally if k.startswith("courses_with_kind=")):
+        print(f"    {key.split('=')[1]}: in {tally[key]} courses, "
+              f"{tally['layers_of_kind=' + key.split('=')[1]]} layers")
     print()
 
     if sets:

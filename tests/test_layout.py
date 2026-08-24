@@ -233,12 +233,19 @@ def test_a_multi_plate_course_is_never_claimed_disconnected() -> None:
     """The probe's own discriminating arm must not trip START_GOAL_CONNECTED.
 
     Four plates, starter on the home plate at local (0,0), goal at the
-    out-of-window W cell. Before the multi-plate guard in `start_goal_status`
-    this classified DISCONNECTED and the validator raised ERROR -- asserting
-    one reading of open unknown #17 as a harness finding, on the very course
-    built to decide it. Every row in `MEASURED_RUNS` was rendered through a
-    single-layer builder, so "one plate" is an unrecorded precondition on all
-    of them, and `classify_pair` sends only *cross-layer* pairs to UNMEASURED.
+    out-of-window W cell. Before s24 this classified DISCONNECTED and the
+    validator raised ERROR -- asserting one reading of open unknown #17 as a
+    harness finding, on the very course built to decide it. `classify_pair`
+    sends only *cross-layer* pairs to UNMEASURED, so a same-plate pair here was
+    answered from a record every row of which was rendered through a
+    single-layer builder.
+
+    s24 fixed it by counting baseplates in `start_goal_status` and refusing
+    above one. s25 replaced the count with a lookup: `MeasuredRun.plate_offsets`
+    records the layout each campaign ran on, so this course misses the record
+    rather than tripping a rule. Same verdict, and the test is deliberately
+    written against the verdict rather than the mechanism -- see
+    `tests/test_graph.py` for the tests that pin the mechanism itself.
     """
     from traxgen.graph import ConnectionStatus, start_goal_status
 
@@ -253,7 +260,13 @@ def test_a_multi_plate_course_is_never_claimed_disconnected() -> None:
 
 
 def test_the_single_plate_course_still_answers_from_the_record() -> None:
-    """The guard must not blanket-UNMEASURE the measured single-plate space."""
+    """Holding multi-plate at UNMEASURED must not blanket the measured space.
+
+    The sibling above pins the refusal; this pins that the refusal is narrow.
+    Both matter more since s25, because the refusal is now a missed lookup
+    rather than an explicit rule, and a key that is wrong in the other
+    direction would fail silently by refusing everything.
+    """
     from traxgen.graph import ConnectionStatus, start_goal_status
 
     certified = build_course(

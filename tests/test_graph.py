@@ -413,7 +413,7 @@ def test_the_conjunction_reproduces_every_rendered_run() -> None:
     had used. `plate_available INTERSECT starter_world_ports` has to give back
     each one's live set exactly -- no free parameters, no per-run fudge.
 
-    Written as a sweep over `MEASURED_RUNS` rather than as eight asserts on
+    Written as a sweep over `MEASURED_RUNS` rather than as named asserts on
     purpose: a typed list of the runs would be the same untested claim one
     layer down, and it would go stale the moment a ninth run lands.
     """

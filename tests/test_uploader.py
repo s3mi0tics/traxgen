@@ -25,11 +25,14 @@ import pytest
 
 from traxgen import uploader
 from traxgen.uploader import (
+    UPLOAD_RETRY_ATTEMPTS,
+    UPLOAD_RETRY_BACKOFF_SECONDS,
     UploadClientError,
     UploadMalformedResponseError,
     UploadNetworkError,
     UploadServerError,
     upload_course,
+    upload_course_with_retry,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -321,3 +324,117 @@ def test_upload_course_against_live_endpoint_returns_code() -> None:
     assert isinstance(code, str)
     assert len(code) == 10
     assert code.isalnum()
+
+
+# --- Retrying the endpoint's transient failures ----------------------------
+#
+# Added 2026-08-23 (s23) after an SSL handshake timeout took out two of seven
+# cells in one probe run -- both controls among them -- voiding the campaign.
+# Fourth firing of observations #15.
+
+
+class FakeUpload:
+    """Fails with a scripted sequence of errors, then succeeds.
+
+    Records the timeout it was handed, so a test can prove the retry does not
+    quietly change the caller's parameters between attempts.
+    """
+
+    def __init__(self, *, errors: list[Exception], code: str = "ABCDE12345") -> None:
+        self.errors = list(errors)
+        self.code = code
+        self.calls = 0
+        self.timeouts: list[float] = []
+
+    def __call__(self, binary: bytes, *, timeout: float) -> str:
+        self.calls += 1
+        self.timeouts.append(timeout)
+        if self.errors:
+            raise self.errors.pop(0)
+        return self.code
+
+
+class FakeSleep:
+    """Records delays without spending them."""
+
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.delays.append(seconds)
+
+
+def test_a_clean_upload_costs_one_attempt_and_no_sleep() -> None:
+    """The happy path must not pay for the retry policy existing."""
+    upload, sleep = FakeUpload(errors=[]), FakeSleep()
+    code, attempts = upload_course_with_retry(b"x", upload=upload, sleep=sleep)
+    assert (code, attempts) == ("ABCDE12345", 1)
+    assert sleep.delays == []
+
+
+def test_a_server_error_is_retried_and_can_succeed() -> None:
+    """The HTTP 520 case: three campaigns, three firings, always transient."""
+    upload = FakeUpload(errors=[UploadServerError(status=520, body="")])
+    sleep = FakeSleep()
+    code, attempts = upload_course_with_retry(b"x", upload=upload, sleep=sleep)
+    assert (code, attempts) == ("ABCDE12345", 2)
+    assert sleep.delays == [2.0]
+
+
+def test_a_network_error_is_retried_and_can_succeed() -> None:
+    """The 2026-08-23 case: `_ssl.c:993: The handshake operation timed out`."""
+    upload = FakeUpload(errors=[UploadNetworkError(reason="handshake timed out")])
+    sleep = FakeSleep()
+    code, attempts = upload_course_with_retry(b"x", upload=upload, sleep=sleep)
+    assert (code, attempts) == ("ABCDE12345", 2)
+
+
+def test_a_client_error_is_not_retried() -> None:
+    """4xx is the payload being wrong. Retrying it is a slower no, not a fix."""
+    upload = FakeUpload(errors=[UploadClientError(status=400, body="bad")])
+    sleep = FakeSleep()
+    with pytest.raises(UploadClientError):
+        upload_course_with_retry(b"x", upload=upload, sleep=sleep)
+    assert upload.calls == 1
+    assert sleep.delays == []
+
+
+def test_a_malformed_response_is_not_retried() -> None:
+    """Never fired. A policy for it would be invention, not evidence."""
+    upload = FakeUpload(
+        errors=[UploadMalformedResponseError(body="?", reason="no code in body")]
+    )
+    with pytest.raises(UploadMalformedResponseError):
+        upload_course_with_retry(b"x", upload=upload, sleep=FakeSleep())
+    assert upload.calls == 1
+
+
+def test_it_gives_up_after_the_declared_attempts_and_raises_the_last_error() -> None:
+    """Bounded. An unbounded retry is the silent-hang failure of observations #25."""
+    errors = [
+        UploadServerError(status=520, body=""),
+        UploadNetworkError(reason="first timeout"),
+        UploadNetworkError(reason="final timeout"),
+    ]
+    upload, sleep = FakeUpload(errors=errors), FakeSleep()
+    with pytest.raises(UploadNetworkError, match="final timeout"):
+        upload_course_with_retry(b"x", upload=upload, sleep=sleep)
+    assert upload.calls == UPLOAD_RETRY_ATTEMPTS == 3
+    assert sleep.delays == [2.0, 6.0]
+
+
+def test_the_backoff_table_covers_every_gap_between_attempts() -> None:
+    """Guards an off-by-one that would IndexError only on the last retry.
+
+    With N attempts there are N-1 gaps. If someone raises ATTEMPTS without
+    extending the table, the failure appears solely on a run that already
+    failed twice -- the least observable place for a crash to hide.
+    """
+    assert len(UPLOAD_RETRY_BACKOFF_SECONDS) == UPLOAD_RETRY_ATTEMPTS - 1
+
+
+def test_the_retry_does_not_alter_the_timeout_between_attempts() -> None:
+    """Each attempt gets the caller's timeout, not a mutated one."""
+    upload = FakeUpload(errors=[UploadServerError(status=502, body="")])
+    upload_course_with_retry(b"x", timeout=12.5, upload=upload, sleep=FakeSleep())
+    assert upload.timeouts == [12.5, 12.5]

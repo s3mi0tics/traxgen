@@ -137,7 +137,7 @@ from traxgen.inventory import PRO_VERTICAL_STARTER_SET
 from traxgen.plates import is_on_plate, plate_footprint
 from traxgen.serializer import serialize_course
 from traxgen.types import LayerKind
-from traxgen.uploader import UploadError, upload_course
+from traxgen.uploader import UploadError, upload_course_with_retry
 from traxgen.validator import validate_strict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -741,14 +741,35 @@ def main(argv: list[str] | None = None) -> int:
             print("       (re-run with --no-render to upload without rendering)", file=sys.stderr)
             return 1
 
+    # Transient upload failures are a designed-for condition, not a surprise
+    # (decisions.md 2026-08-10; observations #15, four firings). Retries are
+    # counted into the sidecar rather than swallowed -- the endpoint's failure
+    # rate is itself a measurement, and a run that quietly recovered twice must
+    # not read as a clean one.
+    upload_retries: dict[str, int] = {}
     for i, cell in enumerate(cells):
+
+        def _note_retry(
+            attempt: int, exc: UploadError, delay: float, label: str = cell.label
+        ) -> None:
+            print(
+                f"  {label}: upload attempt {attempt} failed "
+                f"({type(exc).__name__}); retrying in {delay:.0f}s",
+                file=sys.stderr,
+            )
+
         try:
-            cell.code = upload_course(payloads[i], timeout=args.timeout)
+            cell.code, attempts = upload_course_with_retry(
+                payloads[i], timeout=args.timeout, on_retry=_note_retry
+            )
         except UploadError as exc:
             cell.upload_error = f"{type(exc).__name__}: {exc}"
-            print(f"  {cell.label}: upload failed: {exc}", file=sys.stderr)
+            print(f"  {cell.label}: upload failed after retries: {exc}", file=sys.stderr)
             continue
+        if attempts > 1:
+            upload_retries[cell.label] = attempts
         print(f"  {cell.label}: uploaded -> {cell.code}", file=sys.stderr)
+    meta["upload_retries"] = upload_retries
 
     uploaded = [c for c in cells if c.code]
     codes = {c.code for c in uploaded}

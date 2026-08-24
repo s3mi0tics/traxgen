@@ -178,6 +178,27 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "module's own position-blind table"
         ),
     ),
+    # The first measurement of an ODD rotation away from the plate corner.
+    # Until this run, every odd-rotation row in the record sat at (0,0), where
+    # three of six neighbours are off-plate -- so "odd gives one live
+    # direction" was a corner fact being read as a rotation fact.
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(-3, 2),
+        starter_rot=1,
+        live_directions=frozenset({1, 3, 5}),  # NE, W, SE
+        goal_rotations_swept=False,
+        provenance=(
+            "2026-08-23 interior probe at odd rotation -- W and SE rendered "
+            "active after being dark in all six exhaustive corner sweeps, "
+            "refuting the frozen position-blind table on two cells at once. "
+            "7/7 predicted correctly, declared in code before rendering; "
+            "bracketed by an active certified control at both ends plus a "
+            "local control at (-3,2). plate and port_only are equivalent here "
+            "by construction -- nothing is off-plate to separate them; the "
+            "2026-08-21 edge run is what separates that pair"
+        ),
+    ),
 )
 
 # The corner table, derived from the runs above rather than restated. Kept as a

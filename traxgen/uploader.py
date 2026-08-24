@@ -22,7 +22,9 @@ Path: traxgen/traxgen/uploader.py
 from __future__ import annotations
 
 import json
+import time
 import uuid
+from collections.abc import Callable
 from typing import Final
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -213,3 +215,66 @@ def upload_course(binary: bytes, *, timeout: float = 30.0) -> str:
         raise UploadNetworkError(reason=f"timeout: {exc}") from exc
 
     return _parse_success_response(response_body)
+
+
+# --- Retrying the endpoint's transient failures ----------------------------
+#
+# The upload endpoint fails transiently under batch load. Three HTTP 520s
+# (Cloudflare edge, not payload rejections) across three campaigns through
+# 2026-08-10, and on 2026-08-23 an SSL handshake timeout took out two of seven
+# cells in one run -- including both controls, which voided the campaign by its
+# own pre-declared rule (observations #15, fourth firing).
+#
+# `run_sweep_queue.py` already treats this as designed-for and auto-resumes a
+# mechanical hole once. Standalone probes had no equivalent, so a single flaky
+# upload cost a whole run. This is that policy, available to any caller.
+#
+# Retried BY CLASS, deliberately not blanket:
+#   UploadServerError   5xx -- the endpoint is unwell. Retry.
+#   UploadNetworkError  DNS/TLS/timeout -- the transport is unwell. Retry.
+#   UploadClientError   4xx -- the payload is wrong. Retrying is a slower no.
+#   UploadMalformedResponseError -- has never fired; a retry policy for it
+#                       would be invention rather than a response to evidence.
+# Content-hash dedup makes a retry safe: an upload that did land returns the
+# same share code rather than creating a second course.
+UPLOAD_RETRY_ATTEMPTS: Final[int] = 3
+UPLOAD_RETRY_BACKOFF_SECONDS: Final[tuple[float, ...]] = (2.0, 6.0)
+RETRYABLE_UPLOAD_ERRORS: Final[tuple[type[UploadError], ...]] = (
+    UploadServerError,
+    UploadNetworkError,
+)
+
+
+def upload_course_with_retry(
+    binary: bytes,
+    *,
+    timeout: float = 30.0,
+    upload: Callable[..., str] = upload_course,
+    sleep: Callable[[float], None] = time.sleep,
+    on_retry: Callable[[int, UploadError, float], None] | None = None,
+) -> tuple[str, int]:
+    """Upload, retrying transient endpoint failures. Returns (share_code, attempts).
+
+    The attempt count is returned rather than swallowed so callers can record
+    it. A silent retry would hide exactly the behaviour observation #15 exists
+    to count -- the endpoint's failure rate is a measurement, and a run that
+    quietly recovered three times should not look like a clean one.
+
+    `upload` and `sleep` are injected for testing; both default to the real
+    thing, so production behaviour is unchanged by the seam.
+    """
+    last_error: UploadError | None = None
+    for attempt in range(1, UPLOAD_RETRY_ATTEMPTS + 1):
+        try:
+            return upload(binary, timeout=timeout), attempt
+        except RETRYABLE_UPLOAD_ERRORS as exc:
+            last_error = exc
+            if attempt == UPLOAD_RETRY_ATTEMPTS:
+                break
+            delay = UPLOAD_RETRY_BACKOFF_SECONDS[attempt - 1]
+            if on_retry is not None:
+                on_retry(attempt, exc, delay)
+            sleep(delay)
+
+    assert last_error is not None  # only reachable via the except branch
+    raise last_error

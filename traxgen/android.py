@@ -10,6 +10,7 @@ Path: traxgen/traxgen/android.py
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import subprocess
@@ -109,6 +110,19 @@ class UiConditionTimeout(AndroidAutomationError):
 
 class OracleFrameError(AndroidAutomationError):
     """The screencap does not look like a rendered course, so it wasn't classified."""
+
+
+class FrameUnreadableError(AndroidAutomationError):
+    """A frame sample came back empty during a pixel-stability wait.
+
+    Deliberately NOT the frame equivalent of `dump_ui` returning None.
+    `uiautomator dump` fails *while a view animates*, which is exactly when a
+    poller runs, so None there means "not ready yet". `screencap` has no such
+    state: it returns a frame or it fails. Tolerating a gap here would be worse
+    than useless, because `wait_until` skips the predicate on a None sample --
+    so the frame before the gap and the frame after it would count as
+    consecutive, stitching a quiet streak across an interval nobody observed.
+    """
 
 
 class WrongForegroundAppError(AndroidAutomationError):
@@ -446,9 +460,9 @@ def dump_ui(ctx: AdbContext, *, remote_path: str = "/sdcard/window_dump.xml") ->
     return out if "<hierarchy" in out else None
 
 
-def wait_until(
-    dump_fn: Callable[[], str | None],
-    predicate: Callable[[str], bool],
+def wait_until[Sample](
+    dump_fn: Callable[[], Sample | None],
+    predicate: Callable[[Sample], bool],
     *,
     timeout: float = 10.0,
     interval: float = 0.25,
@@ -461,6 +475,17 @@ def wait_until(
     A `dump_fn` returning None means "not readable yet" and never satisfies the
     predicate. `sleep_fn` and `clock` are injectable so the polling logic is
     testable without real elapsed time or an emulator.
+
+    Generic over the sample type, and the generalisation is typing only -- the
+    body is byte-for-byte what it was when the sample was always a uiautomator
+    hierarchy string. `wait_for_stable_frame` polls frames rather than XML, and
+    the alternative was a second copy of this deadline loop.
+
+    Note for stateful predicates (`FrameStability` is one): the predicate is
+    NOT called when `dump_fn` returns None, so a predicate that compares
+    successive samples never learns that a sample was skipped. A caller whose
+    samples cannot legitimately be None should refuse None at the source rather
+    than rely on this loop to notice.
     """
     deadline = clock() + timeout
     polls = 0
@@ -498,6 +523,229 @@ def wait_for_node(
         interval=interval,
         description=f"node(class={cls!r}, text={text!r}) to {goal}",
     )
+
+
+# --- Pixel stability (the Unity-surface wait) ------------------------------
+#
+# `wait_for_node` reads `uiautomator`, and the Unity game surface is opaque to
+# it -- the same blindness `assert_app_in_foreground` hit one layer up. So the
+# two waits in front of that surface (`after_load`, `after_render_load`) cannot
+# be polled by hierarchy, and pixels are the only channel left. On 2026-08-23
+# the opening certified control was refused at white_frac 0.660 -- a loading
+# screen the fixed sleep had expired into -- and `probe_plate_membership.py`
+# has no resume path, so that cost the whole campaign.
+#
+# SCOPE, stated because the obvious reading is wrong: "the picture stopped
+# moving" is NOT "the course has loaded". A splash screen is perfectly still.
+# This answers a *necessary* condition, never a sufficient one, and it earns
+# its place by composing with the two guards that already exist rather than by
+# replacing either:
+#
+#   assert_app_in_foreground  -- is the right APPLICATION in front?   (s23)
+#   frame_white_fraction      -- is this a near-white splash?         (2026-08-07)
+#   FrameStability            -- has the surface stopped ANIMATING?   (here)
+#
+# Three axes, and what remains uncovered is the intersection none of them sees:
+# a still, non-near-white screen owned by GraviTrax that is not the render.
+# Named rather than left to look like coverage.
+#
+# THE THREE NUMBERS BELOW ARE DECLARED, NOT MEASURED. No frame-to-frame delta
+# of a real loaded GraviTrax course has ever been recorded, so the noise floor
+# of a "still" Unity surface is unknown -- it may not be exactly zero (temporal
+# antialiasing and dithering both jitter). Rather than pick a plausible number
+# and let it survive because nobody looked (observations #18), the defaults are
+# the strict end and `FrameStability` records every difference it observes, so
+# the first live run reports the real distribution and the constants get set
+# from it -- the same route `scripts/calibrate_frame_guard.py` took for the
+# frame guard. Strictness is the right side to start on per observations #17:
+# a premature "stable" renders a loading screen and can invent a verdict, while
+# a timeout costs a re-run and invents nothing.
+
+FRAME_STABILITY_DOWNSCALE = 4
+
+# The resampling filter is NOT a taste choice, and the default is wrong here.
+# Measured on a 16x12 frame downscaled to 4x3, comparing a dark frame against
+# the same frame with one bright row (the honest area-average is 21.33), and
+# mirrored bright halves (the honest answer is 80.0):
+#
+#   NEAREST    halves 80.000   one-row  0.000   <- the moving row VANISHES
+#   BOX        halves 80.000   one-row 21.333   <- exact area average
+#   BILINEAR   halves 70.000   one-row 15.333
+#   BICUBIC    halves 74.500   one-row 16.667   <- Pillow's default
+#   LANCZOS    halves 75.500   one-row 18.000
+#
+# Every filter but BOX *attenuates* motion, and BICUBIC -- what `Image.resize`
+# picks when nobody says otherwise -- under-reports a real change by 22%. An
+# attenuated difference is a difference that slips under the tolerance, i.e. a
+# moving screen called still, which is the direction that invents data
+# (observations #17). BOX is the only filter whose output is the mean of the
+# pixels it covers, which is the one property this comparison rests on.
+#
+# Broken window, named rather than fixed: `frame_white_fraction` above does the
+# same `.resize()` with the same silent default. It is a global brightness
+# statistic rather than a difference, so the attenuation matters far less --
+# but its 0.942-vs-0.014 calibration was measured through BICUBIC, and changing
+# the filter would invalidate those numbers. It belongs with the frame guard's
+# own calibration, not smuggled into this change.
+#
+# Deliberately not a module constant: it is a correctness choice rather than a
+# tuning knob (unlike the three below), and naming it here as a bare int would
+# be one more claim about PIL's enum that nothing checks. It is read off
+# `Image.Resampling.BOX` at the point of use, where `Image` is already in scope.
+FRAME_STABILITY_REQUIRED_SAMPLES = 3
+FRAME_STABILITY_TOLERANCE = 0.0
+FRAME_STABILITY_TIMEOUT = 30.0
+FRAME_STABILITY_INTERVAL = 0.5
+
+
+class FrameFingerprint(NamedTuple):
+    """A frame reduced to the form two frames are compared in."""
+
+    width: int
+    height: int
+    channels: bytes
+
+
+def frame_fingerprint(png_bytes: bytes) -> FrameFingerprint:
+    """Reduce a screencap PNG to downscaled RGB channel data.
+
+    RGB rather than greyscale on purpose: a luminance-preserving colour change
+    is invisible to greyscale, and missing a change is the direction that
+    invents stability. The downscale is for cost -- a full 2400x1080 frame is
+    7.8M channel values per comparison, which does not fit inside a poll.
+
+    What the tests do and do not say about the downscale, stated precisely
+    because the loose version was wrong. Changing or removing it DOES fail the
+    suite: `test_the_difference_is_a_mean_and_not_a_worst_pixel` computes its
+    expected value through the 4x4 block this factor produces, so 4 is pinned.
+    But pinned is not validated -- that test shows only that the constant is
+    the one currently in force, never that it is the right one. Nothing here
+    measures how small a moving region may get before area-averaging hides it,
+    because that depends on a real frame and no real frame has been sampled.
+    The number is a cost-versus-sensitivity guess awaiting the first live run,
+    and a change-detector test is the most an offline suite can honestly be.
+    """
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    if FRAME_STABILITY_DOWNSCALE > 1:
+        image = image.resize(
+            (
+                max(1, image.width // FRAME_STABILITY_DOWNSCALE),
+                max(1, image.height // FRAME_STABILITY_DOWNSCALE),
+            ),
+            Image.Resampling.BOX,
+        )
+    return FrameFingerprint(image.width, image.height, image.tobytes())
+
+
+def frame_difference(before: FrameFingerprint, after: FrameFingerprint) -> float:
+    """Mean absolute channel difference between two frames, 0.0 to 255.0.
+
+    Frames of different geometry are infinitely different rather than compared
+    elementwise: a resolution change is never "the same picture", and averaging
+    past the shorter buffer would read as stability.
+    """
+    if (before.width, before.height) != (after.width, after.height):
+        return float("inf")
+    total = sum(abs(a - b) for a, b in zip(before.channels, after.channels, strict=True))
+    return total / float(len(before.channels))
+
+
+class FrameStability:
+    """Stateful predicate: true once N consecutive samples differ by <= tolerance.
+
+    Stateful by necessity, not by taste. Stability is a property of a *sequence*
+    and `wait_until`'s predicate only ever sees one sample, so the history has
+    to live somewhere. Build a fresh one per wait -- reusing one carries the
+    previous wait's streak into the next.
+
+    Also the instrument that calibrates its own threshold: `differences` holds
+    every delta observed, so a live run reports the noise floor rather than the
+    declared constant standing unexamined.
+    """
+
+    def __init__(
+        self,
+        *,
+        required: int = FRAME_STABILITY_REQUIRED_SAMPLES,
+        tolerance: float = FRAME_STABILITY_TOLERANCE,
+    ) -> None:
+        if required < 2:
+            raise ValueError("required must be at least 2 -- one sample is not a comparison")
+        if tolerance < 0.0:
+            raise ValueError("tolerance must not be negative")
+        self.required = required
+        self.tolerance = tolerance
+        self.differences: list[float] = []
+        self._previous: FrameFingerprint | None = None
+        self._quiet = 0
+
+    def __call__(self, sample: FrameFingerprint) -> bool:
+        if self._previous is None:
+            self._previous = sample
+            self._quiet = 1
+            return False
+        difference = frame_difference(self._previous, sample)
+        self.differences.append(difference)
+        self._previous = sample
+        # Reset rather than decrement: 'quiet, quiet, MOVED, quiet' must not
+        # count as three of four. A run of motion restarts the streak at the
+        # sample that moved.
+        self._quiet = self._quiet + 1 if difference <= self.tolerance else 1
+        return self._quiet >= self.required
+
+
+def wait_for_stable_frame(
+    ctx: AdbContext | None = None,
+    *,
+    timeout: float = FRAME_STABILITY_TIMEOUT,
+    interval: float = FRAME_STABILITY_INTERVAL,
+    required: int = FRAME_STABILITY_REQUIRED_SAMPLES,
+    tolerance: float = FRAME_STABILITY_TOLERANCE,
+    sample_fn: Callable[[], bytes | None] | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> FrameStability:
+    """Poll the screen until it stops changing; return the predicate that watched it.
+
+    Returns rather than discards the `FrameStability` so the caller can record
+    `differences` -- that list is the calibration data for the constants above,
+    and dropping it is what would leave them permanently declared.
+
+    Raises `UiConditionTimeout` if the screen never settles, and
+    `FrameUnreadableError` if a sample comes back empty (see that exception for
+    why a gap is refused rather than tolerated).
+    """
+    if sample_fn is None:
+        if ctx is None:
+            raise ValueError("wait_for_stable_frame needs an AdbContext or a sample_fn")
+        bound_ctx = ctx
+        sample_fn = lambda: _run_adb_binary(bound_ctx, "exec-out", "screencap", "-p")  # noqa: E731
+    grab = sample_fn
+    stability = FrameStability(required=required, tolerance=tolerance)
+
+    def sample() -> FrameFingerprint:
+        raw = grab()
+        if not raw:
+            raise FrameUnreadableError(
+                "frame sample came back empty; screencap has no 'not readable yet' state"
+            )
+        return frame_fingerprint(raw)
+
+    wait_until(
+        sample,
+        stability,
+        timeout=timeout,
+        interval=interval,
+        description=(
+            f"the screen to stop changing ({required} consecutive samples "
+            f"within {tolerance})"
+        ),
+        sleep_fn=sleep_fn,
+        clock=clock,
+    )
+    return stability
 
 
 # --- High-level flow -------------------------------------------------------

@@ -2,7 +2,7 @@
 
 Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
-**Last meaningful update:** 2026-08-21
+**Last meaningful update:** 2026-08-24 (s25)
 
 ## The user story
 
@@ -33,6 +33,24 @@ Three generation modes, each progressively harder, with v1's data model already 
 3. **Perpetual** *(Phase 3)* — a closed-loop track whose net energy per cycle clears a safety margin. Needs cycle detection and energy-budget accounting.
 
 Phase 2 (physics) sits between: per-piece energy bookkeeping with variance as a first-class property — some pieces are *designed* to be stochastic, and tolerance is a user parameter, not a constant. After v1: a TypeScript port (locked in `decisions.md`).
+
+## The board, and what the generator is actually searching
+
+Raised by Colby 2026-08-24 (s25), mid-session: *think of this as a game with a board state — how would the board state be determined, and how would pieces be added or removed?* It is the right frame, and the useful part is that most of it is already built without having been named.
+
+**What the board is, in code today.** Each baseplate covers a fixed set of 30 local cells, measured from 640 real courses, and sits at a `world_hex_position`; the board is the union of those cells in one global frame, and that frame is known coherent because no two plates in any of the 640 ever claim the same world cell. `plates.is_on_plate` answers whether a square exists. `layout.owning_plate` answers whose square it is and what it is called locally. `graph.placed_tiles` answers what is standing on each square. `graph.course_plate_positions` and `plate_offsets_from` — added in s25 for the record's lookup key — answer *which board this is*. Five primitives across two modules, reconstructed from the file on every call, with no name and no home.
+
+**Where it stops.** `layout.build_course` takes plates plus placements and emits a file. It does not answer the three questions the frame asks:
+
+- *Can a plate go here?* Plates join edge-to-edge and never at an angle — still Colby's physical observation rather than something read off the corpus. What the corpus gives is which arrangements real people **use** (120 distinct plate-to-plate offsets; one dominant square in 228 of 241 four-plate courses), which is not the same as which are legal.
+- *Is this square on the board?* Answered — and deliberately not enforced by `build_course`, because open unknown #17's arm 2 is precisely the course a footprint check would refuse.
+- *Can this piece go on that square, at that rotation, beside that piece?* Unknown for all but one pairing. This is open unknown #7, and it is the reason there is no generator yet rather than a missing abstraction.
+
+**The tension worth holding.** Representation is the easy half; a board object that cannot say *no* is a second spelling of the file format, and building the legality rules before they are measured is how this project has been wrong before — symmetry models refuted by render twice, a position-blind connection table shipped for eleven days. What makes the frame worth adopting is that it composes with the discipline already in `graph.py`: a board that answers from the rendered record, exposes the model on a separate surface, and refuses everywhere else. Three-valued legality, for the same reason connection is three-valued.
+
+**Why it matters for direction rather than only for tidiness.** The user story above says the generator takes a build palette and returns courses. A generator is a search, and a search needs a state to move through — so "what is the board, and what are the legal moves" is the same question as "what is the generator searching over", asked earlier. Today it would be searching over byte layouts.
+
+**The nearest concrete instance.** s25's panel found that the record can express *the goal was on this square of my own plate* and cannot express *the goal was on the neighbouring plate* — no field records which plate the goal stood on. That is a board-state gap in exactly these terms, it is one arm of the #17 experiment, and it is `plan.md` item 4.
 
 ## Why it matters
 

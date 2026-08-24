@@ -470,12 +470,37 @@ def start_goal_status(course: Course) -> ConnectionStatus | None:
     makes the course connected no matter how many dead pairs surround it, and
     one unmeasured pair keeps "disconnected" from being claimed on evidence
     we do not have.
+
+    **A course carrying more than one baseplate is `UNMEASURED`, whatever its
+    pairs say.** `classify_pair` sends only *cross-layer* pairs to UNMEASURED,
+    so a same-plate pair on a multi-plate course was classified exactly as on a
+    single-plate one -- and every row in `MEASURED_RUNS` was rendered through a
+    builder that emits exactly one layer (`scripts/sweep_starter_rotation.
+    build_variant`, a 1-tuple). "One plate at world (0,0)" is therefore an
+    unrecorded precondition on all nine campaigns, and it was unreachable until
+    `traxgen/layout.py` made multi-plate courses buildable.
+
+    Reachable, it produces a false ERROR through `START_GOAL_CONNECTED` on the
+    exact arm the add-a-plate probe exists to render: four plates, starter at
+    home-plate local (0,0), goal at the out-of-window W cell. Claiming
+    "measured disconnected" there asserts one reading of open unknown #17 --
+    that adding a plate changes nothing -- as a harness finding. That is the
+    s21 defect one level up (an answer measured in one configuration, applied
+    to another) and it is what the 2026-08-10 severity lock forbids: a gap in
+    the record must not become a claim about the course.
     """
     tiles = list(placed_tiles(course))
     starters = [t for t in tiles if t.kind in STARTER_KINDS]
     goals = [t for t in tiles if t.kind in GOAL_KINDS]
     if not starters or not goals:
         return None
+    baseplates = sum(
+        1
+        for layer in course.layer_construction_data
+        if layer.layer_kind is LayerKind.BASE_LAYER_PIECE
+    )
+    if baseplates > 1:
+        return ConnectionStatus.UNMEASURED
     statuses = {classify_pair(s, g) for s in starters for g in goals}
     for status in (
         ConnectionStatus.CONNECTED,

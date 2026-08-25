@@ -16,13 +16,19 @@ Path: traxgen/tests/test_probe_plate_seams.py
 
 from __future__ import annotations
 
+import collections
 from fractions import Fraction
 
 from scripts.probe_plate_seams import (
+    _is_gapless,
+    cell_groups,
     column_centre,
     find_tiling_delta,
     flush_edge_cells,
+    mirror_edge_cells,
     seam_cells,
+    seam_requirements,
+    translate,
 )
 from traxgen.plates import MEASURED_FOOTPRINTS
 from traxgen.types import LayerKind
@@ -115,3 +121,103 @@ def test_the_stagger_direction_is_the_one_the_real_plate_shows() -> None:
     assert len(seam_cells()) > 1, "shipped stagger: half-holes on several rows"
     assert len({x for _, x in seam_cells()}) == len(seam_cells())
     assert len(mirror_seams()) == 1, "mirror stagger: collapses to one cell"
+
+
+def test_a_plate_tiles_on_both_sides_so_the_side_is_a_real_choice() -> None:
+    """The fact that makes the next test load-bearing rather than decorative.
+
+    If only one translation tiled, `find_tiling_delta` would have nothing to
+    choose and its filter would be ornament. Enacted instead: search the whole
+    neighbourhood and show there is an equally-near tiling delta on the *flush*
+    side, which supplies no missing half. That is the candidate an unfiltered
+    nearest-first would have to break a tie against -- and by tuple order it
+    wins, which is how a loop bound came to pick the side (s27).
+    """
+    seam_column = max(column_centre(cell) for cell in FOOTPRINT)
+    span = max(abs(v) for cell in FOOTPRINT for v in cell) + 2
+    tiling, flush_side = [], []
+    for dy in range(-span, span + 1):
+        for dx in range(-span, span + 1):
+            if (dy, dx) == (0, 0):
+                continue
+            moved = translate(FOOTPRINT, (dy, dx))
+            if moved & FOOTPRINT or not _is_gapless(set(FOOTPRINT | moved)):
+                continue
+            tiling.append((dy, dx))
+            if max(column_centre(cell) for cell in moved) <= seam_column:
+                flush_side.append((dy, dx))
+
+    assert flush_side, "no flush-side tiling delta: the filter would be untested"
+    chosen = find_tiling_delta(FOOTPRINT)
+    nearness = lambda d: (abs(d[0]) + abs(d[1]), d)  # noqa: E731
+    assert min(tiling, key=nearness) != chosen, (
+        "the unfiltered nearest is the same delta, so this fixture cannot show "
+        "the filter doing anything -- re-derive the discriminator"
+    )
+
+
+def test_the_completing_delta_reaches_past_the_boundary() -> None:
+    """The property that picks the side, asserted instead of assumed.
+
+    A neighbour that does not reach past the seam column cannot supply any
+    missing half, so it is not the completing plate whatever its distance.
+    Removing the filter in `find_tiling_delta` fails this.
+    """
+    delta = find_tiling_delta(FOOTPRINT)
+    moved = translate(FOOTPRINT, delta)
+    seam_column = max(column_centre(cell) for cell in FOOTPRINT)
+    assert max(column_centre(cell) for cell in moved) > seam_column
+
+
+def test_the_half_holes_are_not_interchangeable() -> None:
+    """One delta answers for three cells whose geometry differs -- shown, not said.
+
+    `scan`'s completion test is plate-level: is there a plate at `here + delta`.
+    That is the same question for all three half-holes, so an aggregate tally
+    averages three facts. This pins that they really are different: at least one
+    half-hole has an off-plate neighbour no tiling neighbour reaches, and at
+    least one has none, so a per-cell breakdown is not decoration.
+    """
+    requirements = seam_requirements()
+    assert len(requirements) == len(seam_cells())
+    unreachable_counts = {len(un) for _, (_, un) in requirements.items()}
+    assert unreachable_counts != {0}, "no cell has unreachable neighbours"
+    assert 0 in unreachable_counts, "every cell has unreachable neighbours"
+
+    for cell, (supplied, unreachable) in requirements.items():
+        assert supplied, f"{cell} is supplied nothing by the completing plate"
+        assert not (supplied & unreachable), "a direction cannot be both"
+
+
+def test_the_mirror_control_is_the_opposite_edge_in_the_same_shape() -> None:
+    """A control on a different axis from `flush_edge_cells`.
+
+    `flush` asks whether builders use edge cells at all, on the seam edge.
+    `mirror` asks whether the seam edge is special: same extremity, same
+    alternating-row shape, opposite side. If it were not the same shape it would
+    not be a control for the same thing.
+    """
+    mirror = mirror_edge_cells()
+    assert mirror <= FOOTPRINT
+    assert len(mirror) == len(seam_cells())
+    rows = sorted(x for _, x in mirror)
+    assert rows == list(range(min(rows), max(rows) + 1, 2)), "alternating rows"
+    assert len({column_centre(cell) for cell in mirror}) == 1
+    assert min(column_centre(c) for c in mirror) < min(
+        column_centre(c) for c in seam_cells()
+    ), "the mirror must be the other edge, not the same one"
+
+
+def test_the_three_measured_groups_are_disjoint() -> None:
+    """Overlap would make one group silently measure part of another.
+
+    `cell_groups` raises on overlap rather than letting the last writer win, so
+    this both exercises that path's happy case and pins that all three groups
+    survive into the map with their own sizes.
+    """
+    groups = cell_groups()
+    counts = collections.Counter(groups.values())
+    assert counts["seam"] == len(seam_cells())
+    assert counts["flush"] == len(flush_edge_cells())
+    assert counts["mirror"] == len(mirror_edge_cells())
+    assert set(groups) <= FOOTPRINT

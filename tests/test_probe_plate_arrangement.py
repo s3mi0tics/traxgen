@@ -20,7 +20,9 @@ import pytest
 
 from scripts.probe_plate_arrangement import (
     footprint_collisions,
+    lattice_basis_from,
     normalised,
+    on_lattice,
     pairwise_deltas,
     plate_positions,
     report,
@@ -29,6 +31,7 @@ from scripts.probe_plate_arrangement import (
 from traxgen.hex import HexVector
 from traxgen.layout import TilePlacement, build_course
 from traxgen.parser import parse_course
+from traxgen.plates import MEASURED_FOOTPRINTS
 from traxgen.plates import STANDARD_SQUARE as PLATES_STANDARD_SQUARE
 from traxgen.serializer import serialize_course
 from traxgen.types import LayerKind, TileKind
@@ -200,3 +203,65 @@ def test_report_prints_the_constant_it_is_cited_as_generating(
 def _stamped_version(data: bytes, version: int) -> bytes:
     """The same bytes with a different declared save version at offset 16."""
     return data[:16] + version.to_bytes(4, "little") + data[20:]
+
+
+def test_a_lattice_basis_generates_every_delta_it_was_derived_from() -> None:
+    """The generating check is the whole point, so exercise both outcomes.
+
+    `lattice_basis_from` must not return a basis that merely fits most of its
+    input. Fed a set that is a real lattice it returns generators; fed the same
+    set plus one delta off it, it raises. Without the second half the function
+    could ignore its own loop and this test would still pass.
+    """
+    square = pairwise_deltas(tuple(PLATES_STANDARD_SQUARE))
+    basis = lattice_basis_from(square)
+    assert all(on_lattice(d, basis) for d in square)
+
+    with pytest.raises(ValueError, match="do not form a lattice"):
+        lattice_basis_from([*square, (basis[0][0], basis[0][1] + 1)])
+
+
+def test_a_lattice_basis_refuses_rank_one_and_empty_input() -> None:
+    """Two failure shapes that would otherwise return a degenerate basis.
+
+    All-collinear deltas have no second generator, and `on_lattice` would raise
+    a confusing "degenerate basis" from deep inside rather than the caller
+    getting told the observations are rank 1.
+    """
+    with pytest.raises(ValueError, match="rank 1"):
+        lattice_basis_from([(5, 0), (10, 0), (-5, 0)])
+    with pytest.raises(ValueError, match="nothing to derive"):
+        lattice_basis_from([(0, 0)])
+
+
+def test_on_lattice_accepts_combinations_and_rejects_a_near_miss() -> None:
+    """Integer coefficients, not approximate ones.
+
+    The near-miss is the case that matters: a delta one cell off a real lattice
+    point must come back False. If this ever used float division a rounding
+    error would report agreement, which is the direction that invents a finding
+    rather than losing one (observations #17).
+    """
+    basis = lattice_basis_from(pairwise_deltas(tuple(PLATES_STANDARD_SQUARE)))
+    u, v = basis
+    assert on_lattice((0, 0), basis)
+    assert on_lattice(u, basis) and on_lattice(v, basis)
+    assert on_lattice((u[0] + v[0], u[1] + v[1]), basis)
+    assert on_lattice((-2 * u[0] + 3 * v[0], -2 * u[1] + 3 * v[1]), basis)
+    assert not on_lattice((u[0], u[1] + 1), basis), "a one-cell miss is not on it"
+
+
+def test_the_completing_delta_lies_on_the_arrangement_lattice() -> None:
+    """Two independent derivations from the same corpus, made to agree.
+
+    `STANDARD_SQUARE` came from counting which arrangements people build; the
+    completing delta came from tiling the measured cell footprint. Nothing makes
+    them agree a priori -- if the plate that completes a half-hole sat off the
+    lattice of real arrangements, one of the two derivations is wrong and this
+    is where it shows.
+    """
+    from scripts.probe_plate_seams import find_tiling_delta
+
+    basis = lattice_basis_from(pairwise_deltas(tuple(PLATES_STANDARD_SQUARE)))
+    footprint = frozenset(MEASURED_FOOTPRINTS[LayerKind.BASE_LAYER_PIECE])
+    assert on_lattice(find_tiling_delta(footprint), basis)

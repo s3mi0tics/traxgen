@@ -17,10 +17,23 @@ This probe does two things:
 2. **Scans the corpus** for tiles standing on those cells, split by whether the
    completing plate is present. The prediction is zero in the incomplete case.
 
-The control matters as much as the test. If nobody ever builds at a plate edge
-at all, "zero on half-holes" is not evidence -- so the probe also counts tiles
-on the *whole* holes at the same edge. That group must be non-empty for the
-result to mean anything (observations #21: ask what a null would prove).
+**Two controls, on two different axes**, because one answers only half the
+question (observations #21: ask what a null would prove).
+
+- `flush_edge_cells` -- the whole holes at the *same* edge. If nobody builds at
+  a plate edge at all, "zero on half-holes" measures nothing. Non-empty is what
+  makes the result mean anything.
+- `mirror_edge_cells` -- the outermost cells of the *opposite* edge. The
+  footprint is mirror-symmetric in column, and `seam_cells` picks the maximum
+  without arguing why. If builders avoided the minimum edge equally, the
+  derivation would be choosing a side the evidence does not support. Added s27.
+
+**The tally is per cell as well as in aggregate**, because the three half-holes
+are not interchangeable and the plate-level completion test cannot show it: one
+delta answers for all three, while `seam_requirements` shows `(-2,5)` sits at
+the seam's corner with off-plate neighbours no tiling neighbour reaches. A
+single summed figure averages three facts and hides where an exception sits --
+and the one exception the s26 run found is at `(-2,5)`.
 
 Run: `uv run python -m scripts.probe_plate_seams --corpus-dir <dir>`
 
@@ -35,6 +48,7 @@ import sys
 from fractions import Fraction
 from pathlib import Path
 
+from traxgen.hex import DIRECTION_NAMES, HEX_DIRECTIONS
 from traxgen.parser import parse_course
 from traxgen.plates import BASEPLATE_LAYER_KINDS, MEASURED_FOOTPRINTS
 from traxgen.types import LayerKind
@@ -69,32 +83,79 @@ def column_centre(cell: Cell) -> Fraction:
     return Fraction(y) + Fraction(x, 2)
 
 
-def find_tiling_delta(footprint: frozenset[Cell]) -> Cell:
-    """The translation that places the neighbouring plate immediately alongside.
+def translate(footprint: frozenset[Cell], delta: Cell) -> frozenset[Cell]:
+    """The footprint moved by `delta` -- one plate's cells in another's frame."""
+    return frozenset((y + delta[0], x + delta[1]) for y, x in footprint)
 
-    Derived by search rather than named: the delta is the one that leaves the
-    two footprints disjoint *and* leaves no gap between them, which is what
-    "the plates butt together" means in coordinates. Searching rather than
-    hardcoding is what lets this file carry no copy of `STANDARD_SQUARE`.
+
+def find_tiling_delta(footprint: frozenset[Cell]) -> Cell:
+    """The translation that places the *completing* plate immediately alongside.
+
+    Derived by search rather than named: the delta leaves the two footprints
+    disjoint *and* leaves no gap between them, which is what "the plates butt
+    together" means in coordinates. Searching rather than hardcoding is what
+    lets this file carry no copy of `STANDARD_SQUARE`.
+
+    The **side** is derived too, and it was not before. The plate tiles equally
+    well on either side -- `(5,0)` and `(-5,0)` are both gapless and both at
+    distance 5 -- so the nearest-first tie-break cannot separate them, and an
+    earlier version picked the seam side by searching `dy > 0` only. Lifting
+    that bound makes `(-5,0)` sort first and inverts every `completed` verdict
+    in `scan()` below, which is a loop bound doing load-bearing work while
+    reading as a search range (s27; observations #12). What actually picks the
+    side is the property the neighbour is wanted for: only the plate on the
+    seam side reaches *past* the boundary column, so only it can supply the
+    missing halves. Filter on that, then take the nearest.
     """
-    span = max(abs(v) for cell in footprint for v in cell) + 2
-    candidates = []
-    for dy in range(1, span + 1):
-        for dx in range(-span, span + 1):
-            moved = {(y + dy, x + dx) for y, x in footprint}
-            if moved & footprint:
-                continue
-            if not _is_gapless(footprint | moved):
-                continue
-            candidates.append((dy, dx))
+    seam_column = max(column_centre(cell) for cell in footprint)
+    candidates = [
+        delta
+        for delta in tiling_deltas(footprint)
+        if max(column_centre(cell) for cell in translate(footprint, delta)) > seam_column
+    ]
     if not candidates:
-        raise ValueError("no gapless tiling translation found for this footprint")
+        raise ValueError("no gapless completing translation found for this footprint")
     # Nearest first: a further-away plate that happens to tile is a multiple.
     return min(candidates, key=lambda d: (abs(d[0]) + abs(d[1]), d))
 
 
+def tiling_deltas(footprint: frozenset[Cell]) -> list[Cell]:
+    """Every translation that leaves the two footprints disjoint and gapless.
+
+    **Not** "every way two plates really abut", and the difference matters. The
+    gapless test is one-axis (see `_is_gapless`), so it admits **116** deltas for
+    the measured footprint, of which only a few are edge-to-edge tilings: `(-4,
+    -2)`, `(0,±6)` and `(0,±7)` all pass while lying off the lattice that real
+    arrangements actually use. Measured s27, when deriving that lattice from
+    this set was tried and refused to generate -- which is how the looseness
+    surfaced. So this is a *superset* of the tilings, sound for
+    `find_tiling_delta` (which takes the nearest completing-side member, and the
+    spurious ones are all farther or on the flush side) and unsound as a
+    definition of the lattice. `probe_plate_arrangement` derives that from the
+    corpus instead.
+    """
+    span = max(abs(v) for cell in footprint for v in cell) + 2
+    out = []
+    for dy in range(-span, span + 1):
+        for dx in range(-span, span + 1):
+            if (dy, dx) == (0, 0):
+                continue
+            moved = translate(footprint, (dy, dx))
+            if moved & footprint:
+                continue
+            if not _is_gapless(set(footprint | moved)):
+                continue
+            out.append((dy, dx))
+    return out
+
+
 def _is_gapless(cells: set[Cell]) -> bool:
-    """Every row of the union is a contiguous run of columns."""
+    """Every row (constant x) of the union is a contiguous run of y.
+
+    One axis, deliberately: the union of two plates that abut along the seam is
+    checked for holes *between* them, and the seam runs along x. Stated as what
+    it does rather than as "no gaps anywhere", which it does not check.
+    """
     rows: dict[int, list[int]] = collections.defaultdict(list)
     for y, x in cells:
         rows[x].append(y)
@@ -134,11 +195,92 @@ def flush_edge_cells(kind: LayerKind = LayerKind.BASE_LAYER_PIECE) -> frozenset[
     return frozenset(out)
 
 
+def mirror_edge_cells(kind: LayerKind = LayerKind.BASE_LAYER_PIECE) -> frozenset[Cell]:
+    """The outermost cells of the OPPOSITE edge -- the mirror control.
+
+    The footprint is mirror-symmetric in column: three cells reach the maximum
+    column and three reach the minimum, on the same alternating rows. Nothing in
+    `seam_cells` argues why the maximum is the bisected edge rather than the
+    minimum -- it takes `max` and says the boundary sits there.
+
+    There is a correct argument and the code did not make it: hole centres span
+    4 column-units while the tiling delta is 5, so exactly one hole-width of
+    surplus plate material sits across the two edges, and a gapless abutment
+    forces all of it onto one side. But an argument is not a measurement, so
+    this group exists to be measured. If builders avoid the minimum edge the way
+    they avoid the maximum, the derivation is picking a side the evidence does
+    not support; if they use it freely, `max` is vindicated by something other
+    than taste.
+
+    Distinct from `flush_edge_cells`, which controls for "do builders use edge
+    cells at all" on the *same* edge. This controls for "is this edge special".
+    """
+    footprint = frozenset(MEASURED_FOOTPRINTS[kind])
+    edge = min(column_centre(cell) for cell in footprint)
+    return frozenset(cell for cell in footprint if column_centre(cell) == edge)
+
+
+def seam_requirements(
+    kind: LayerKind = LayerKind.BASE_LAYER_PIECE,
+) -> dict[Cell, tuple[frozenset[int], frozenset[int]]]:
+    """Per half-hole: which off-plate neighbours the completing plate supplies.
+
+    Returns `{cell: (supplied, unreachable)}` as direction indices.
+
+    The three half-holes are **not interchangeable**, and a single plate-level
+    test ("is there a plate at `here + delta`") cannot show it, because the same
+    delta answers for all three. Derived here rather than asserted: `(0,1)` and
+    `(-1,3)` each have three off-plate neighbours and the completing plate
+    supplies all three, while `(-2,5)` sits at the *corner* of the seam and has
+    four, of which the completing plate supplies two -- its E and NE neighbours
+    lie past the plate corner, where no single tiling neighbour reaches.
+
+    That asymmetry is why `report()` breaks the tally out per cell. The one
+    corpus exception the s26 run found sits at `(-2,5)`, which is the cell whose
+    completion condition the single-delta test speaks to least (s27).
+    """
+    footprint = frozenset(MEASURED_FOOTPRINTS[kind])
+    delta = find_tiling_delta(footprint)
+    neighbour = translate(footprint, delta)
+    out: dict[Cell, tuple[frozenset[int], frozenset[int]]] = {}
+    for cell in sorted(seam_cells(kind)):
+        supplied, unreachable = set(), set()
+        for index, (dy, dx) in enumerate(HEX_DIRECTIONS):
+            here = (cell[0] + dy, cell[1] + dx)
+            if here in footprint:
+                continue
+            (supplied if here in neighbour else unreachable).add(index)
+        out[cell] = (frozenset(supplied), frozenset(unreachable))
+    return out
+
+
+def cell_groups(kind: LayerKind = LayerKind.BASE_LAYER_PIECE) -> dict[Cell, str]:
+    """Every cell the scan counts, mapped to which group it belongs to.
+
+    Built rather than branched on in the loop so the three groups can be checked
+    disjoint here, once. An overlap would silently make one group measure part
+    of another -- the failure the control exists to prevent, one level down.
+    """
+    groups: dict[Cell, str] = {}
+    for name, cells in (
+        ("seam", seam_cells(kind)),
+        ("flush", flush_edge_cells(kind)),
+        ("mirror", mirror_edge_cells(kind)),
+    ):
+        for cell in cells:
+            if cell in groups:
+                raise ValueError(
+                    f"cell {cell} is in both '{groups[cell]}' and '{name}' -- "
+                    "the groups must be disjoint or each measures the other"
+                )
+            groups[cell] = name
+    return groups
+
+
 def scan(corpus_dir: Path) -> collections.Counter:
     """Tally tiles by cell class and by whether the completing plate is present."""
-    seams = seam_cells()
-    flush = flush_edge_cells()
     delta = find_tiling_delta(frozenset(MEASURED_FOOTPRINTS[LayerKind.BASE_LAYER_PIECE]))
+    groups = cell_groups()
     tally: collections.Counter = collections.Counter()
     tally["_delta"] = 0  # placeholder so the key exists; the value is reported separately
 
@@ -167,12 +309,19 @@ def scan(corpus_dir: Path) -> collections.Counter:
             for cell in layer.cell_construction_datas:
                 local = (cell.local_hex_position.y, cell.local_hex_position.x)
                 tally["tiles_total"] += 1
-                if local in seams:
-                    tally["seam_completed" if completed else "seam_incomplete"] += 1
+                group = groups.get(local)
+                if group is None:
+                    continue
+                state = "completed" if completed else "incomplete"
+                tally[f"{group}_{state}"] += 1
+                if group == "seam":
+                    # Per cell as well as in aggregate: the three half-holes have
+                    # different completion geometry (`seam_requirements`), so one
+                    # summed figure averages three facts and hides where an
+                    # exception sits. The s26 run's lone exception is at (-2,5).
+                    tally[f"seamcell{local}_{state}"] += 1
                     if not completed:
                         tally[f"offender:{path.stem}@{here}:{local}"] += 1
-                elif local in flush:
-                    tally["flush_completed" if completed else "flush_incomplete"] += 1
     return tally
 
 
@@ -180,14 +329,34 @@ def report(tally: collections.Counter) -> None:
     delta = find_tiling_delta(frozenset(MEASURED_FOOTPRINTS[LayerKind.BASE_LAYER_PIECE]))
     print("Half-hole placement in the shared-course corpus\n")
     print(f"  derived half-hole cells   : {sorted(seam_cells())}")
-    print(f"  derived control cells     : {sorted(flush_edge_cells())}")
+    print(f"  same-edge control cells   : {sorted(flush_edge_cells())}")
+    print(f"  opposite-edge control     : {sorted(mirror_edge_cells())}")
     print(f"  completing plate delta    : {delta}\n")
+
+    print("  what the completing plate supplies, per half-hole:")
+    for cell, (supplied, unreachable) in seam_requirements().items():
+        got = ",".join(DIRECTION_NAMES[i] for i in sorted(supplied)) or "-"
+        missed = ",".join(DIRECTION_NAMES[i] for i in sorted(unreachable))
+        note = f"   beyond any tiling neighbour: {missed}" if missed else ""
+        print(f"    {cell!s:>10}  supplies {got}{note}")
+    print()
+
     print(f"  courses parsed            : {tally['parsed']}")
     print(f"  tiles on baseplates       : {tally['tiles_total']}\n")
+
+    print("  half-holes, per cell (NOT completed <-- predicted 0):")
+    for cell in sorted(seam_cells()):
+        done = tally[f"seamcell{cell}_completed"]
+        miss = tally[f"seamcell{cell}_incomplete"]
+        print(f"    {cell!s:>10}  completed {done:>5}   NOT completed {miss:>5}")
+    print()
+
     print(f"  half-hole, NOT completed  : {tally['seam_incomplete']}   <-- predicted 0")
     print(f"  half-hole, completed      : {tally['seam_completed']}")
-    print(f"  whole hole, NOT completed : {tally['flush_incomplete']}   <-- control")
+    print(f"  whole hole, NOT completed : {tally['flush_incomplete']}   <-- same-edge control")
     print(f"  whole hole, completed     : {tally['flush_completed']}")
+    print(f"  opposite edge, NOT compl. : {tally['mirror_incomplete']}   <-- mirror control")
+    print(f"  opposite edge, completed  : {tally['mirror_completed']}")
 
     if not tally["flush_incomplete"]:
         print(
@@ -195,6 +364,12 @@ def report(tally: collections.Counter) -> None:
             "uncompleted plate, so a zero above measures nothing."
         )
         return
+
+    if not tally["mirror_incomplete"]:
+        print(
+            "\n  MIRROR CONTROL FAILED: the opposite edge is avoided too, so "
+            "'max is the bisected edge' is not what the corpus is showing."
+        )
     offenders = sorted(k for k in tally if k.startswith("offender:"))
     if offenders:
         print("\n  exceptions:")

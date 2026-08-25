@@ -45,7 +45,7 @@ Path: traxgen/tests/test_android_foreground.py
 
 from __future__ import annotations
 
-import base64
+import io
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -72,11 +72,24 @@ ACTIVITIES_LAUNCHER_DUMP = (FIXTURES / "dumpsys_activities_launcher.txt").read_t
 
 LAUNCHER_PKG = "com.google.android.apps.nexuslauncher"
 
-# A real 1x1 PNG. screencap writes bytes to a real path, so the fake hands back
-# something Pillow could actually open if a test ever asked it to.
-PNG_1PX = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-)
+# A real PNG at the AVD's frame geometry. It was a 1x1 until 2026-08-25, which
+# was fine while nothing looked at the pixels and stopped being fine when the
+# refused-screen guard started resampling the frame to a reference's size -- a
+# 1x1 is smaller than any reference, which the guard refuses outright. Device
+# geometry rather than "big enough" so these tests exercise the same downscale
+# a live render does. Solid fill: these tests are about the foreground checks,
+# and the only property they need from the frame is that it is not one of the
+# refused screens. A test that cares about pixel content must build its own
+# (see tests/test_refused_screens.py, and observations #26 on solid fills).
+def _solid_png(width: int, height: int, colour: tuple[int, int, int]) -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), colour).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+PNG_FRAME = _solid_png(2400, 1080, (40, 44, 52))
 
 
 # --- The fake adb ----------------------------------------------------------
@@ -98,10 +111,12 @@ class FakeAdb:
         foreground_dump: str = GRAVITRAX_DUMP,
         devices: str = "List of devices attached\nemulator-5554\tdevice\n\n",
         boot_completed: str = "1",
+        screencap_png: bytes = PNG_FRAME,
     ) -> None:
         self.foreground_dump = foreground_dump
         self.devices = devices
         self.boot_completed = boot_completed
+        self.screencap_png = screencap_png
         self.calls: list[list[str]] = []
 
     def __call__(
@@ -112,7 +127,7 @@ class FakeAdb:
         joined = " ".join(argv)
 
         if "screencap" in joined:
-            return subprocess.CompletedProcess(argv, 0, PNG_1PX, b"")
+            return subprocess.CompletedProcess(argv, 0, self.screencap_png, b"")
 
         if argv[1:2] == ["devices"]:
             out = self.devices

@@ -62,13 +62,15 @@ import hashlib
 import json
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 from scripts.probe_plate_seams import find_tiling_delta
 from traxgen.android import (
+    AdbContext,
     AndroidAutomationError,
+    RefusedScreenError,
     assert_emulator_ready,
     render_course,
     reset_to_main_menu,
@@ -231,6 +233,64 @@ class Arm:
     validity: str | None = None
     render_error: str | None = None
     screenshot: str | None = None
+    render_attempts: int = 0
+    refused_screens: list[str] = field(default_factory=list)
+
+
+# One retry, and the reasoning is the same as the s23 upload-retry lock.
+#
+# The 2026-08-25 run lost two of seven renders to the build-tutorial screen at
+# positions 3 and 7, with 4, 5 and 6 clean in between -- an intermittent race,
+# not a state that persists, so a second attempt is very likely to land. One
+# rather than three because a refused screen that repeats is a *finding* (the
+# flow is broken, not unlucky) and burning renders on it hides that.
+#
+# The count is recorded into the sidecar rather than swallowed, for the reason
+# `upload_attempts` is: a run that quietly recovered twice must not read as a
+# clean one, and the refusal distances are the calibration data for the
+# threshold that produced them.
+RENDER_ATTEMPTS = 2
+
+
+def render_arm(ctx: AdbContext, arm: Arm, output_dir: Path) -> None:
+    """Render one arm, retrying once if the harness lands on a known dead screen.
+
+    Only `RefusedScreenError` is retried. Every other harness failure is
+    recorded and left alone, by the same exception-class discipline the upload
+    retry uses: a wrong foreground app or an unreadable frame will not be
+    different on a second try, and retrying is a slower no.
+    """
+    for attempt in range(1, RENDER_ATTEMPTS + 1):
+        arm.render_attempts = attempt
+        try:
+            result = render_course(
+                arm.code or "",
+                ctx=ctx,
+                screenshot_dir=output_dir,
+                # NOT f"{arm.label}.png" -- `render_course` appends the
+                # extension itself, and the old form produced `.png.png` files.
+                screenshot_name=f"{arm.label}_try{attempt}",
+                detect_validity=True,
+                reset_first=True,
+            )
+        except RefusedScreenError as exc:
+            arm.refused_screens.append(f"{exc.screen}@{exc.distance:.3f}")
+            arm.render_error = f"{type(exc).__name__}: {exc}"
+            if attempt < RENDER_ATTEMPTS:
+                print(
+                    f"  {arm.label}: landed on {exc.screen!r} "
+                    f"(distance {exc.distance:.3f}); re-rendering",
+                    file=sys.stderr,
+                )
+                continue
+            return
+        except Exception as exc:  # harness failure is data, not a crash
+            arm.render_error = f"{type(exc).__name__}: {exc}"
+            return
+        arm.render_error = None
+        arm.validity = result.validity
+        arm.screenshot = str(result.screenshot) if result.screenshot else None
+        return
 
 
 def plate_positions(geometry: Geometry) -> tuple[HexVector, HexVector]:
@@ -575,19 +635,7 @@ def main(argv: list[str] | None = None) -> int:
         for arm in arms:
             if arm.code is None:
                 continue
-            try:
-                result = render_course(
-                    arm.code,
-                    ctx=ctx,
-                    screenshot_dir=args.output_dir,
-                    screenshot_name=f"{arm.label}.png",
-                    detect_validity=True,
-                    reset_first=True,
-                )
-                arm.validity = result.validity
-                arm.screenshot = str(result.screenshot) if result.screenshot else None
-            except Exception as exc:  # harness failure is data, not a crash
-                arm.render_error = f"{type(exc).__name__}: {exc}"
+            render_arm(ctx, arm, args.output_dir)
             print(f"  {arm.label:<28} -> {arm.validity or arm.render_error}", file=sys.stderr)
 
     verdict, reason = classify(arms)

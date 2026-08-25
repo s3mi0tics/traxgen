@@ -14,9 +14,12 @@ Path: traxgen/tests/test_probe_plate_boundary.py
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from scripts.probe_plate_boundary import (
+    RENDER_ATTEMPTS,
     STARTER_LOCAL,
     STARTER_ROT,
     Arm,
@@ -25,7 +28,9 @@ from scripts.probe_plate_boundary import (
     classify,
     derive_geometry,
     plate_positions,
+    render_arm,
 )
+from tests.test_android_foreground import LAUNCHER_DUMP, FakeAdb, ctx_with
 from traxgen.graph import STARTER_PLATE_ONLY, measured_live_directions
 from traxgen.hex import HEX_DIRECTIONS
 from traxgen.layout import CERTIFIED_LAYER_HEIGHT
@@ -36,6 +41,10 @@ from traxgen.types import LayerKind
 PLATE = LayerKind.BASE_LAYER_PIECE
 FOOTPRINT = frozenset(MEASURED_FOOTPRINTS[PLATE])
 GEOMETRY = derive_geometry()
+
+_FRAMES = Path(__file__).parent / "fixtures" / "frames"
+DEAD_FRAME = (_FRAMES / "arm1_E_on_completer.png").read_bytes()
+LIVE_FRAME = (_FRAMES / "arm1_SW_on_completer.png").read_bytes()
 
 
 def _world(plate: tuple[int, int], local: tuple[int, int]) -> tuple[int, int]:
@@ -345,3 +354,107 @@ def test_a_control_that_never_rendered_is_not_treated_as_active(role: str) -> No
             arm.validity = None
     verdict, _ = classify(arms)
     assert verdict in {"HARNESS_SUSPECT", "SETUP_SUSPECT"}
+
+
+# --- The render retry ---------------------------------------------------------
+#
+# Added 2026-08-25 (s27) after the first run of this probe lost two of seven
+# renders to the app's build-tutorial screen -- an empty editor the flow reaches
+# when `loaded_track_hex` is tapped before the shared course has appeared. One
+# of the two was the closing certified control, so the run was voided rather
+# than believed. `traxgen.android` now recognises that screen and raises; this
+# is the probe's half, which is to try again once and to record what happened
+# rather than to swallow it.
+
+
+class _ScriptedAdb(FakeAdb):
+    """A fake whose screencap output changes per call, so a retry can succeed.
+
+    The base fake returns one frame forever, which cannot express "refused, then
+    fine" -- and that sequence is the entire behaviour under test.
+    """
+
+    def __init__(self, frames: list[bytes]) -> None:
+        super().__init__()
+        self._frames = frames
+        self.screencaps = 0
+
+    def __call__(self, cmd, **kwargs):  # type: ignore[no-untyped-def]
+        if "screencap" in " ".join(str(part) for part in cmd):
+            index = min(self.screencaps, len(self._frames) - 1)
+            self.screencap_png = self._frames[index]
+            self.screencaps += 1
+        return super().__call__(cmd, **kwargs)
+
+
+def _arm() -> Arm:
+    arm = build_arms(GEOMETRY)[0]
+    arm.code = "KN6F459ZR3"
+    return arm
+
+
+def test_a_refused_screen_is_retried_once_and_can_recover(tmp_path) -> None:
+    fake = _ScriptedAdb([DEAD_FRAME, LIVE_FRAME])
+    arm = _arm()
+
+    render_arm(ctx_with(fake), arm, tmp_path)
+
+    assert arm.render_attempts == 2
+    assert arm.refused_screens == ["build_tutorial@2.262"]
+    assert arm.render_error is None, "a recovered arm must not carry the first failure"
+    assert arm.validity is not None
+
+
+def test_two_refusals_in_a_row_stop_and_stay_recorded(tmp_path) -> None:
+    """A refusal that repeats is a finding, not bad luck -- so it is not retried on."""
+    fake = _ScriptedAdb([DEAD_FRAME])
+    arm = _arm()
+
+    render_arm(ctx_with(fake), arm, tmp_path)
+
+    assert arm.render_attempts == RENDER_ATTEMPTS
+    assert len(arm.refused_screens) == RENDER_ATTEMPTS
+    assert arm.validity is None
+    assert "RefusedScreenError" in (arm.render_error or "")
+
+
+def test_a_non_refusal_harness_failure_is_not_retried(tmp_path) -> None:
+    """Exception-class discipline, same as the s23 upload retry.
+
+    A wrong foreground app will be just as wrong on a second attempt, so
+    retrying spends a render to buy a slower no.
+    """
+    fake = FakeAdb(foreground_dump=LAUNCHER_DUMP)
+    arm = _arm()
+
+    render_arm(ctx_with(fake), arm, tmp_path)
+
+    assert arm.render_attempts == 1
+    assert arm.refused_screens == []
+    assert "WrongForegroundAppError" in (arm.render_error or "")
+
+
+def test_the_screenshot_is_not_named_png_png(tmp_path) -> None:
+    """`render_course` appends the extension; the caller passing one produced
+    `arm1_E_on_completer.png.png`, which is how the 2026-08-25 forensics started
+    by hunting for files nobody had named."""
+    fake = _ScriptedAdb([LIVE_FRAME])
+    arm = _arm()
+
+    render_arm(ctx_with(fake), arm, tmp_path)
+
+    assert arm.screenshot is not None
+    assert not arm.screenshot.endswith(".png.png")
+    assert Path(arm.screenshot).name == f"{arm.label}_try1.png"
+
+
+def test_each_attempt_writes_its_own_frame(tmp_path) -> None:
+    """The refused frame must survive on disk: it is the diagnosis (s21's lesson),
+    and its distance is a new observation of the refused class."""
+    fake = _ScriptedAdb([DEAD_FRAME, LIVE_FRAME])
+    arm = _arm()
+
+    render_arm(ctx_with(fake), arm, tmp_path)
+
+    written = sorted(p.name for p in tmp_path.glob("*.png"))
+    assert written == [f"{arm.label}_try1.png", f"{arm.label}_try2.png"]

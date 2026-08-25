@@ -16,7 +16,7 @@ import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -146,6 +146,33 @@ class WrongForegroundAppError(AndroidAutomationError):
             f"{found!r} is in the foreground, not {expected!r}. Taps would land on "
             "the wrong app and the oracle would sample it. Launch the app (or pass "
             "reset_first=True) before rendering."
+        )
+
+
+class RefusedScreenError(AndroidAutomationError):
+    """The captured frame matches a screen known not to be a render.
+
+    A sibling of `OracleFrameError` rather than a subclass, for the same reason
+    `WrongForegroundAppError` and `ForegroundUnreadableError` are siblings: the
+    two send a human to different places. Near-white means the app was still
+    loading and the fix is time. This means the app was showing a *finished*
+    screen that is not the course -- the tap sequence went somewhere else -- and
+    the fix is the tap, or a retry.
+
+    Carries `distance` because that number is the calibration data for
+    `REFUSED_SCREEN_DISTANCE`. Swallowing it is what would leave the threshold
+    permanently declared, the same argument as `FrameStability.differences`.
+    """
+
+    def __init__(self, *, screen: str, distance: float, threshold: float, path: Path) -> None:
+        self.screen = screen
+        self.distance = distance
+        self.threshold = threshold
+        self.path = path
+        super().__init__(
+            f"{path.name} matches the refused screen {screen!r} "
+            f"(distance {distance:.3f} <= {threshold}); refusing to classify it as a "
+            "render. The share code was not loaded -- the flow ended somewhere else."
         )
 
 
@@ -748,6 +775,168 @@ def wait_for_stable_frame(
     return stability
 
 
+# --- Refused screens: a fourth axis, and a signature rather than a mode ------
+#
+# The three guards above answer three questions and the module already named
+# what none of them sees: "a still, non-near-white screen owned by GraviTrax
+# that is not the render." On 2026-08-25 that screen showed up and cost a
+# campaign. Two of seven renders in the #17 2x2 ended on the app's **build
+# tutorial** -- an empty course in the editor, "Drag a launch pad onto the base
+# plate", play button greyed. GraviTrax was in the foreground (guard 1 passes),
+# the frame is dark (guard 2 passes), the screen is static (guard 3 would pass),
+# and the oracle read the greyed button and returned a well-formed `inactive`
+# about a screen that was not the experiment. One of the two was a *control*,
+# which is the only reason the run was voided rather than believed -- the
+# 2026-08-07 both-ends lock earning its keep against a failure nobody had
+# imagined, for the second time (observations #17).
+#
+# Mechanism, and it is why the fix belongs here rather than only in the waits:
+# `render_course` taps `loaded_track_hex` after a fixed `WAITS["after_load"]`.
+# When the shared course has not appeared in the list yet, that tap lands on an
+# empty slot and the app opens a NEW EMPTY COURSE. The tell that this is what
+# happened rather than a bad render: the two failed frames are 2.262 apart --
+# the same screen -- despite belonging to a one-plate course and a two-plate
+# course. Neither frame reflects its own course, because neither course loaded.
+#
+# SCOPE, stated rather than implied, because this is exactly the shape
+# observations #17 widened on: THIS IS A SIGNATURE GUARD, NOT A MODE GUARD. It
+# recognises the build-tutorial screen. It says nothing about the next
+# GraviTrax screen that is still, dark, in the foreground, and not a render.
+# The structure concedes that rather than hiding it -- the reference is a *set*
+# loaded from files, so the next dead screen discovered is a fixture to add,
+# not a function to write. What would close the mode rather than the signature
+# is a POSITIVE test ("this frame contains a course"), and no such test exists.
+#
+# The distance is measured, not declared. Fixture geometry 150x67, BOX, mean
+# absolute channel difference, from the seven frames of the 2026-08-25 run:
+#
+#   build_tutorial vs the run's OTHER tutorial frame     2.262
+#   build_tutorial vs certified_open   (real render)    25.890
+#   build_tutorial vs arm2_E_on_home   (real render)    26.542
+#   build_tutorial vs arm1_SW          (real render)    26.585
+#
+# The separation is structural, not fine detail: the same ratio (11.4x) holds
+# from 1200x540 down to 100x45 and only starts to degrade at 60x27, which is
+# why a 13KB fixture can carry it. `tests/fixtures/frames/` holds the other
+# four so that table is a re-runnable claim rather than a sentence
+# (observations #24).
+#
+# The RESAMPLING FILTER is load-bearing here too, and more sharply than it is
+# for `frame_fingerprint` above -- found by mutation rather than by review.
+# Downscaling the real 2400x1080 dead frame to the reference geometry:
+#
+#   BOX      2.262   <- what this code does
+#   BICUBIC  3.929   <- Pillow's silent default
+#   BILINEAR 4.114
+#   NEAREST 10.298   <- ABOVE the threshold below: the guard MISSES
+#
+# So the filter and the threshold are coupled, and the careless default would
+# have let through the exact frame this guard was built from. The committed
+# 300x135 fixture demonstrates that the filters disagree; it cannot demonstrate
+# the 10.298, because that needs the full capture and render screenshots are
+# not committed. Conceded in the test docstring rather than papered over.
+#
+# The THRESHOLD is declared, inside a measured gap: 10.0 sits 4.4x above the
+# observed dead-to-dead maximum and 2.6x below the observed dead-to-real
+# minimum. It is a declaration because n=2 for the refused class -- one pair
+# barely samples its spread. Erring high is the right side per observations
+# #17: too high refuses a real render, which costs a re-run and invents
+# nothing; too low passes a dead screen to the oracle, which invents a verdict.
+# Every comparison's distance is reported (on the exception, and by
+# `match_refused_screen`'s return) so the distribution grows with every render.
+
+REFUSED_SCREEN_DIR = Path(__file__).parent / "data" / "refused_screens"
+REFUSED_SCREEN_DISTANCE = 10.0
+
+
+class RefusedScreen(NamedTuple):
+    """A screen known not to be a render, reduced to comparison form.
+
+    Carries its own geometry rather than trusting a module constant. The live
+    frame is resampled to *this* size at comparison time, so the fixture file
+    is self-describing and replacing it with a different size needs no code
+    change -- unlike `FRAME_STABILITY_DOWNSCALE`, where the constant and the
+    data have to agree and nothing but a test says so.
+    """
+
+    name: str
+    width: int
+    height: int
+    channels: bytes
+
+
+def load_refused_screens(directory: Path = REFUSED_SCREEN_DIR) -> tuple[RefusedScreen, ...]:
+    """Load every PNG in `directory` as a refused screen, named by stem.
+
+    Sorted by name so the order a match is reported in is not a function of the
+    filesystem's listing order (observations #30 -- a generated collection's
+    order is part of its content).
+    """
+    from PIL import Image
+
+    screens = []
+    for path in sorted(directory.glob("*.png")):
+        image = Image.open(path).convert("RGB")
+        screens.append(RefusedScreen(path.stem, image.width, image.height, image.tobytes()))
+    return tuple(screens)
+
+
+_REFUSED_SCREENS_CACHE: tuple[RefusedScreen, ...] | None = None
+
+
+def default_refused_screens() -> tuple[RefusedScreen, ...]:
+    """The shipped refused-screen set, decoded once per process."""
+    global _REFUSED_SCREENS_CACHE
+    if _REFUSED_SCREENS_CACHE is None:
+        _REFUSED_SCREENS_CACHE = load_refused_screens()
+    return _REFUSED_SCREENS_CACHE
+
+
+def screen_distance(png_bytes: bytes, reference: RefusedScreen) -> float:
+    """Mean absolute channel difference after matching the reference's geometry.
+
+    Raises `ValueError` when the frame is smaller than the reference in either
+    axis, rather than upscaling it. A frame that small means the device profile
+    changed, and every tap coordinate in this module is wrong too -- answering
+    "no match" there would silently retire the guard at exactly the moment the
+    harness needs shouting at.
+    """
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    if image.width < reference.width or image.height < reference.height:
+        raise ValueError(
+            f"frame is {image.width}x{image.height}, smaller than the refused-screen "
+            f"reference {reference.name} at {reference.width}x{reference.height}; the "
+            "device profile has changed and the tap coordinates are stale too"
+        )
+    if (image.width, image.height) != (reference.width, reference.height):
+        image = image.resize((reference.width, reference.height), Image.Resampling.BOX)
+    live = image.tobytes()
+    total = sum(abs(a - b) for a, b in zip(live, reference.channels, strict=True))
+    return total / float(len(reference.channels))
+
+
+def match_refused_screen(
+    png_bytes: bytes,
+    references: Sequence[RefusedScreen],
+    *,
+    threshold: float = REFUSED_SCREEN_DISTANCE,
+) -> tuple[RefusedScreen, float] | None:
+    """The nearest reference within `threshold`, with its distance, or None.
+
+    Nearest rather than first-under-threshold: with several references the
+    first match would depend on load order, and reporting the wrong dead screen
+    sends a human to the wrong diagnosis.
+    """
+    best: tuple[RefusedScreen, float] | None = None
+    for reference in references:
+        distance = screen_distance(png_bytes, reference)
+        if distance <= threshold and (best is None or distance < best[1]):
+            best = (reference, distance)
+    return best
+
+
 # --- High-level flow -------------------------------------------------------
 
 class RenderResult(NamedTuple):
@@ -768,6 +957,8 @@ def render_course(
     detect_validity: bool = False,
     reset_first: bool = False,
     settle_seconds: float = SETTLE_SECONDS,
+    refused_screens: Sequence[RefusedScreen] | None = None,
+    refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
 ) -> RenderResult:
     """Drive the app: main menu -> render share code -> screenshot.
 
@@ -791,6 +982,13 @@ def render_course(
     that state by force-stop-and-relaunch plus `settle_seconds`, rather than
     verifying it. Opt-in, so existing callers keep their current cost;
     `run_sweep_queue.py` already resets before every sweep and does not need it.
+
+    The captured frame is then checked against the refused-screen set and
+    `RefusedScreenError` is raised if it matches one -- after cleanup, so the
+    app is back at the main menu and the caller can retry. See the
+    refused-screens section above for what that closes and, more importantly,
+    what it does not: it recognises known dead screens by signature and cannot
+    recognise an unknown one.
     """
     ctx = ctx or resolve_context()
     assert_emulator_ready(ctx)
@@ -825,8 +1023,24 @@ def render_course(
     # proof of what the frame contains, and nothing here can be.
     assert_app_in_foreground(ctx)
 
-    validity = detect_play_button_state(out_path) if detect_validity else None
+    # The fourth axis. Checked BEFORE the oracle, because on a refused screen
+    # the oracle's answer is well-formed and wrong -- the greyed play button of
+    # an empty editor reads exactly like a dark course.
+    refusal = match_refused_screen(
+        out_path.read_bytes(),
+        default_refused_screens() if refused_screens is None else refused_screens,
+        threshold=refused_screen_distance,
+    )
 
+    validity = detect_play_button_state(out_path) if detect_validity and not refusal else None
+
+    # Cleanup runs whether or not the frame was refused, and the raise comes
+    # after it. Measured rather than assumed: in the 2026-08-25 run the two
+    # renders that landed on the build tutorial were followed by three that
+    # rendered normally, so this tap sequence does return to the main menu from
+    # the empty editor. Raising before cleanup would leave a course open and
+    # turn one bad render into a cascade -- the caller's retry would start from
+    # the wrong screen, which is the failure this guard exists to catch.
     if cleanup:
         tap(ctx, "back_save_icon")
         ctx.sleep(WAITS["after_back"])
@@ -835,6 +1049,15 @@ def render_course(
         ctx.sleep(WAITS["after_delete"])
         tap(ctx, "delete_confirm")
         ctx.sleep(WAITS["after_delete"])
+
+    if refusal:
+        screen, distance = refusal
+        raise RefusedScreenError(
+            screen=screen.name,
+            distance=distance,
+            threshold=refused_screen_distance,
+            path=out_path,
+        )
 
     return RenderResult(screenshot=out_path, validity=validity)
 

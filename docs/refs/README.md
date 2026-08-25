@@ -35,6 +35,11 @@ Layout:
   ready: the three generations of synchronization, why Unity blocks
   `uiautomator` polling for half the flow, and the 2026-08-07 IME timing
   failure worked through end to end.
+- `testing-against-a-live-app.md` — why the offline suite cannot catch the
+  failures that have actually cost this project campaigns, the ten-incident
+  catalogue ranked by whether a wrong answer would have *invented* data or
+  merely lost it, the guards and controls that answer each, and what is still
+  unsolved. Read this before designing anything that spends renders.
 - `agentic-workflow-notes.md` — cross-project learnings on working
   with AI coding agents: tool selection, session patterns, Colby's
   working style, per-session findings. Scope is wider than traxgen;

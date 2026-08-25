@@ -790,13 +790,22 @@ def wait_for_stable_frame(
 # 2026-08-07 both-ends lock earning its keep against a failure nobody had
 # imagined, for the second time (observations #17).
 #
-# Mechanism, and it is why the fix belongs here rather than only in the waits:
-# `render_course` taps `loaded_track_hex` after a fixed `WAITS["after_load"]`.
-# When the shared course has not appeared in the list yet, that tap lands on an
-# empty slot and the app opens a NEW EMPTY COURSE. The tell that this is what
-# happened rather than a bad render: the two failed frames are 2.262 apart --
-# the same screen -- despite belonging to a one-plate course and a two-plate
-# course. Neither frame reflects its own course, because neither course loaded.
+# WHAT IS MEASURED, and what is not. Measured: both failed frames show the same
+# screen -- 2.262 apart -- despite belonging to a one-plate course and a
+# two-plate course, so neither frame reflects its own course and neither course
+# was loaded. The app was showing a finished, correctly drawn empty editor.
+#
+# NOT measured: why. The first version of this comment asserted the mechanism --
+# that `loaded_track_hex` was tapped after a fixed `WAITS["after_load"]`, landed
+# on an empty slot, and opened a new empty course. That is still the leading
+# explanation and it is an explanation, not a finding. It was written as a
+# finding, and corrected the same day (observations #12) once the emulator's own
+# log showed a second candidate: the graphics backend was shedding colour
+# buffers in that window, and the log covering the failed run was truncated by a
+# reboot before anyone could check. So the question is not open, it is
+# unanswerable for that run.
+#
+# The guard does not depend on the answer. It recognises the screen.
 #
 # SCOPE, stated rather than implied, because this is exactly the shape
 # observations #17 widened on: THIS IS A SIGNATURE GUARD, NOT A MODE GUARD. It

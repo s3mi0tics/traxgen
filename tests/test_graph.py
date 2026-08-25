@@ -46,6 +46,7 @@ from traxgen.graph import (
     classify_pair,
     connection_status,
     course_plate_positions,
+    goal_plate_offset_from,
     goal_rotation_for,
     live_directions,
     measured_live_directions,
@@ -167,6 +168,8 @@ def _at_corner(starter_rot: int, direction: int, goal_rot: int) -> ConnectionSta
         layer_kind=PLATE,
         starter_local_pos=CORNER,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=None,
     )
 
 
@@ -514,6 +517,8 @@ def test_the_model_answers_where_the_record_is_silent() -> None:
         layer_kind=PLATE,
         starter_local_pos=unrendered,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=None,
     ) is None
     assert predict_connection(
         0, 0, goal_rotation_for(0), layer_kind=PLATE, starter_local_pos=unrendered
@@ -526,6 +531,8 @@ def test_the_model_answers_where_the_record_is_silent() -> None:
             layer_kind=PLATE,
             starter_local_pos=unrendered,
             plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
         )
         is ConnectionStatus.UNMEASURED
     )
@@ -546,6 +553,8 @@ def test_a_probe_run_does_not_borrow_the_sweeps_goal_rotation_coverage() -> None
             layer_kind=PLATE,
             starter_local_pos=EDGE,
             plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
         )
         is ConnectionStatus.CONNECTED
     )
@@ -560,6 +569,8 @@ def test_a_probe_run_does_not_borrow_the_sweeps_goal_rotation_coverage() -> None
                 layer_kind=PLATE,
                 starter_local_pos=EDGE,
                 plate_offsets=STARTER_PLATE_ONLY,
+                goal_layer_kind=PLATE,
+                goal_plate_offset=None,
             )
             is ConnectionStatus.UNMEASURED
         )
@@ -975,7 +986,12 @@ def test_a_single_plate_in_the_wrong_place_is_not_the_measured_one() -> None:
 
     assert (
         measured_live_directions(
-            0, layer_kind=PLATE, starter_local_pos=CORNER, plate_offsets=elsewhere
+            0,
+            layer_kind=PLATE,
+            starter_local_pos=CORNER,
+            plate_offsets=elsewhere,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
         )
         is None
     )
@@ -987,6 +1003,8 @@ def test_a_single_plate_in_the_wrong_place_is_not_the_measured_one() -> None:
             layer_kind=PLATE,
             starter_local_pos=CORNER,
             plate_offsets=elsewhere,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
         )
         is ConnectionStatus.UNMEASURED
     )
@@ -1122,6 +1140,8 @@ def test_a_measured_run_cannot_be_written_without_its_layout() -> None:
             live_directions=frozenset({0}),
             directions_probed=ALL_DIRECTIONS,
             goal_rotations_swept=False,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
             provenance="a campaign whose author forgot the layout",
         )
 
@@ -1141,6 +1161,8 @@ def test_a_measured_run_cannot_be_written_without_its_direction_coverage() -> No
             live_directions=frozenset({0}),
             goal_rotations_swept=False,
             plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
             provenance="a campaign whose author forgot what it rendered",
         )
 
@@ -1162,6 +1184,8 @@ def test_a_run_cannot_claim_a_direction_it_never_probed() -> None:
             directions_probed=frozenset({0}),
             goal_rotations_swept=False,
             plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
             provenance="claims W active in a run that only rendered E",
         )
 
@@ -1188,6 +1212,8 @@ def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
         directions_probed=frozenset({0, 3}),
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=None,
         provenance="synthetic: E rendered active, W rendered dark, rest untouched",
     )
     monkeypatch.setattr(graph, "MEASURED_RUNS", (partial,))
@@ -1200,6 +1226,8 @@ def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
             layer_kind=PLATE,
             starter_local_pos=HexVector(y=0, x=0),
             plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
         )
 
     assert status(0) is ConnectionStatus.CONNECTED, "probed and live"
@@ -1322,3 +1350,186 @@ def test_every_measured_run_is_a_base_layer_piece_campaign() -> None:
     point this test fails and says so.
     """
     assert {run.layer_kind for run in MEASURED_RUNS} == {LayerKind.BASE_LAYER_PIECE}
+
+
+# --- s27: where the goal stood is a key term, not a refusal ------------------
+
+
+def test_a_measured_run_cannot_be_written_without_the_goals_layer_kind() -> None:
+    """One omission per test, so neither goal term can hide behind the other.
+
+    A single test omitting both would stay green if either gained a default --
+    the sibling-hollowing shape observations #12 recorded in s25.
+    """
+    with pytest.raises(TypeError):
+        MeasuredRun(  # type: ignore[call-arg]
+            layer_kind=PLATE,
+            starter_local_pos=(0, 0),
+            starter_rot=0,
+            live_directions=frozenset({0}),
+            directions_probed=ALL_DIRECTIONS,
+            goal_rotations_swept=False,
+            plate_offsets=STARTER_PLATE_ONLY,
+            goal_plate_offset=None,
+            provenance="a campaign that forgot what the goal stood on",
+        )
+
+
+def test_a_measured_run_cannot_be_written_without_the_goals_plate_offset() -> None:
+    """The other half. `None` is a meaningful value here, not an absent one."""
+    with pytest.raises(TypeError):
+        MeasuredRun(  # type: ignore[call-arg]
+            layer_kind=PLATE,
+            starter_local_pos=(0, 0),
+            starter_rot=0,
+            live_directions=frozenset({0}),
+            directions_probed=ALL_DIRECTIONS,
+            goal_rotations_swept=False,
+            plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            provenance="a campaign that forgot which plate the goal stood on",
+        )
+
+
+def _cross_layer_pair(goal_layer_kind: LayerKind = PLATE) -> tuple[PlacedTile, PlacedTile]:
+    """A starter on plate 100 and a goal on a *different* layer 101, one cell NW.
+
+    Both layers sit at the world origin, so `world_pos == local_pos` for each and
+    a purely positional goal term computes `(0, 0)` for both -- which is the
+    coincidence the sum type exists to survive.
+    """
+    starter = _tile(TileKind.STARTER, 0, 0, layer_id=100)
+    goal = PlacedTile(
+        kind=TileKind.GOAL_RAIL,
+        world_pos=HexVector(-1, 0),
+        local_pos=HexVector(-1, 0),
+        hex_rotation=3,
+        layer_id=101,
+        layer_kind=goal_layer_kind,
+    )
+    return starter, goal
+
+
+def test_a_goal_on_another_plate_is_recordable_rather_than_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole point of the s27 change, stated as the thing that was impossible.
+
+    Before this, `classify_pair` turned away every cross-layer pair before the
+    key was built, so arm 1 of the #17 2x2 could be rendered and had nowhere to
+    be written down. Here a row exists for a goal on a different layer, and the
+    same pair the old code refused now classifies against it.
+
+    Note what is *not* claimed: no such row exists in the real record, and this
+    one is synthetic. What is proven is that the record can hold the shape.
+    """
+    starter, goal = _cross_layer_pair()
+    arm_one = MeasuredRun(
+        layer_kind=PLATE,
+        starter_local_pos=(0, 0),
+        starter_rot=0,
+        live_directions=frozenset({2}),
+        directions_probed=frozenset({2}),
+        goal_rotations_swept=False,
+        plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=(0, 0),
+        provenance="synthetic: the shape arm 1 of the #17 2x2 will produce",
+    )
+    monkeypatch.setattr(graph, "MEASURED_RUNS", (arm_one,))
+    assert (
+        classify_pair(starter, goal, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.CONNECTED
+    )
+
+
+def test_the_same_layer_and_a_coincident_other_layer_are_different_keys() -> None:
+    """The reason `goal_plate_offset` is a sum type rather than a zero vector.
+
+    Both layers here sit at the world origin, so a positional term alone reports
+    `(0, 0)` for the cross-layer pair -- indistinguishable from the same-layer
+    case every real row carries. `goal_plate_offset_from` returns `None` for the
+    same layer instead, so the two cannot collide.
+
+    Mutation-checked: making the helper return `(0, 0)` rather than `None` for
+    the same layer turns the cross-layer pair CONNECTED against the real record,
+    which is `test_a_cross_layer_pair_is_unmeasured`'s failure and this test's.
+    """
+    starter, goal = _cross_layer_pair()
+    same_layer_goal = _tile(TileKind.GOAL_RAIL, -1, 0, rot=3, layer_id=100)
+
+    assert goal_plate_offset_from(starter, same_layer_goal) is None
+    assert goal_plate_offset_from(starter, goal) == (0, 0)
+    assert goal_plate_offset_from(starter, goal) != goal_plate_offset_from(
+        starter, same_layer_goal
+    ), "a coincident different layer must not key as the starter's own"
+
+
+def test_a_goal_on_a_non_baseplate_layer_misses_the_record() -> None:
+    """Against the real record, where the offset term is what refuses it.
+
+    `GDZJZA3J3T` carries LARGE_LAYER and SMALL_LAYER alongside its baseplates, so
+    a goal on a raised layer is a real shape rather than a hypothetical. Today
+    every row carries `goal_plate_offset=None`, so any cross-layer goal misses on
+    the offset alone and never reaches the kind term.
+
+    That is why this test is not sufficient on its own -- see its sibling below,
+    which is the one that makes `goal_layer_kind` load-bearing. Deleting the kind
+    term from `measured_run`'s key leaves *this* test green, verified by
+    enacting that deletion.
+    """
+    for kind in (LayerKind.LARGE_LAYER, LayerKind.SMALL_LAYER):
+        starter, goal = _cross_layer_pair(goal_layer_kind=kind)
+        assert (
+            classify_pair(starter, goal, plate_positions=ORIGIN_PLATE_ONLY)
+            is ConnectionStatus.UNMEASURED
+        ), f"a goal on {kind.name} is not a goal on a plate"
+
+
+def test_the_goals_layer_kind_refuses_a_raised_layer_at_a_recorded_offset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The case where `goal_layer_kind` is the only thing standing in the way.
+
+    A term that nothing can exercise is decoration, and this one nearly was: with
+    only the real record present, every non-baseplate goal already misses on the
+    offset, so deleting the kind term from the key changed no verdict and the
+    first version of these tests passed a mutation that removed it.
+
+    The configuration that separates them is the one arm 1 of the #17 2x2 will
+    create: a row whose goal stood on a *different* layer at a known offset. Once
+    such a row exists, a LARGE_LAYER sitting at that same offset matches on
+    everything except its kind -- so the kind is the whole refusal, and the
+    record would otherwise answer about a pair spanning a baseplate and a raised
+    layer. Synthetic on both sides, deliberately: the point is that the record
+    can hold arm 1's shape *and* still refuse this one.
+    """
+    arm_one = MeasuredRun(
+        layer_kind=PLATE,
+        starter_local_pos=(0, 0),
+        starter_rot=0,
+        live_directions=frozenset({2}),
+        directions_probed=frozenset({2}),
+        goal_rotations_swept=False,
+        plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=(0, 0),
+        provenance="synthetic: the shape arm 1 of the #17 2x2 will produce",
+    )
+    monkeypatch.setattr(graph, "MEASURED_RUNS", (arm_one,))
+
+    on_a_plate = _cross_layer_pair(goal_layer_kind=PLATE)
+    assert (
+        classify_pair(*on_a_plate, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.CONNECTED
+    ), "the row covers a goal on another plate at this offset"
+
+    for kind in (LayerKind.LARGE_LAYER, LayerKind.SMALL_LAYER):
+        raised = _cross_layer_pair(goal_layer_kind=kind)
+        assert (
+            classify_pair(*raised, plate_positions=ORIGIN_PLATE_ONLY)
+            is ConnectionStatus.UNMEASURED
+        ), (
+            f"{kind.name} matches that row on every term but its kind -- if the "
+            "kind is not in the key, the record answers about a pair it never saw"
+        )

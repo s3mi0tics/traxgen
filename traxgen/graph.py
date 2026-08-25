@@ -112,6 +112,56 @@ class MeasuredRun:
     a partial-coverage run of its own rather than relying on these rows, and
     the gate in `connection_status` is mutation-checked against it.
 
+    `goal_layer_kind` and `goal_plate_offset` say **where the goal stood**, and
+    they are two terms rather than one for a reason worth stating. Together they
+    make the goal side symmetric with the starter side, which has keyed on
+    `layer_kind` plus `starter_local_pos` since s22: a campaign is identified by
+    what kind of layer each tile stood on and where that layer sat.
+
+    Until s27 the goal side had no terms at all. `classify_pair` instead
+    *refused* any pair whose tiles sat on different layers, which is why arm 1
+    of the #17 2x2 -- goal on a neighbouring plate -- had nowhere to be written
+    down even after s25 made arm 2 recordable. Replacing that refusal with key
+    terms is the same move s25 made for the plate set and s22 for the starter
+    position: a term the configuration silently supplied becomes part of the
+    key, and the verdict for an unmeasured shape becomes a consequence rather
+    than a rule.
+
+    **`goal_plate_offset` is `None` when the goal stood on the starter's own
+    layer**, and a coordinate only when it stood on a different one. That is a
+    sum type rather than a zero vector, and the difference is not cosmetic: two
+    distinct layers can sit at the *same* world position, so `(0, 0)` cannot
+    mean both "the same layer" and "a different layer that happens to coincide".
+    Keying on the coordinate alone was the first implementation and an existing
+    test refuted it by enactment -- `test_a_cross_layer_pair_is_unmeasured`
+    builds exactly that degenerate course and it flipped UNMEASURED to
+    CONNECTED. This is s25's set-versus-tuple lock one level over: a positional
+    key collapses multiplicity, and `layout.build_course` refuses to emit such a
+    course while the **parser** will happily read one.
+
+    **Why the kind term is not redundant.** Dropping the cross-layer refusal in
+    favour of an offset alone opens a hole the refusal was closing by accident:
+    a goal on a *non-baseplate* layer -- `LARGE_LAYER` or `SMALL_LAYER`, both
+    present in the committed `GDZJZA3J3T` fixture -- computes an offset like any
+    other, and a layer sitting at the starter's plate position would give
+    `(0, 0)` and match a row. The record would then answer about a pair spanning
+    a baseplate and something that is not a plate. Keying on the kind makes that
+    course miss the record instead, with no rule written anywhere.
+
+    One alternative was considered and refused: resolving the goal's plate with
+    `layout.owning_plate`, which answers "which baseplate covers this world
+    cell" and raises on ambiguity. The import direction allows it (`layout` does
+    not import this module). It is refused because it answers a *different*
+    question -- a tile on a raised `LARGE_LAYER` sits above a baseplate without
+    standing on it, and resolving it to the plate beneath would smuggle that
+    equivalence into the record as if a render had established it.
+
+    Broken window, named rather than fixed here: `layer_kind` is the *starter's*
+    and now sits beside `goal_layer_kind`, which reads worse than it should.
+    Renaming it `starter_layer_kind` is mechanical and touches `measured_run`,
+    `connection_status`, `measured_live_directions` and every caller, so it
+    belongs in its own pass rather than inside a change about the goal side.
+
     `plate_offsets` is where every baseplate in the rendered course sat
     **relative to the starter's own plate** -- the precondition all nine
     campaigns carried and none recorded until 2026-08-24 (s25). Every one of
@@ -158,6 +208,8 @@ class MeasuredRun:
     directions_probed: frozenset[int]
     goal_rotations_swept: bool
     plate_offsets: tuple[tuple[int, int], ...]
+    goal_layer_kind: LayerKind
+    goal_plate_offset: tuple[int, int] | None
     provenance: str
 
     def __post_init__(self) -> None:
@@ -185,6 +237,7 @@ STARTER_PLATE_ONLY: tuple[tuple[int, int], ...] = ((0, 0),)
 ALL_DIRECTIONS: frozenset[int] = frozenset(range(len(HEX_DIRECTIONS)))
 
 
+
 # The rendered record. Direction indices follow hex.HEX_DIRECTIONS
 # (0=E, 1=NE, 2=NW, 3=W, 4=SW, 5=SE). Every run was bracketed by an active
 # control at both ends (`decisions.md` 2026-08-07), and the two probe runs also
@@ -198,6 +251,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-07 36-cell sweep + 2026-08-08 NW-rot-0 backfill",
     ),
     MeasuredRun(
@@ -208,6 +263,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-08 full sweep -- exactly one live cell in 36",
     ),
     MeasuredRun(
@@ -218,6 +275,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-10 queue run; one 520'd upload closed by auto-resume",
     ),
     MeasuredRun(
@@ -228,6 +287,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-10 queue run",
     ),
     MeasuredRun(
@@ -238,6 +299,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-10 queue run; one frame-guard hole closed by auto-resume",
     ),
     MeasuredRun(
@@ -248,6 +311,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance="2026-08-10 queue run",
     ),
     # The two runs that found the missing coordinate. Both declared every
@@ -260,6 +325,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance=(
             "2026-08-21 edge probe -- E and SW are port-allowed but off-plate "
             "and both rendered inactive, which refuted the port-only model"
@@ -273,6 +340,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance=(
             "2026-08-21 interior probe -- SW rendered active after six "
             "exhaustive corner sweeps called it dark, which refuted this "
@@ -291,6 +360,8 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
         provenance=(
             "2026-08-23 interior probe at odd rotation -- W and SE rendered "
             "active after being dark in all six exhaustive corner sweeps, "
@@ -423,13 +494,21 @@ def measured_run(
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
     plate_offsets: tuple[tuple[int, int], ...],
+    goal_layer_kind: LayerKind,
+    goal_plate_offset: tuple[int, int] | None,
 ) -> MeasuredRun | None:
-    """The rendered run covering this starter placement, or None if none does.
+    """The rendered run covering this placement, or None if none does.
 
     `plate_offsets` is part of the key, not a filter applied afterwards. A
     course whose plates sit differently *around the starter* than any rendered
     campaign's simply has no covering run, which is what makes multi-plate
     UNMEASURED without a rule that says so.
+
+    The two goal terms work the same way and replaced a refusal (s27). A goal on
+    a neighbouring plate, or on a layer that is not a baseplate at all, now
+    misses the record rather than being turned away by `classify_pair` before
+    the key was built -- which is why arm 1 of the #17 2x2 is expressible here
+    and was not before.
     """
     key = (starter_local_pos.y, starter_local_pos.x)
     for run in MEASURED_RUNS:
@@ -438,6 +517,8 @@ def measured_run(
             and run.starter_local_pos == key
             and run.starter_rot == starter_rot
             and run.plate_offsets == plate_offsets
+            and run.goal_layer_kind is goal_layer_kind
+            and run.goal_plate_offset == goal_plate_offset
         ):
             return run
     return None
@@ -449,13 +530,27 @@ def measured_live_directions(
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
     plate_offsets: tuple[tuple[int, int], ...],
+    goal_layer_kind: LayerKind,
+    goal_plate_offset: tuple[int, int] | None,
 ) -> frozenset[int] | None:
-    """The live directions a render measured here, or None if none has."""
+    """The live directions a render measured here, or None if none has.
+
+    Takes the goal terms too, which reads as overreach for a question phrased
+    about the starter -- and is not. `goal_plate_offset` is a property of the
+    *campaign*: every cell in a 36-cell sweep put its goal on the starter's own
+    plate, and arm 1 of the #17 2x2 will put it on a neighbour. Two campaigns
+    can share a starter placement and differ in that, so a lookup without the
+    term would have to pick one silently. Defaulting it to the same-plate value
+    is exactly the absorbed-precondition failure the last three sessions fixed
+    three times over.
+    """
     run = measured_run(
         starter_rot,
         layer_kind=layer_kind,
         starter_local_pos=starter_local_pos,
         plate_offsets=plate_offsets,
+        goal_layer_kind=goal_layer_kind,
+        goal_plate_offset=goal_plate_offset,
     )
     return None if run is None else run.live_directions
 
@@ -476,13 +571,15 @@ def connection_status(
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
     plate_offsets: tuple[tuple[int, int], ...],
+    goal_layer_kind: LayerKind,
+    goal_plate_offset: tuple[int, int] | None,
 ) -> ConnectionStatus:
     """Classify one cell against the rendered record.
 
-    `layer_kind`, `starter_local_pos` and `plate_offsets` are required, all
-    three deliberately and all three for the same reason: each was once a term
-    this function silently absorbed from the configuration that happened to be
-    rendered.
+    `layer_kind`, `starter_local_pos`, `plate_offsets`, `goal_layer_kind` and
+    `goal_plate_offset` are required, all five deliberately and all five for the
+    same reason: each was once a term this function silently absorbed from the
+    configuration that happened to be rendered.
 
     The first two were absorbed between 2026-08-10 and 2026-08-21 -- it answered
     for the plate corner and applied that answer everywhere, so a valid course
@@ -504,6 +601,8 @@ def connection_status(
         layer_kind=layer_kind,
         starter_local_pos=starter_local_pos,
         plate_offsets=plate_offsets,
+        goal_layer_kind=goal_layer_kind,
+        goal_plate_offset=goal_plate_offset,
     )
     if run is None:
         return ConnectionStatus.UNMEASURED
@@ -626,6 +725,25 @@ def plate_offsets_from(
     return tuple(sorted((y - origin.y, x - origin.x) for y, x in plate_positions))
 
 
+def goal_plate_offset_from(starter: PlacedTile, goal: PlacedTile) -> tuple[int, int]:
+    """Where the goal's layer sat, relative to the starter's own plate.
+
+    Same convention and the same recovery trick as `plate_offsets_from`: a
+    tile's layer origin is `world_pos - local_pos`, read off the tile rather
+    than passed alongside it. `(0, 0)` means both tiles stood on the same layer,
+    which every campaign to date did and which is why the term was invisible
+    until something needed to say otherwise.
+
+    Deliberately *not* "which baseplate covers the goal's world cell". That is
+    `layout.owning_plate`'s question and a different one -- see `MeasuredRun`.
+    """
+    if starter.layer_id == goal.layer_id:
+        return None
+    starter_origin = starter.world_pos - starter.local_pos
+    goal_origin = goal.world_pos - goal.local_pos
+    return (goal_origin.y - starter_origin.y, goal_origin.x - starter_origin.x)
+
+
 def classify_pair(
     starter: PlacedTile,
     goal: PlacedTile,
@@ -641,8 +759,15 @@ def classify_pair(
     plate layout does not. It is rebased here, per starter, by
     `plate_offsets_from` -- see there for why the record keys on offsets.
 
-    Cross-layer pairs are UNMEASURED: every measurement to date sits on a
-    single BASE_LAYER_PIECE layer.
+    **Where the goal stood is a key term, not a refusal (s27).** This function
+    used to turn away any pair whose tiles sat on different layers, before the
+    key was built -- so arm 1 of the #17 2x2, whose goal is on a neighbouring
+    plate, could be rendered and had nowhere to be recorded. Now the goal's
+    layer kind and its plate offset go into the lookup, and a configuration
+    nothing has measured misses the record on its own. The verdict for every
+    shape that exists today is unchanged: no row carries a non-zero goal offset
+    or a non-baseplate goal kind, so cross-layer pairs still come back
+    UNMEASURED -- as a consequence rather than a rule.
 
     **The record is consulted before any claim is made, including the
     adjacency one.** That ordering is the whole fix and it is easy to get
@@ -669,15 +794,16 @@ def classify_pair(
     withdrawn 2026-08-21 and an on-plate distance-2 control is owed before the
     empirical version of this claim is made.
     """
-    if starter.layer_id != goal.layer_id:
-        return ConnectionStatus.UNMEASURED
     plate_offsets = plate_offsets_from(plate_positions, starter)
+    goal_offset = goal_plate_offset_from(starter, goal)
     if (
         measured_run(
             starter.hex_rotation,
             layer_kind=starter.layer_kind,
             starter_local_pos=starter.local_pos,
             plate_offsets=plate_offsets,
+            goal_layer_kind=goal.layer_kind,
+            goal_plate_offset=goal_offset,
         )
         is None
     ):
@@ -692,6 +818,8 @@ def classify_pair(
         layer_kind=starter.layer_kind,
         starter_local_pos=starter.local_pos,
         plate_offsets=plate_offsets,
+        goal_layer_kind=goal.layer_kind,
+        goal_plate_offset=goal_offset,
     )
 
 

@@ -48,7 +48,7 @@ from enum import Enum, auto
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from traxgen.hex import HexVector
+from traxgen.hex import HEX_DIRECTIONS, HexVector
 from traxgen.inventory import PIECE_CATALOG
 from traxgen.plates import BASEPLATE_LAYER_KINDS, plate_available_directions
 from traxgen.types import LayerKind, TileKind
@@ -90,6 +90,27 @@ class MeasuredRun:
     A probe run therefore says nothing about the other five rotations, and
     `connection_status` reports UNMEASURED for them rather than borrowing the
     sweeps' coverage.
+
+    `directions_probed` is which of the six directions the run actually
+    rendered, and it is a **different question** from `goal_rotations_swept`.
+    That flag records rotation coverage within a direction; this records
+    coverage across directions. Every campaign to date probed all six -- the
+    corner sweeps by being exhaustive 36-cell grids, the three probe runs
+    because `probe_plate_membership.build_cells` emits a cell for every
+    direction regardless of which ones the model expects to be live. So adding
+    this field moved no verdict, and that is exactly why it is worth stating
+    rather than leaving implied: the first run that probes *fewer* than six is
+    the #17 2x2, where a single cell is rendered on a plate layout nothing has
+    measured. Without this term that run would have to be recorded as a
+    six-direction result, asserting five verdicts it never measured -- the s21
+    / s24 / s25 defect family a fourth time, in the record rather than in a
+    guard.
+
+    Note the fixture hazard this creates and does not solve (observations #26):
+    every row below carries the identical value, so the field is a shared
+    coincidence across the whole record. `tests/test_graph.py` therefore builds
+    a partial-coverage run of its own rather than relying on these rows, and
+    the gate in `connection_status` is mutation-checked against it.
 
     `plate_offsets` is where every baseplate in the rendered course sat
     **relative to the starter's own plate** -- the precondition all nine
@@ -134,9 +155,19 @@ class MeasuredRun:
     starter_local_pos: tuple[int, int]
     starter_rot: int
     live_directions: frozenset[int]
+    directions_probed: frozenset[int]
     goal_rotations_swept: bool
     plate_offsets: tuple[tuple[int, int], ...]
     provenance: str
+
+    def __post_init__(self) -> None:
+        unprobed_but_live = self.live_directions - self.directions_probed
+        if unprobed_but_live:
+            raise ValueError(
+                f"live_directions {sorted(unprobed_but_live)} are not in "
+                f"directions_probed {sorted(self.directions_probed)} -- a "
+                "direction cannot render active in a run that never rendered it"
+            )
 
 
 # The plate layout every rendered campaign to date actually had: the starter's
@@ -145,6 +176,13 @@ class MeasuredRun:
 # and reads its layout back through `plate_offsets_from` -- so this constant is
 # graded against the builder rather than against itself (observations #12).
 STARTER_PLATE_ONLY: tuple[tuple[int, int], ...] = ((0, 0),)
+
+
+# What every campaign to date probed: all six directions. Named once rather
+# than repeated across the rows below, and derived from the direction space
+# rather than typed as `{0,1,2,3,4,5}`, so it cannot drift from `HEX_DIRECTIONS`
+# if the hex model ever gains or loses a direction.
+ALL_DIRECTIONS: frozenset[int] = frozenset(range(len(HEX_DIRECTIONS)))
 
 
 # The rendered record. Direction indices follow hex.HEX_DIRECTIONS
@@ -157,6 +195,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=0,
         live_directions=frozenset({0, 2}),  # E, NW
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-07 36-cell sweep + 2026-08-08 NW-rot-0 backfill",
@@ -166,6 +205,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=1,
         live_directions=frozenset({1}),  # NE
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-08 full sweep -- exactly one live cell in 36",
@@ -175,6 +215,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=2,
         live_directions=frozenset({0, 2}),  # E, NW
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-10 queue run; one 520'd upload closed by auto-resume",
@@ -184,6 +225,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=3,
         live_directions=frozenset({1}),  # NE
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-10 queue run",
@@ -193,6 +235,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=4,
         live_directions=frozenset({0, 2}),  # E, NW
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-10 queue run; one frame-guard hole closed by auto-resume",
@@ -202,6 +245,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 0),
         starter_rot=5,
         live_directions=frozenset({1}),  # NE
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance="2026-08-10 queue run",
@@ -213,6 +257,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(0, 1),
         starter_rot=0,
         live_directions=frozenset({2}),  # NW alone
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance=(
@@ -225,6 +270,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(-3, 2),
         starter_rot=0,
         live_directions=frozenset({0, 2, 4}),  # E, NW, SW
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance=(
@@ -242,6 +288,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         starter_local_pos=(-3, 2),
         starter_rot=1,
         live_directions=frozenset({1, 3, 5}),  # NE, W, SE
+        directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         provenance=(
@@ -459,6 +506,14 @@ def connection_status(
         plate_offsets=plate_offsets,
     )
     if run is None:
+        return ConnectionStatus.UNMEASURED
+    # Direction coverage before rotation coverage, and both before any verdict.
+    # A direction the run never rendered has no rotation of it measured either,
+    # so this is the outermost of the two gates -- and the level a guard sits at
+    # is part of the guard (`decisions.md`, s25). Putting it below the rotation
+    # check would leave it unreached for a probe run's non-connecting rotations,
+    # which is the narrowing that reopened the s24 defect one session later.
+    if direction not in run.directions_probed:
         return ConnectionStatus.UNMEASURED
     at_connecting_rotation = goal_rotation == goal_rotation_for(direction)
     if not (run.goal_rotations_swept or at_connecting_rotation):

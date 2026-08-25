@@ -24,6 +24,7 @@ from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from scripts.sweep_starter_rotation import build_variant
+from traxgen import graph
 from traxgen.domain import (
     Course,
     RailConstructionData,
@@ -31,6 +32,7 @@ from traxgen.domain import (
 )
 from traxgen.generator import generate_minimal
 from traxgen.graph import (
+    ALL_DIRECTIONS,
     GOAL_KINDS,
     MEASURED_LIVE_DIRECTIONS,
     MEASURED_RUNS,
@@ -1105,6 +1107,31 @@ def test_a_measured_run_cannot_be_written_without_its_layout() -> None:
     for `plate_offsets` existing. The same argument applies to writing a row:
     a future 2x2 campaign whose author omits the layout must not default into
     claiming the single-plate one.
+
+    Supplies every *other* required term deliberately, including the s27
+    coverage one. An earlier version omitted `directions_probed` too, so once
+    that field landed this test raised for either reason and would have stayed
+    green if `plate_offsets` had quietly gained a default -- a stronger sibling
+    hollowing out the test beside it (observations #12, the s25 (e) instance).
+    """
+    with pytest.raises(TypeError):
+        MeasuredRun(  # type: ignore[call-arg]
+            layer_kind=PLATE,
+            starter_local_pos=(0, 0),
+            starter_rot=0,
+            live_directions=frozenset({0}),
+            directions_probed=ALL_DIRECTIONS,
+            goal_rotations_swept=False,
+            provenance="a campaign whose author forgot the layout",
+        )
+
+
+def test_a_measured_run_cannot_be_written_without_its_direction_coverage() -> None:
+    """The same argument as the layout term, for the term s27 added.
+
+    A default here would mean "assume all six were probed", which is the exact
+    claim the #17 2x2 cannot make -- it renders one cell on a plate layout
+    nothing has measured.
     """
     with pytest.raises(TypeError):
         MeasuredRun(  # type: ignore[call-arg]
@@ -1113,7 +1140,74 @@ def test_a_measured_run_cannot_be_written_without_its_layout() -> None:
             starter_rot=0,
             live_directions=frozenset({0}),
             goal_rotations_swept=False,
-            provenance="a campaign whose author forgot the layout",
+            plate_offsets=STARTER_PLATE_ONLY,
+            provenance="a campaign whose author forgot what it rendered",
+        )
+
+
+def test_a_run_cannot_claim_a_direction_it_never_probed() -> None:
+    """Two fields that could contradict, made unconstructable rather than checked.
+
+    `live_directions` and `directions_probed` are separate frozensets, so a row
+    could assert a direction rendered active in a run that never rendered it.
+    The invariant lives in `__post_init__` so the incoherent row cannot exist,
+    rather than in a docstring a reader is trusted to honour.
+    """
+    with pytest.raises(ValueError, match="never rendered it"):
+        MeasuredRun(
+            layer_kind=PLATE,
+            starter_local_pos=(0, 0),
+            starter_rot=0,
+            live_directions=frozenset({0, 3}),
+            directions_probed=frozenset({0}),
+            goal_rotations_swept=False,
+            plate_offsets=STARTER_PLATE_ONLY,
+            provenance="claims W active in a run that only rendered E",
+        )
+
+
+def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate, against a partial-coverage run built here rather than borrowed.
+
+    Every row in `MEASURED_RUNS` probes all six directions, so this property is
+    invisible to the real record -- the fixture coincidence observations #26
+    names, present on the field's first day. This builds the run the record does
+    not yet contain: one direction rendered, one active, four never touched.
+
+    Deleting the `directions_probed` gate in `connection_status` turns the four
+    unprobed directions into DISCONNECTED and fails this test -- verified by
+    enacting that deletion, not by assuming the assertion is load-bearing.
+    """
+    partial = MeasuredRun(
+        layer_kind=PLATE,
+        starter_local_pos=(0, 0),
+        starter_rot=0,
+        live_directions=frozenset({0}),
+        directions_probed=frozenset({0, 3}),
+        goal_rotations_swept=False,
+        plate_offsets=STARTER_PLATE_ONLY,
+        provenance="synthetic: E rendered active, W rendered dark, rest untouched",
+    )
+    monkeypatch.setattr(graph, "MEASURED_RUNS", (partial,))
+
+    def status(direction: int) -> ConnectionStatus:
+        return connection_status(
+            0,
+            direction,
+            goal_rotation_for(direction),
+            layer_kind=PLATE,
+            starter_local_pos=HexVector(y=0, x=0),
+            plate_offsets=STARTER_PLATE_ONLY,
+        )
+
+    assert status(0) is ConnectionStatus.CONNECTED, "probed and live"
+    assert status(3) is ConnectionStatus.DISCONNECTED, "probed and dark"
+    for direction in (1, 2, 4, 5):
+        assert status(direction) is ConnectionStatus.UNMEASURED, (
+            f"direction {direction} was never rendered, so the record cannot "
+            "call it disconnected"
         )
 
 

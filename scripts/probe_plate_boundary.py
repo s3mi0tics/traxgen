@@ -308,11 +308,20 @@ def build_arms(geometry: Geometry) -> list[Arm]:
     geometry: seven renders for the two targets this starter offers.
 
     The arms are declared **inactive** because that is what the shipped
-    conjunction says, computed here rather than asserted: `predict_connection`
-    has no plate-set term, so at this starter every target direction is off the
-    home footprint and the model calls it dead on any layout. That makes each
-    arm a genuine forward test rather than a fit (observations #20) -- a light
-    refutes the single-plate model where #17 says it might.
+    conjunction said **when this run was designed**, computed here rather than
+    asserted: at this starter every target direction is off the home footprint,
+    so the single-plate model calls it dead. That made each arm a genuine
+    forward test rather than a fit (observations #20) -- and the lights came,
+    refuting it exactly where #17 said they might.
+
+    **The single-plate layout is now passed explicitly, and that is deliberate.**
+    `predict_connection` gained a required goal-plate term on 2026-08-26
+    *because* of this run, and told where arm 1's goal really sat it would now
+    predict it active. Handing it `None` keeps this probe stating the
+    claim it actually tested rather than inheriting the corrected model's
+    answer -- the frozen-quotation rule (`decisions.md`, s22): a historical
+    claim kept executable names its own terms, or the history rewrites itself
+    when the library learns something.
     """
 
     def predict(direction: int) -> str:
@@ -324,6 +333,7 @@ def build_arms(geometry: Geometry) -> list[Arm]:
                 goal_rotation_for(direction),
                 layer_kind=PLATE,
                 starter_local_pos=STARTER_LOCAL,
+                goal_plate_offset=None,
             )
             else "inactive"
         )

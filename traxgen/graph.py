@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING
 
 from traxgen.hex import HEX_DIRECTIONS, HexVector
 from traxgen.inventory import PIECE_CATALOG
-from traxgen.plates import BASEPLATE_LAYER_KINDS, plate_available_directions
+from traxgen.plates import BASEPLATE_LAYER_KINDS, plate_available_directions_on
 from traxgen.types import LayerKind, TileKind
 
 if TYPE_CHECKING:
@@ -94,23 +94,24 @@ class MeasuredRun:
     `directions_probed` is which of the six directions the run actually
     rendered, and it is a **different question** from `goal_rotations_swept`.
     That flag records rotation coverage within a direction; this records
-    coverage across directions. Every campaign to date probed all six -- the
-    corner sweeps by being exhaustive 36-cell grids, the three probe runs
-    because `probe_plate_membership.build_cells` emits a cell for every
+    coverage across directions. Every campaign before the #17 2x2 probed all
+    six -- the corner sweeps by being exhaustive 36-cell grids, the three probe
+    runs because `probe_plate_membership.build_cells` emits a cell for every
     direction regardless of which ones the model expects to be live. So adding
-    this field moved no verdict, and that is exactly why it is worth stating
-    rather than leaving implied: the first run that probes *fewer* than six is
-    the #17 2x2, where a single cell is rendered on a plate layout nothing has
-    measured. Without this term that run would have to be recorded as a
-    six-direction result, asserting five verdicts it never measured -- the s21
-    / s24 / s25 defect family a fourth time, in the record rather than in a
-    guard.
+    this field moved no verdict on the day it landed, and that is exactly why
+    it was worth stating rather than leaving implied: the first run to probe
+    *fewer* than six was the 2x2 itself (2026-08-25, the last two rows below),
+    which rendered only the port-allowed directions of one starter placement
+    on a plate layout nothing had measured. Without this term that run would
+    have had to be recorded as a six-direction result, asserting verdicts it
+    never measured -- the s21 / s24 / s25 defect family a fourth time, in the
+    record rather than in a guard.
 
-    Note the fixture hazard this creates and does not solve (observations #26):
-    every row below carries the identical value, so the field is a shared
-    coincidence across the whole record. `tests/test_graph.py` therefore builds
-    a partial-coverage run of its own rather than relying on these rows, and
-    the gate in `connection_status` is mutation-checked against it.
+    Note the fixture hazard this created (observations #26): until the 2x2
+    every row carried the identical value, and even now only two rows probe
+    fewer than six. `tests/test_graph.py` therefore builds a partial-coverage
+    run of its own rather than relying on these rows, and the gate in
+    `connection_status` is mutation-checked against it.
 
     `goal_layer_kind` and `goal_plate_offset` say **where the goal stood**, and
     they are two terms rather than one for a reason worth stating. Together they
@@ -163,16 +164,22 @@ class MeasuredRun:
     belongs in its own pass rather than inside a change about the goal side.
 
     `plate_offsets` is where every baseplate in the rendered course sat
-    **relative to the starter's own plate** -- the precondition all nine
+    **relative to the starter's own plate** -- the precondition the first nine
     campaigns carried and none recorded until 2026-08-24 (s25). Every one of
-    them was built by a sweep helper that copies `layer_construction_data[0]`
+    those was built by a sweep helper that copies `layer_construction_data[0]`
     and returns a 1-tuple, so each ran on exactly one plate and the starter
     stood on it: `((0, 0),)`. Two helpers, not one -- the 2026-08-07 campaign
     predates `scripts/sweep_starter_rotation.build_variant` (first committed
     `32d6078`, 2026-08-09) and was built by `sweep_goal_rotation._goal_variant`
     at `8929ad0`, which ends in the same 1-tuple. Until this field existed that
     fact lived only in those builders, and `start_goal_status` reproduced it by
-    *counting* baseplates and refusing above one.
+    *counting* baseplates and refusing above one. The tenth campaign, the #17
+    2x2 (2026-08-25, s27), is the first with a second plate: built by
+    `scripts.probe_plate_boundary.build_arm_course` through
+    `layout.build_course`, its layout is `STARTER_PLATE_PLUS_COMPLETER`, and it
+    is the first time this term has separated two real campaigns that share a
+    starter placement -- the 2026-08-21 edge run and the 2x2's home-plate row
+    both sit at (0, 1) rotation 0 and differ in nothing else.
 
     Recording it instead of counting it is the difference between a special
     case and a lookup key. A course whose plate layout is not in the record now
@@ -221,27 +228,66 @@ class MeasuredRun:
                 "direction cannot render active in a run that never rendered it"
             )
 
+    @property
+    def lookup_key(
+        self,
+    ) -> tuple[
+        LayerKind,
+        tuple[int, int],
+        int,
+        tuple[tuple[int, int], ...],
+        LayerKind,
+        tuple[int, int] | None,
+    ]:
+        """The six terms `measured_run` matches on, defined once.
 
-# The plate layout every rendered campaign to date actually had: the starter's
-# own plate and nothing else. Named once rather than repeated across the nine
-# rows below, and pinned by a test that builds a real `build_variant` course
-# and reads its layout back through `plate_offsets_from` -- so this constant is
-# graded against the builder rather than against itself (observations #12).
+        `tests/test_graph.py` asserts every row's key is distinct through this
+        property. Its previous typed copy of the key stopped at four terms when
+        s27 added the two goal terms, and stayed green because no two rows
+        differed only there until the #17 2x2 landed (s28). Two definitions of
+        one key is how a lookup and its test drift apart silently.
+        """
+        return (
+            self.layer_kind,
+            self.starter_local_pos,
+            self.starter_rot,
+            self.plate_offsets,
+            self.goal_layer_kind,
+            self.goal_plate_offset,
+        )
+
+
+# The plate layout the first nine rendered campaigns actually had: the
+# starter's own plate and nothing else. Named once rather than repeated across
+# those rows below, and pinned by a test that builds a real `build_variant`
+# course and reads its layout back through `plate_offsets_from` -- so this
+# constant is graded against the builder rather than against itself
+# (observations #12).
 STARTER_PLATE_ONLY: tuple[tuple[int, int], ...] = ((0, 0),)
 
 
-# What every campaign to date probed: all six directions. Named once rather
-# than repeated across the rows below, and derived from the direction space
-# rather than typed as `{0,1,2,3,4,5}`, so it cannot drift from `HEX_DIRECTIONS`
-# if the hex model ever gains or loses a direction.
+# The one two-plate layout a render has measured: the starter's plate plus the
+# plate at delta (5, 0) -- the neighbour that completes its half-holes
+# (`scripts/probe_plate_seams.py`) and puts real plate under the E and SW cells
+# that lie off the home footprint at starter (0, 1). The #17 2x2 ran on it
+# (2026-08-25). Pinned the same way as `STARTER_PLATE_ONLY`: a test builds the
+# probe's own course and reads its layout back through `plate_offsets_from`.
+STARTER_PLATE_PLUS_COMPLETER: tuple[tuple[int, int], ...] = ((0, 0), (5, 0))
+
+
+# What every campaign before the #17 2x2 probed: all six directions. Named
+# once rather than repeated across the rows below, and derived from the
+# direction space rather than typed as `{0,1,2,3,4,5}`, so it cannot drift from
+# `HEX_DIRECTIONS` if the hex model ever gains or loses a direction. The 2x2's
+# two rows are the only ones that probe fewer, and they spell their sets out.
 ALL_DIRECTIONS: frozenset[int] = frozenset(range(len(HEX_DIRECTIONS)))
 
 
 
 # The rendered record. Direction indices follow hex.HEX_DIRECTIONS
 # (0=E, 1=NE, 2=NW, 3=W, 4=SW, 5=SE). Every run was bracketed by an active
-# control at both ends (`decisions.md` 2026-08-07), and the two probe runs also
-# carried a local control at the position under test (2026-08-21).
+# control at both ends (`decisions.md` 2026-08-07), and every probe run from
+# 2026-08-21 on also carried a local control at the position under test.
 MEASURED_RUNS: tuple[MeasuredRun, ...] = (
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
@@ -373,6 +419,54 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "2026-08-21 edge run is what separates that pair"
         ),
     ),
+    # The #17 2x2 (2026-08-25, s27): the first campaign on more than one plate
+    # and the first to probe fewer than six directions. One starter placement,
+    # two rows, because the record keys on where the goal stood -- the arm 2s
+    # and the local control put it on the starter's own plate, the arm 1s on
+    # the completer. Built by `scripts.probe_plate_boundary.build_arm_course`
+    # through `layout.build_course`; every arm's bytes hash to the sidecar's
+    # `payload_sha256`, and `tests/test_graph.py` grades both rows against that
+    # sidecar rather than against this file.
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(0, 1),
+        starter_rot=0,
+        live_directions=frozenset({2}),  # NW: the local control
+        directions_probed=frozenset({0, 2, 4}),  # E, NW, SW
+        goal_rotations_swept=False,
+        plate_offsets=STARTER_PLATE_PLUS_COMPLETER,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
+        provenance=(
+            "2026-08-25 #17 2x2, home-plate arms -- E (0,2) and SW (1,0) are "
+            "the same world cells as the arm-1 goals, addressed as "
+            "out-of-window locals on the starter's plate with the completing "
+            "plate really underneath them, and both rendered dark "
+            "(7YHDLYBL45, IWCR72S9SK); the local control NW (-1,1) rendered "
+            "active (KSKCXQHKVH). Plate presence alone rescues nothing"
+        ),
+    ),
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(0, 1),
+        starter_rot=0,
+        live_directions=frozenset({0, 4}),  # E, SW -- both across the boundary
+        directions_probed=frozenset({0, 4}),
+        goal_rotations_swept=False,
+        plate_offsets=STARTER_PLATE_PLUS_COMPLETER,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=(5, 0),  # the goal stood on the completing plate
+        provenance=(
+            "2026-08-25 #17 2x2, completer-plate arms -- the goal addressed "
+            "in-window on the plate that owns the cell, (-5,2) rot 1 for E and "
+            "(-4,0) rot 5 for SW, rendered active both times (UY36K96VLM, "
+            "E3FMVREOBV): connection composes across a plate boundary. "
+            "`predict_connection` called both dark and was refuted by "
+            "prediction, as the probe's docstring declared it would be. 7/7, "
+            "both certified controls active (KN6F459ZR3), no retries, no "
+            "refused screens; ADDRESSING_MATTERS"
+        ),
+    ),
 )
 
 # The corner table, derived from the runs above rather than restated. Kept as a
@@ -386,13 +480,16 @@ MEASURED_LIVE_DIRECTIONS: Mapping[int, frozenset[int]] = MappingProxyType(
         for run in MEASURED_RUNS
         if run.layer_kind is LayerKind.BASE_LAYER_PIECE
         and run.starter_local_pos == (0, 0)
-        # Currently unexercised, and said out loud rather than left to look
-        # like coverage: every row carries the same layout, so this clause is
-        # universally true today and deleting it changes nothing (proven by
-        # mutation). It becomes load-bearing the moment a multi-plate campaign
-        # is recorded at the corner with goal rotations swept -- which is what
-        # the #17 2x2 will do -- and it is a corner-table filter, so it belongs
-        # beside the coordinate filter above rather than added later.
+        # Still unexercised after the #17 2x2 (2026-08-25), and said out loud
+        # rather than left to look like coverage. That campaign ran at (0, 1)
+        # with goal rotations unswept, so the two filters beside this one
+        # already exclude its rows and deleting this clause still changes
+        # nothing -- re-proven by mutation in s28, against the prediction the
+        # previous version of this comment made. It becomes load-bearing only
+        # when a multi-plate campaign is recorded *at the corner with goal
+        # rotations swept*, which no run has done. It is a corner-table filter,
+        # so it stays beside the coordinate filter rather than being added
+        # later.
         and run.plate_offsets == STARTER_PLATE_ONLY
         and run.goal_rotations_swept
     }
@@ -447,7 +544,11 @@ def starter_world_ports(starter_rot: int) -> frozenset[int]:
 
 
 def predicted_live_directions(
-    starter_rot: int, *, layer_kind: LayerKind, starter_local_pos: HexVector
+    starter_rot: int,
+    *,
+    layer_kind: LayerKind,
+    starter_local_pos: HexVector,
+    goal_plate_offset: tuple[int, int] | None,
 ) -> frozenset[int]:
     """The conjunction's **prediction** for which directions connect.
 
@@ -457,21 +558,39 @@ def predicted_live_directions(
     to propose candidates for rendering want this.
 
     Survived 14 forward-predicted cells across the 2026-08-21 edge and interior
-    runs, at two starter positions no sweep had used, with zero misses.
+    runs, at two starter positions no sweep had used, with zero misses -- then
+    was **refuted on the fifteenth**, which is why the plate term below exists.
 
-    **Takes no plate-set term, and that is a scope statement rather than an
-    omission.** `plate_available_directions` reads the footprint of the
-    starter's own layer, so this predicts for a cell on one plate. Whether a
-    neighbouring plate makes an otherwise-off-plate cell available is open
-    unknown #17 -- the thing the 2x2 exists to render -- so a plate-set
-    argument here would have to encode an answer nobody has. On a multi-plate
-    course this function still returns a set; it is the single-plate model's
-    set, and the claim surface holds such courses at UNMEASURED precisely
-    because this is not known to be the right answer there.
+    **`goal_plate_offset` is required with no default** (the s22 / s25 pattern,
+    a third time). `None` means the goal is addressed on the starter's own
+    plate; a coordinate means it is addressed on the plate at that offset. A
+    default would silently restore the exact model the 2x2 refuted, on precisely
+    the courses where it is wrong -- the defect class this project has now
+    shipped three times -- so a caller must say where the goal is addressed.
+
+    **Which plate the goal is addressed on, not which plates exist.** That
+    distinction is the whole correction, and the looser reading is the tempting
+    one: it was written first, and the record refuted it before it shipped. The
+    2x2's two arms shared a starter, a layout and a direction, and differed only
+    in the plate the goal was named on -- arm 1 in-window on the neighbour
+    rendered **active**, arm 2 out-of-window on the home plate, with that same
+    neighbour present and real underneath, rendered **dark**. A "some plate
+    covers the cell" term predicts arm 2 live; this one reproduces all eleven
+    rows with no free parameters.
+
+    **No support term, and that is measured rather than assumed.** The
+    2026-08-26 half-hole campaign rendered goals on physically incomplete cells
+    **active** on a lone plate, so completeness does not gate connection
+    (`plan.md`, answered #17). Left out deliberately, and a test pins that it
+    stays out.
+
+    Reduces to the single-plate model exactly when the goal is on the starter's
+    own plate, so every pre-2x2 campaign predicts as it always did -- swept as a
+    property rather than claimed here.
     """
-    return plate_available_directions(layer_kind, starter_local_pos) & starter_world_ports(
-        starter_rot
-    )
+    return plate_available_directions_on(
+        layer_kind, starter_local_pos, goal_plate_offset or (0, 0)
+    ) & starter_world_ports(starter_rot)
 
 
 def live_directions(starter_rot: int) -> frozenset[int]:
@@ -510,16 +629,16 @@ def measured_run(
     the key was built -- which is why arm 1 of the #17 2x2 is expressible here
     and was not before.
     """
-    key = (starter_local_pos.y, starter_local_pos.x)
+    key = (
+        layer_kind,
+        (starter_local_pos.y, starter_local_pos.x),
+        starter_rot,
+        plate_offsets,
+        goal_layer_kind,
+        goal_plate_offset,
+    )
     for run in MEASURED_RUNS:
-        if (
-            run.layer_kind is layer_kind
-            and run.starter_local_pos == key
-            and run.starter_rot == starter_rot
-            and run.plate_offsets == plate_offsets
-            and run.goal_layer_kind is goal_layer_kind
-            and run.goal_plate_offset == goal_plate_offset
-        ):
+        if run.lookup_key == key:
             return run
     return None
 
@@ -538,7 +657,8 @@ def measured_live_directions(
     Takes the goal terms too, which reads as overreach for a question phrased
     about the starter -- and is not. `goal_plate_offset` is a property of the
     *campaign*: every cell in a 36-cell sweep put its goal on the starter's own
-    plate, and arm 1 of the #17 2x2 will put it on a neighbour. Two campaigns
+    plate, and arm 1 of the #17 2x2 put it on a neighbour (2026-08-25). Two
+    campaigns
     can share a starter placement and differ in that, so a lookup without the
     term would have to pick one silently. Defaulting it to the same-plate value
     is exactly the absorbed-precondition failure the last three sessions fixed
@@ -629,6 +749,7 @@ def predict_connection(
     *,
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
+    goal_plate_offset: tuple[int, int] | None,
 ) -> bool:
     """Whether the conjunction predicts this cell connects. A model, not a claim.
 
@@ -637,16 +758,29 @@ def predict_connection(
     `connection_status` for what the renders actually support.
 
     Carries `predicted_live_directions`' scope, since it is that function plus
-    the goal-side rule: **no plate-set term**, so on a multi-plate course this
-    answers from the starter's own plate footprint alone. That is the
-    single-plate model applied to a case open unknown #17 has not decided.
+    the goal-side rule -- including its required `goal_plate_offset` term.
+
+    **History, because this function was wrong for a day and the record should
+    say so.** Until 2026-08-26 it took no plate-set term and answered from the
+    starter's own footprint alone. The #17 2x2 (s27) rendered a goal addressed
+    in-window on the *neighbouring* plate **active** on both E and SW, and this
+    function called both dark -- refuted by prediction, exactly as the probe's
+    docstring declared it would be (observations #20). The replacement term was
+    deliberately not folded in that session, because one question remained:
+    whether physical support gated connection as well as addressing. The
+    half-hole campaign answered it -- it does not -- so the correction landed
+    with **the addressing term alone**, both halves measured rather than one
+    measured and one assumed.
     """
     if not 0 <= direction <= 5:
         raise ValueError(f"direction must be 0..5, got {direction}")
     if goal_rotation != goal_rotation_for(direction):
         return False
     return direction in predicted_live_directions(
-        starter_rot, layer_kind=layer_kind, starter_local_pos=starter_local_pos
+        starter_rot,
+        layer_kind=layer_kind,
+        starter_local_pos=starter_local_pos,
+        goal_plate_offset=goal_plate_offset,
     )
 
 
@@ -874,7 +1008,7 @@ def start_goal_status(course: Course) -> ConnectionStatus | None:
     **The course's plate layout is part of every pair's lookup key**, because
     `classify_pair` sends only *cross-layer* pairs to UNMEASURED and a
     same-plate pair on a multi-plate course would otherwise be classified
-    exactly as on a single-plate one. Every row in `MEASURED_RUNS` was rendered
+    exactly as on a single-plate one. Every row then in `MEASURED_RUNS` was rendered
     through a builder that emits exactly one layer (`build_variant`, and
     `_goal_variant` before it -- both 1-tuples), so "one plate at world (0,0)"
     was an unrecorded precondition on all nine campaigns --

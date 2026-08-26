@@ -1,0 +1,218 @@
+{
+  "timestamp": "2026-08-25T22:45:45.760958+00:00",
+  "elapsed_seconds": 463.8,
+  "starter": {
+    "y": 0,
+    "x": 1
+  },
+  "starter_rot": 0,
+  "geometry": {
+    "completer_delta": [
+      5,
+      0
+    ],
+    "targets": [
+      {
+        "direction": 0,
+        "home_local": [
+          0,
+          2
+        ],
+        "completer_local": [
+          -5,
+          2
+        ]
+      },
+      {
+        "direction": 4,
+        "home_local": [
+          1,
+          0
+        ],
+        "completer_local": [
+          -4,
+          0
+        ]
+      }
+    ],
+    "control_direction": 2,
+    "control_home_local": [
+      -1,
+      1
+    ]
+  },
+  "layer_height": 0.0,
+  "verdict": "ADDRESSING_MATTERS",
+  "reason": "the cell connects when addressed on the plate that owns it and not when addressed off the home plate's window, so 'off-plate' is a coordinate window rather than a physical absence. The generator must address a cell on its owning plate (E=ADDRESSING_MATTERS, SW=ADDRESSING_MATTERS)",
+  "arms": [
+    {
+      "role": "certified_control",
+      "label": "certified_open",
+      "target_name": null,
+      "two_plate": false,
+      "goal_plate_index": null,
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "FLW4TMLP5V's geometry: proves the harness worked at render 1",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/certified_open_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "local_control",
+      "label": "local_control_NW",
+      "target_name": null,
+      "two_plate": true,
+      "goal_plate_index": 0,
+      "goal_local": [
+        -1,
+        1
+      ],
+      "goal_rot": 3,
+      "predicted": "active",
+      "why": "NW is active in the rendered record at this starter on a lone plate; here it proves the TWO-plate family renders at all, which is the only thing that makes a dark set of arms mean anything",
+      "payload_sha256": "6adf89d03232c70fc662092907367359e4a20b50aeb84537b50f6e487853795a",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "KSKCXQHKVH",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/local_control_NW_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "arm1_owning_plate",
+      "label": "arm1_E_on_completer",
+      "target_name": "E",
+      "two_plate": true,
+      "goal_plate_index": 1,
+      "goal_local": [
+        -5,
+        2
+      ],
+      "goal_rot": 1,
+      "predicted": "inactive",
+      "why": "plate present, in-window address: the goal is addressed on the plate that owns the cell. Recordable since s27 -- the record now keys on which layer the goal stood on",
+      "payload_sha256": "8d78c5850c32c314d6e54d64e442fc44c3fbd21d4b46cf7703fba9ae9432b7c4",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "UY36K96VLM",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/arm1_E_on_completer_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "arm2_home_plate",
+      "label": "arm2_E_on_home",
+      "target_name": "E",
+      "two_plate": true,
+      "goal_plate_index": 0,
+      "goal_local": [
+        0,
+        2
+      ],
+      "goal_rot": 1,
+      "predicted": "inactive",
+      "why": "plate present, out-of-window address: the same world cell, addressed on the home plate off its own footprint. `build_course` deliberately does not refuse this (decisions.md, s24)",
+      "payload_sha256": "6a7b758ed9d9e3988d4f16a01eb53b56cca3c589b1b1c94e6a7284129dc66b9f",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "7YHDLYBL45",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "inactive",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/arm2_E_on_home_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "arm1_owning_plate",
+      "label": "arm1_SW_on_completer",
+      "target_name": "SW",
+      "two_plate": true,
+      "goal_plate_index": 1,
+      "goal_local": [
+        -4,
+        0
+      ],
+      "goal_rot": 5,
+      "predicted": "inactive",
+      "why": "plate present, in-window address: the goal is addressed on the plate that owns the cell. Recordable since s27 -- the record now keys on which layer the goal stood on",
+      "payload_sha256": "0a4966434d0fb46aafbaecc5e139886f5713695270eea5b2c02fd0c10ee26823",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "E3FMVREOBV",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/arm1_SW_on_completer_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "arm2_home_plate",
+      "label": "arm2_SW_on_home",
+      "target_name": "SW",
+      "two_plate": true,
+      "goal_plate_index": 0,
+      "goal_local": [
+        1,
+        0
+      ],
+      "goal_rot": 5,
+      "predicted": "inactive",
+      "why": "plate present, out-of-window address: the same world cell, addressed on the home plate off its own footprint. `build_course` deliberately does not refuse this (decisions.md, s24)",
+      "payload_sha256": "f426516f288fab56e58732675679a41c15ce537656f3f5274eee4afd537b4742",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "IWCR72S9SK",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "inactive",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/arm2_SW_on_home_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "certified_control",
+      "label": "certified_close",
+      "target_name": null,
+      "two_plate": false,
+      "goal_plate_index": null,
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "the closing bracket: proves the harness still worked at the last render",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/plate_boundary/certified_close_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    }
+  ]
+}

@@ -18,11 +18,15 @@ Path: traxgen/tests/test_graph.py
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
+from pathlib import Path
 
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
+from scripts.probe_plate_boundary import build_arm_course, build_arms, derive_geometry
 from scripts.sweep_starter_rotation import build_variant
 from traxgen import graph
 from traxgen.domain import (
@@ -39,6 +43,7 @@ from traxgen.graph import (
     STARTER_INTRINSIC_PORTS,
     STARTER_KINDS,
     STARTER_PLATE_ONLY,
+    STARTER_PLATE_PLUS_COMPLETER,
     ConnectionStatus,
     MeasuredRun,
     PlacedTile,
@@ -60,8 +65,14 @@ from traxgen.graph import (
 )
 from traxgen.hex import HexVector
 from traxgen.inventory import PRO_VERTICAL_STARTER_SET
-from traxgen.layout import TilePlacement, build_course
-from traxgen.plates import BASEPLATE_LAYER_KINDS, STANDARD_SQUARE
+from traxgen.layout import CERTIFIED_LAYER_HEIGHT, TilePlacement, build_course
+from traxgen.plates import (
+    BASEPLATE_LAYER_KINDS,
+    STANDARD_SQUARE,
+    plate_available_directions,
+    plate_footprint,
+)
+from traxgen.serializer import serialize_course
 from traxgen.types import LayerKind, RailKind, TileKind
 from traxgen.validator import Rule, Severity, ValidationError, validate, validate_strict
 
@@ -442,26 +453,140 @@ def test_a_course_without_a_goal_is_not_this_rules_finding() -> None:
 def test_the_conjunction_reproduces_every_rendered_run() -> None:
     """The whole class, not a named instance of it.
 
-    Eight campaigns: six exhaustive 36-cell corner sweeps (2026-08-07 through
-    2026-08-10) and the two 2026-08-21 probe runs at starter positions no sweep
-    had used. `plate_available INTERSECT starter_world_ports` has to give back
-    each one's live set exactly -- no free parameters, no per-run fudge.
+    Every campaign whose goal stood on the starter's own plate: six exhaustive
+    36-cell corner sweeps (2026-08-07 through 2026-08-10), the two 2026-08-21
+    probe runs at starter positions no sweep had used, the 2026-08-23
+    odd-rotation interior run, and the home-plate row of the 2026-08-25 #17
+    2x2. `plate_available INTERSECT starter_world_ports` has to give back each
+    one's live set exactly -- no free parameters, no per-run fudge -- over the
+    directions the run actually probed, since the 2x2 rows are the first to
+    probe fewer than six.
+
+    **Every** row, cross-plate included, since 2026-08-26: the model now carries
+    the layout term the 2x2 refuted it for, so the exclusion this test used to
+    carry is gone. That is the point of the correction -- the sweep covering the
+    whole record again is what "the model reproduces the renders" means.
 
     Written as a sweep over `MEASURED_RUNS` rather than as named asserts on
     purpose: a typed list of the runs would be the same untested claim one
-    layer down, and it would go stale the moment a ninth run lands.
+    layer down, and it would go stale the moment another run lands.
     """
     for run in MEASURED_RUNS:
         predicted = predicted_live_directions(
             run.starter_rot,
             layer_kind=run.layer_kind,
             starter_local_pos=HexVector(*run.starter_local_pos),
+            goal_plate_offset=run.goal_plate_offset,
         )
-        assert predicted == run.live_directions, (
+        assert predicted & run.directions_probed == run.live_directions, (
             f"{run.layer_kind.name} {run.starter_local_pos} rot {run.starter_rot}: "
             f"model says {sorted(predicted)}, render measured "
             f"{sorted(run.live_directions)} -- {run.provenance}"
         )
+
+
+def test_the_goal_on_its_own_plate_reduces_to_the_single_plate_model() -> None:
+    """The reduction `predicted_live_directions` claims, over the whole domain.
+
+    Its docstring says the corrected model reduces to the single-plate model
+    exactly when the goal is on the starter's own plate, which is why every
+    pre-2x2 campaign still predicts as it always did. That is a claim about a
+    mechanism, so it is swept -- every footprint cell, all six rotations --
+    rather than trusted, and it is the reason the nine single-plate rows in the
+    sweep above are not quietly answering a different question now.
+    """
+    kind = LayerKind.BASE_LAYER_PIECE
+    for cell in sorted(plate_footprint(kind)):
+        pos = HexVector(*cell)
+        for starter_rot in range(6):
+            assert predicted_live_directions(
+                starter_rot,
+                layer_kind=kind,
+                starter_local_pos=pos,
+                goal_plate_offset=None,
+            ) == plate_available_directions(kind, pos) & starter_world_ports(
+                starter_rot
+            ), f"reduction fails at {cell} rot {starter_rot}"
+
+
+def test_the_cross_plate_row_is_what_the_layout_term_buys() -> None:
+    """The correction, stated as the difference it makes rather than as prose.
+
+    Its predecessor asserted the *refutation*: until 2026-08-26 the model called
+    the 2x2's cross-plate arms dark and the test pinned that so a fix could not
+    land silently. This is that test flipped deliberately, which is what the
+    retired one asked its reader to do.
+
+    The assertion is a contrast, not a single value. The same row is predicted
+    twice -- once with the goal addressed where it really was, once as if it had
+    been addressed on the home plate -- and the pair must disagree, with only
+    the real one matching the render. That second call is arm 2, which rendered
+    dark, so the contrast is against a measured outcome rather than a
+    hypothetical. A model that reproduced the row for some *other* reason (say,
+    by calling everything live) passes a one-sided check and fails this one.
+    """
+    cross_plate = [run for run in MEASURED_RUNS if run.goal_plate_offset is not None]
+    assert cross_plate, "the record has lost its only cross-plate row"
+    for run in cross_plate:
+        with_goal_plate = predicted_live_directions(
+            run.starter_rot,
+            layer_kind=run.layer_kind,
+            starter_local_pos=HexVector(*run.starter_local_pos),
+            goal_plate_offset=run.goal_plate_offset,
+        )
+        as_if_home_plate = predicted_live_directions(
+            run.starter_rot,
+            layer_kind=run.layer_kind,
+            starter_local_pos=HexVector(*run.starter_local_pos),
+            goal_plate_offset=None,
+        )
+        assert with_goal_plate & run.directions_probed == run.live_directions, run.provenance
+        assert as_if_home_plate & run.directions_probed != run.live_directions, (
+            "addressing the same goal on the home plate must still get this row "
+            "wrong -- that is arm 2, which rendered dark, and it is exactly what "
+            "the term contributes"
+        )
+
+
+def test_the_half_hole_cells_are_predicted_live_with_no_completing_plate() -> None:
+    """The 2026-08-26 campaign, as the property it licensed.
+
+    Ten renders, nine active including goals on two physically incomplete
+    half-hole cells with **no** completing neighbour, plus a negative control at
+    a wrong goal rotation that rendered inactive. So physical completeness does
+    not gate connection, and the model must predict these live on a lone plate
+    -- if a support term were ever folded in, this is the test that would catch
+    it.
+
+    Derived from `plates` and the seam probe rather than typed, so it follows
+    the footprint rather than restating three coordinates (#24 / *Classes*).
+    """
+    from scripts.probe_plate_seams import seam_cells
+
+    kind = LayerKind.BASE_LAYER_PIECE
+    seams = seam_cells(kind)
+    assert seams, "the footprint has no half-holes; the premise is gone"
+    for seam in sorted(seams):
+        for direction in range(6):
+            neighbour = HexVector(*seam).neighbor(direction)
+            starter = (neighbour.y, neighbour.x)
+            if starter not in plate_footprint(kind) or starter in seams:
+                continue
+            # The direction from that solid neighbour back to the half-hole.
+            back = HexVector(*starter).direction_to(HexVector(*seam))
+            assert back is not None
+            for starter_rot in range(6):
+                live = predicted_live_directions(
+                    starter_rot,
+                    layer_kind=kind,
+                    starter_local_pos=HexVector(*starter),
+                    goal_plate_offset=None,
+                )
+                if back in starter_world_ports(starter_rot):
+                    assert back in live, (
+                        f"half-hole {seam} from {starter} rot {starter_rot}: the "
+                        "model must call it live on a lone plate -- the render did"
+                    )
 
 
 def test_the_rendered_record_covers_more_than_the_corner() -> None:
@@ -521,7 +646,12 @@ def test_the_model_answers_where_the_record_is_silent() -> None:
         goal_plate_offset=None,
     ) is None
     assert predict_connection(
-        0, 0, goal_rotation_for(0), layer_kind=PLATE, starter_local_pos=unrendered
+        0,
+        0,
+        goal_rotation_for(0),
+        layer_kind=PLATE,
+        starter_local_pos=unrendered,
+        goal_plate_offset=None,
     )
     assert (
         connection_status(
@@ -712,13 +842,15 @@ def test_plate_membership_is_local_even_when_the_layer_sits_off_origin() -> None
 
 
 def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> None:
-    """`MEASURED_RUNS` claims every campaign ran on the starter's plate alone.
+    """`MEASURED_RUNS` claims two layouts: the starter's plate alone, and that
+    plate plus the completer the #17 2x2 added.
 
-    That claim is graded here against a builder rather than against itself:
-    `build_variant` is called for real, its plates are read back off the built
-    course through the production path, and the recorded rows must agree. A
-    test that compared `STARTER_PLATE_ONLY` to the rows would be comparing two
-    copies of one sentence (observations #12).
+    Both claims are graded here against a builder rather than against
+    themselves: `build_variant` and the 2x2 probe's `build_arm_course` are
+    called for real, their plates are read back off the built courses through
+    the production path, and the recorded rows must agree. A test that compared
+    `STARTER_PLATE_ONLY` to the rows would be comparing two copies of one
+    sentence (observations #12).
 
     Two limits, stated rather than implied. `build_variant` did not exist until
     2026-08-09, so the 2026-08-07 row was built by
@@ -735,8 +867,87 @@ def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> 
     (starter,) = [t for t in placed_tiles(course) if t.kind in STARTER_KINDS]
     built = plate_offsets_from(course_plate_positions(course), starter)
 
+    geometry = derive_geometry()
+    (arm_one,) = [a for a in build_arms(geometry) if a.label == "arm1_E_on_completer"]
+    two_plate = build_arm_course(arm_one, geometry, CERTIFIED_LAYER_HEIGHT)
+    (starter_two,) = [t for t in placed_tiles(two_plate) if t.kind in STARTER_KINDS]
+    built_two = plate_offsets_from(course_plate_positions(two_plate), starter_two)
+
     assert built == STARTER_PLATE_ONLY
-    assert {run.plate_offsets for run in MEASURED_RUNS} == {built}
+    assert built_two == STARTER_PLATE_PLUS_COMPLETER
+    assert {run.plate_offsets for run in MEASURED_RUNS} == {built, built_two}
+
+
+SIDECAR_2X2 = Path(__file__).parent / "fixtures" / "plate_boundary_results_2026-08-25.json"
+
+
+def test_the_2x2_rows_are_the_run_the_sidecar_recorded() -> None:
+    """Both #17 2x2 rows, graded against the run rather than against this file.
+
+    Two independent artifacts stand behind the rows. The probe's own builder
+    (`scripts.probe_plate_boundary.build_arm_course`) rebuilds every arm, and
+    each rebuilt course must hash to the `payload_sha256` the run uploaded --
+    so the courses classified here are, byte for byte, the courses that were
+    rendered. And the run's sidecar (`screenshots/plate_boundary/results.json`,
+    gitignored, copied into `tests/fixtures/` so the claim rests on a committed
+    file -- observations #24) says what each one rendered as. The record's
+    answer for every arm has to match that verdict: active is CONNECTED,
+    inactive is DISCONNECTED, and nothing the run rendered may still come back
+    UNMEASURED.
+
+    A transcription error in either row -- a direction, an offset, a swapped
+    verdict -- fails here, which a test comparing the rows to a typed copy of
+    themselves could not do (observations #12). The two certified controls ride
+    along: they are the single-plate certified geometry and classify from the
+    corner sweeps, which is the check that this course really is that course.
+    """
+    sidecar = json.loads(SIDECAR_2X2.read_text())
+    assert sidecar["verdict"] == "ADDRESSING_MATTERS"
+    assert len(sidecar["arms"]) == 7
+
+    geometry = derive_geometry()
+    arms = {arm.label: arm for arm in build_arms(geometry)}
+    verdict = {
+        "active": ConnectionStatus.CONNECTED,
+        "inactive": ConnectionStatus.DISCONNECTED,
+    }
+    for record in sidecar["arms"]:
+        course = build_arm_course(arms[record["label"]], geometry, sidecar["layer_height"])
+        digest = hashlib.sha256(serialize_course(course)).hexdigest()
+        assert digest == record["payload_sha256"], record["label"]
+        assert start_goal_status(course) is verdict[record["validity"]], record["label"]
+
+
+def test_the_2x2_rows_claim_nothing_at_rotations_they_never_rendered() -> None:
+    """Each 2x2 arm rendered once, at its connecting rotation, and the rows say so.
+
+    The sidecar test above asks only at the connecting rotation, as the run
+    did, so a row falsely carrying `goal_rotations_swept=True` would pass it
+    and then answer DISCONNECTED for five rotations nobody rendered -- the s21
+    / s24 / s25 family, in the record. Found by the s28 mutation battery, where
+    both "claimed swept" mutations survived the suite; this is what catches
+    them, and it is written over the two-plate rows as a class rather than as
+    two named asserts.
+    """
+    two_plate = [run for run in MEASURED_RUNS if run.plate_offsets == STARTER_PLATE_PLUS_COMPLETER]
+    assert len(two_plate) == 2
+    for run in two_plate:
+        assert not run.goal_rotations_swept, run.provenance
+        for direction in run.directions_probed:
+            for rotation in range(6):
+                if rotation == goal_rotation_for(direction):
+                    continue
+                status = connection_status(
+                    run.starter_rot,
+                    direction,
+                    rotation,
+                    layer_kind=run.layer_kind,
+                    starter_local_pos=HexVector(*run.starter_local_pos),
+                    plate_offsets=run.plate_offsets,
+                    goal_layer_kind=run.goal_layer_kind,
+                    goal_plate_offset=run.goal_plate_offset,
+                )
+                assert status is ConnectionStatus.UNMEASURED, (direction, rotation)
 
 
 def test_a_second_baseplate_of_the_other_kind_is_not_a_single_plate_course() -> None:
@@ -971,9 +1182,10 @@ def test_a_multi_plate_course_is_not_claimed_disconnected_when_the_pair_is_far()
 def test_a_single_plate_in_the_wrong_place_is_not_the_measured_one() -> None:
     """The key is positions, not a count -- which nothing above actually tested.
 
-    Every row in `MEASURED_RUNS` carries a one-element layout, so "the layout
-    matches" and "there is one plate" were the same predicate across the whole
-    suite. A mutation replacing the comparison with `len(plate_offsets) == 1`
+    Every row in `MEASURED_RUNS` carried a one-element layout when this was
+    written (the #17 2x2 rows came later), so "the layout matches" and "there
+    is one plate" were the same predicate across the whole suite. A mutation
+    replacing the comparison with `len(plate_offsets) == 1`
     -- s24's count, moved inside the lookup -- left all 626 tests green while
     answering a *differently placed* single plate from the record.
 
@@ -1019,10 +1231,11 @@ def test_the_rebase_is_arithmetic_not_a_predicate() -> None:
     off the wrong plate, and returning `()` for every multi-plate layout all
     fix or bypass zero -- so seven distinct mutations survived the full suite.
 
-    One asymmetric, off-origin, two-plate expectation kills all seven. This
-    matters prospectively rather than today: the #17 2x2 is what puts a
-    multi-plate row into `MEASURED_RUNS`, and every one of those mutations goes
-    live the moment it does.
+    One asymmetric, off-origin, two-plate expectation kills all seven. Since
+    2026-08-25 the #17 2x2's rows are in `MEASURED_RUNS`, so those mutations
+    are also live against the real record --
+    `test_the_2x2_rows_are_the_run_the_sidecar_recorded` is the second thing
+    a transposed rebase fails.
     """
     certified = generate_minimal()
     home = dataclasses.replace(
@@ -1195,10 +1408,11 @@ def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
 ) -> None:
     """The gate, against a partial-coverage run built here rather than borrowed.
 
-    Every row in `MEASURED_RUNS` probes all six directions, so this property is
-    invisible to the real record -- the fixture coincidence observations #26
-    names, present on the field's first day. This builds the run the record does
-    not yet contain: one direction rendered, one active, four never touched.
+    Every row in `MEASURED_RUNS` probed all six directions on the field's first
+    day -- the fixture coincidence observations #26 names -- and the #17 2x2
+    rows that probe fewer arrived later. This test keeps its own synthetic run
+    rather than borrowing theirs, so the gate is graded independently of the
+    record: one direction rendered, one active, four never touched.
 
     Deleting the `directions_probed` gate in `connection_status` turns the four
     unprobed directions into DISCONNECTED and fails this test -- verified by
@@ -1245,11 +1459,14 @@ def test_every_measured_run_has_a_distinct_lookup_key() -> None:
     Not a regression -- adding the layout term makes collisions less likely,
     not more -- but the #17 campaign adds rows, and a shadowed row would
     silently answer with its twin's `live_directions` rather than raise.
+
+    Through `MeasuredRun.lookup_key` rather than a tuple typed here, because
+    the typed tuple is what went wrong: it stopped at four terms when s27 added
+    the two goal terms to the real key, stayed green while no two rows differed
+    only there, and then failed on the first rows that did -- the 2x2's two,
+    which share everything but `goal_plate_offset` (s28).
     """
-    keys = [
-        (r.layer_kind, r.starter_local_pos, r.starter_rot, r.plate_offsets)
-        for r in MEASURED_RUNS
-    ]
+    keys = [r.lookup_key for r in MEASURED_RUNS]
     assert len(set(keys)) == len(keys)
 
 
@@ -1420,8 +1637,8 @@ def test_a_goal_on_another_plate_is_recordable_rather_than_refused(
     be written down. Here a row exists for a goal on a different layer, and the
     same pair the old code refused now classifies against it.
 
-    Note what is *not* claimed: no such row exists in the real record, and this
-    one is synthetic. What is proven is that the record can hold the shape.
+    The real record has held one since 2026-08-25 (the #17 2x2's completer-plate
+    row); this one stays synthetic so the shape is proven independently of it.
     """
     starter, goal = _cross_layer_pair()
     arm_one = MeasuredRun(

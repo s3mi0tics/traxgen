@@ -206,10 +206,69 @@ def plate_available_directions(kind: LayerKind, local_pos: HexVector) -> frozens
     The world-fixed half of the connection conjunction (`graph.py`). At
     `BASE_LAYER_PIECE` local (0,0) this is `{E, NE, NW}` -- the plate corner
     that the live-direction table had absorbed without recording.
+
+    **Single-plate.** It asks only about the starter's *own* footprint, which
+    is the whole question when the course has one plate and the wrong question
+    when it has more -- see `plate_available_directions_on`, which this is
+    the one-plate case of (verified by sweep, not asserted).
     """
     footprint = plate_footprint(kind)
     return frozenset(
         d for d in range(6) if _as_key(local_pos.neighbor(d)) in footprint
+    )
+
+
+def is_addressable_on_plate(
+    kind: LayerKind,
+    plate_offset: tuple[int, int],
+    local_pos: HexVector,
+) -> bool:
+    """Whether `local_pos` is in-window on the plate sitting at `plate_offset`.
+
+    Coordinates are in the frame `graph.plate_offsets_from` produces: the
+    starter's own plate sits at `(0, 0)` and every other plate is an offset from
+    it, so a cell is in-window on the plate at offset `o` exactly when
+    `local_pos - o` lies on the footprint.
+
+    This is the rule the #17 2x2 measured (`decisions.md`, s27), and the term is
+    **which plate the tile is addressed on** rather than which plates exist. The
+    2x2 is what forces that distinction and it is worth stating plainly, because
+    the looser reading is the tempting one: both of its arms shared a starter, a
+    layout and a direction, and differed *only* in the plate the goal was
+    addressed on -- arm 1 in-window on the neighbour (**active**), arm 2
+    out-of-window on the home plate with that same neighbour present and real
+    (**dark**). So "some plate in this course covers the cell" cannot be the
+    rule; it would have predicted arm 2 live. Addressing decides it.
+
+    **No support term, and that is measured rather than assumed.** The three
+    half-hole cells are in-window and physically incomplete on a lone plate, and
+    the 2026-08-26 campaign rendered a goal on them **active** with no
+    completing neighbour (`plan.md`, answered #17). So physical completeness
+    does not gate connection and does not appear here. The editor still refuses
+    to *build* on them, which is a separate rule the generator owes the user --
+    see `decisions.md`, "A half-hole is not a usable square".
+    """
+    dy, dx = plate_offset
+    return _as_key(HexVector(local_pos.y - dy, local_pos.x - dx)) in plate_footprint(kind)
+
+
+def plate_available_directions_on(
+    kind: LayerKind,
+    local_pos: HexVector,
+    goal_plate_offset: tuple[int, int],
+) -> frozenset[int]:
+    """`plate_available_directions`, for a goal addressed on a named plate.
+
+    The directions from `local_pos` whose neighbouring cell is in-window on the
+    plate at `goal_plate_offset`. With `(0, 0)` -- the goal on the starter's own
+    plate -- this is exactly `plate_available_directions`, which is why every
+    single-plate campaign predicts as it always did; swept as a property over
+    every footprint cell and all six directions rather than asserted in prose.
+    """
+    return frozenset(
+        d
+        for d in range(6)
+        if is_addressable_on_plate(kind, goal_plate_offset, local_pos.neighbor(d))
     )
 
 

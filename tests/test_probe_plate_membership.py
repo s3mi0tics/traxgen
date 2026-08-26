@@ -567,4 +567,10 @@ def test_the_plate_rival_is_extensionally_graph_pys_live_model():
                         goal_rot,
                         layer_kind=LayerKind.BASE_LAYER_PIECE,
                         starter_local_pos=pos,
+                        # The rival models a goal on the starter's own plate, so
+                        # the equivalence is scoped to that -- stated in the call
+                        # rather than left for a reader to assume. With the goal
+                        # addressed elsewhere the library is deliberately no
+                        # longer this rival (2026-08-26).
+                        goal_plate_offset=None,
                     ), f"diverged at pos={pos} s={starter_rot} d={direction} g={goal_rot}"

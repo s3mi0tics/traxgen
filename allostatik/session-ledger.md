@@ -6,3 +6,5 @@ STEP upgrade 3/5 agents-md skipped
 STEP upgrade 4/5 offered:1 placed:0 declined:0
 STEP upgrade 5/5 verified
 STEP-DONE upgrade
+OPENED s29 2026-08-27
+CLOSED s29

@@ -174,6 +174,13 @@ Found 2026-08-24 (s25), when a parallel conversation reported L1 FAIL against a 
 
 The universal close (Part 1) runs the standard steps — from the reflective pass through committing and naming the session. List here any close steps that exist **only for this project**; they run in addition to those, not instead of them. (To turn *off* a universal step, use a `decisions.md` skip row.)
 
+**Read-back pass — between confirm (step 4) and commit (step 5).** Before `git add`, re-read every canonical file this session touched. Two tests, both mechanical:
+
+- **Sections, not files.** Name which sections changed and check them against what the session actually did. `plan.md`'s are Current state, Sequenced work, Deferred cleanup and Session log — and the Session log is the one that gets missed, because step 4's `git status` sees a modified file and cannot see a missing section inside it.
+- **Re-derive, don't re-read.** Every figure in the new prose comes from a command run against the artifact that produced it — a sidecar, a test run, a corpus probe — **in the same turn the sentence is written**. A number carried forward from earlier in the conversation is a number about whichever run was current when it was first said, which is not necessarily the run the sentence is about.
+
+*Test (state):* `scripts/close_check.py` (sequenced, not yet built) reports the changed `##` sections per file, fails if `plan.md` changed while its Session log did not, and lists the numerals in the changed hunks. Until it exists this step runs by hand, which is the weaker form and is why the script is sequenced. (Added 2026-08-26 after a close committed a missing Session log row and three figures welded from two campaigns of one experiment; see observations #37.)
+
 <!-- Project-only close steps — each with a one-line cheap test (how you confirm it ran), per the test-per-routine pattern. -->
 <!-- Example: **Refresh the published docs** — after the commit lands, run the site build and commit the output. Test (state): the build succeeds and the generated files show as committed. -->
 

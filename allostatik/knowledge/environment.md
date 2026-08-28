@@ -4,14 +4,14 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-08-25 (s27)
+**Last updated:** 2026-08-28 (s30)
 
 ## Runtime
 
 - Mac M1. Python 3.12 pinned via `.python-version`; `uv` for env management; `pytest` runs the tests. Editor: VS Code, optionally Cursor (`.cursorrules` at repo root).
 - Default pytest addopts include `-m 'not network'` — network-marked tests (the live upload canary) run only via `uv run pytest -m network`.
-- Android SDK at `~/Library/Android/sdk`. AVD `traxgen_m6c` (Pixel 6, API 34, google_apis_playstore, arm64-v8a) hosts the render harness. Boot: `${ANDROID_HOME:-$HOME/Library/Android/sdk}/emulator/emulator -avd traxgen_m6c -no-snapshot-load > /tmp/emulator.log 2>&1 &` — GraviTrax persists across reboots, no re-sign-in per session.
-- **Shut it down at session close — the AVD does not idle cheaply.** `"$ADB" emu kill`, then confirm with `pgrep -f qemu-system` that it actually died; killing the process directly can leave the AVD lock behind and make the next boot fail as something unrelated. Left running, the emulator keeps this MacBook warm indefinitely, which is what put per-session cycling into the routine (Colby, 2026-08-26 — the habit had been to leave it up between sessions). The lifecycle now has two ends: boot cold at open (above), kill at close (`workflow.md`, *Closing-protocol additions*, first step). Worth naming the asymmetry this corrects — every startup incantation in this file was documented and no teardown was.
+- Android SDK at `~/Library/Android/sdk`. AVD `traxgen_m6c` (Pixel 6, API 34, google_apis_playstore, arm64-v8a) hosts the render harness. Boot: `uv run python -m scripts.emulator boot` (s30), which builds `${ANDROID_HOME:-$HOME/Library/Android/sdk}/emulator/emulator -avd traxgen_m6c -no-snapshot-load > /tmp/emulator.log 2>&1 &`, waits on `sys.boot_completed` under a bound, and grades the device before it returns. The raw command still works if the script is unavailable; what it does not give you is the bound, the stderr, or the check. GraviTrax persists across reboots, no re-sign-in per session.
+- **Shut it down at session close — the AVD does not idle cheaply.** `uv run python -m scripts.emulator kill` (s30): it asks through `"$ADB" emu kill` and then confirms with `pgrep -f qemu-system` that the process actually died, because killing it directly can leave the AVD lock behind and make the next boot fail as something unrelated. Left running, the emulator keeps this MacBook warm indefinitely, which is what put per-session cycling into the routine (Colby, 2026-08-26 — the habit had been to leave it up between sessions). The lifecycle now has two ends: boot cold at open (above), kill at close (`workflow.md`, *Closing-protocol additions*, first step). Worth naming the asymmetry this corrects — every startup incantation in this file was documented and no teardown was.
 - A second AVD, `traxgen_test`, exists and is undocumented. Either it earns a line here or it gets deleted (tracked in `plan.md` deferred cleanup).
 - `gh` CLI is installed and authenticated over SSH — GitHub operations (PRs, issues, releases) can go through `gh` rather than the web UI.
 - Hammerspoon is installed, so macOS-side automation is available if a workflow ever wants it.

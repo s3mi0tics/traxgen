@@ -1,0 +1,320 @@
+{
+  "timestamp": "2026-08-26T03:43:21.576405+00:00",
+  "elapsed_seconds": 589.3,
+  "geometry": {
+    "kind": 0,
+    "starter_local": [
+      -2,
+      4
+    ],
+    "starter_rot": 0,
+    "completer_delta": [
+      5,
+      0
+    ],
+    "null_delta": [
+      -5,
+      0
+    ],
+    "control_direction": 2,
+    "control_local": [
+      -3,
+      4
+    ],
+    "control_rot": 3,
+    "targets": [
+      {
+        "direction": 0,
+        "seam_local": [
+          -2,
+          5
+        ],
+        "goal_rot": 1
+      },
+      {
+        "direction": 4,
+        "seam_local": [
+          -1,
+          3
+        ],
+        "goal_rot": 5
+      }
+    ]
+  },
+  "layer_height": 0.0,
+  "verdict": "WINDOW_ONLY",
+  "reason": "half-holes render active on a lone plate: a correct in-window address is the whole rule, physical support is not a gate, and predict_connection is right here",
+  "arms": [
+    {
+      "role": "certified_control",
+      "label": "certified_open",
+      "direction": null,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ]
+      ],
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "generate_minimal(): proves the harness renders at all (both ends)",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/certified_open_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c"
+    },
+    {
+      "role": "local_control",
+      "label": "local_control",
+      "direction": 2,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ]
+      ],
+      "goal_local": [
+        -3,
+        4
+      ],
+      "goal_rot": 3,
+      "predicted": "active",
+      "why": "goal on solid (-3, 4) (NW): proves this starter's geometry renders on a lone plate (decisions.md, s21)",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "UZ3MQHGMAE",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/local_control_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "e0a8bb69bb2e062e52510bb67e94d7372f13fd83afc585fd5a1df09d4b288677"
+    },
+    {
+      "role": "lone",
+      "label": "lone_E",
+      "direction": 0,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ]
+      ],
+      "goal_local": [
+        -2,
+        5
+      ],
+      "goal_rot": 1,
+      "predicted": "active",
+      "why": "half-hole (-2, 5) E, unsupported (lone plate)",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "SR9JXCZCK2",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/lone_E_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "a8eeea40d9054356542eaed9f44299c0e989c63fc1454f4b09ea4f6c7f209ab4"
+    },
+    {
+      "role": "completed",
+      "label": "completed_E",
+      "direction": 0,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ],
+        [
+          5,
+          0
+        ]
+      ],
+      "goal_local": [
+        -2,
+        5
+      ],
+      "goal_rot": 1,
+      "predicted": "active",
+      "why": "same goal, plate at (5, 0) completes the hole -- the only factor that moved from the lone arm",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "ZE32ZZLGUZ",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/completed_E_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "9515130ab229885403264280957709a8811fb1b77283458f43e2d1f485839adc"
+    },
+    {
+      "role": "null",
+      "label": "null_E",
+      "direction": 0,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ],
+      "goal_local": [
+        -2,
+        5
+      ],
+      "goal_rot": 1,
+      "predicted": "active",
+      "why": "same goal, plate at (-5, 0) completes a disjoint seam and leaves this one unsupported -- predicted null, must equal the lone arm",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "B82EM6SDFE",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/null_E_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "914b6bba86fd0a697190b8d9c238fbe25327794faf24055fdc769b733babaca8"
+    },
+    {
+      "role": "lone",
+      "label": "lone_SW",
+      "direction": 4,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ]
+      ],
+      "goal_local": [
+        -1,
+        3
+      ],
+      "goal_rot": 5,
+      "predicted": "active",
+      "why": "half-hole (-1, 3) SW, unsupported (lone plate)",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "7PV7WAY6I5",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/lone_SW_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "55ca024f3e57031cc7f0b8a9b75130ca3867cc8afcfbfc96cb3ce44f1717aea0"
+    },
+    {
+      "role": "completed",
+      "label": "completed_SW",
+      "direction": 4,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ],
+        [
+          5,
+          0
+        ]
+      ],
+      "goal_local": [
+        -1,
+        3
+      ],
+      "goal_rot": 5,
+      "predicted": "active",
+      "why": "same goal, plate at (5, 0) completes the hole -- the only factor that moved from the lone arm",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "HSYULEC2A4",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/completed_SW_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "1dfc4b911211026c80d45abc89a025fce444965071a7ce4ff7645fc3fac722fc"
+    },
+    {
+      "role": "null",
+      "label": "null_SW",
+      "direction": 4,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ],
+      "goal_local": [
+        -1,
+        3
+      ],
+      "goal_rot": 5,
+      "predicted": "active",
+      "why": "same goal, plate at (-5, 0) completes a disjoint seam and leaves this one unsupported -- predicted null, must equal the lone arm",
+      "payload_bytes": 201,
+      "validator": "ok",
+      "code": "BZEHGMR83N",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/null_SW_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "b858024d696c3ac65f6a2ee9a903208ce2564dc6b8ab23819b295486c446044e"
+    },
+    {
+      "role": "certified_control",
+      "label": "certified_close",
+      "direction": null,
+      "plate_deltas": [
+        [
+          0,
+          0
+        ]
+      ],
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "generate_minimal() again: a dead close voids the run (decisions.md, s27)",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen/screenshots/half_hole/certified_close_try1.png",
+      "render_attempts": 1,
+      "refused_screens": [],
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c"
+    }
+  ]
+}

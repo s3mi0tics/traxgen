@@ -18,9 +18,9 @@ here too, even though it is named for the Cursor surface.
 
 ## Why this file is thin
 
-This is one execution-surface adapter over a shared core. Cursor reads
-`.cursorrules`; Claude Code auto-loads this `CLAUDE.md`; both point at the same
-canonical files rather than copying them.
+This is one execution-surface adapter over a shared core. Claude Code auto-loads
+this `CLAUDE.md`; the root `AGENTS.md` is the same pointer for Cursor and other
+agents; both point at the same canonical files rather than copying them.
 
 <!-- BEGIN allostatik v0.3.4 sha256:1ca590881713 (managed — updated by the upgrade routine, gated on a verbatim diff; your edits belong outside it. Project additions — an extra canonical file to load, say — go below the END marker, outside the fence) -->
 

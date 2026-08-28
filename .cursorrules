@@ -3,6 +3,12 @@
 ## Overview
 Procedural generator for GraviTrax marble run courses. Python 3.12+, uv for env management, pytest for tests.
 
+## Project state and session routines
+
+This file owns **code conventions only**. This project's state and session
+routines live in `allostatik/`, and the root `AGENTS.md` lists what to load and
+points at `allostatik/workflow.md`'s open routine. Read `AGENTS.md` first.
+
 ## File and code conventions
 
 - Do NOT include terminal commands (e.g., `Terminal: touch ...`) at the top of files when creating or modifying them.

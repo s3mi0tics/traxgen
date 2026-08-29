@@ -19,6 +19,10 @@ which would be a second typed copy of the thing the script derives (#24).
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
+
+import pytest
 
 from scripts.probe_half_hole import (
     DIRECTION_NAMES,
@@ -304,3 +308,216 @@ def test_classify_types_hold_together() -> None:
     )
     assert build_arm_course(build_arms(g)[0], g, CERTIFIED_LAYER_HEIGHT) is not None
     assert HexVector(*g.starter_local) == HexVector(-2, 4)
+
+
+# -- the run itself, graded against its committed sidecars ---------------------
+#
+# Everything above grades the *design*: derived geometry, a single moved factor,
+# and `classify` on synthetic arms. Nothing above has ever seen the campaign.
+# What follows closes that gap the way s28 closed it for the 2x2 -- the run's
+# sidecars are gitignored under `screenshots/`, so they are copied into
+# `tests/fixtures/` and the claims rest on committed files (#24).
+#
+# Two campaigns, deliberately kept apart. The nine-arm run and the ten-arm
+# re-run with the negative control added are different runs of one experiment,
+# and #37 is the record of what happens when their figures get welded together:
+# each number stays true of the run nobody is talking about any more. So every
+# assertion below is written over one sidecar at a time, and one test exists
+# purely to make the two non-interchangeable.
+
+FIXTURES = Path(__file__).parent / "fixtures"
+SIDECAR_9ARM = FIXTURES / "half_hole_results_9arm_2026-08-26.json"
+SIDECAR_10ARM = FIXTURES / "half_hole_results_10arm_2026-08-26.json"
+SIDECARS = [SIDECAR_9ARM, SIDECAR_10ARM]
+
+CONTROL_ROLES = {"certified_control", "local_control", "negative_control"}
+
+
+def load(sidecar: Path) -> dict:
+    return json.loads(sidecar.read_text())
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_every_arm_rebuilds_to_the_course_that_rendered(sidecar: Path) -> None:
+    """The #24 claim, and the reason the sidecars are committed at all.
+
+    Every arm is rebuilt through the probe's own builder and required to hash to
+    the `payload_sha256` the run uploaded -- so the courses these tests reason
+    about are, byte for byte, the courses the app rendered. Without it the
+    sidecar is a table of verdicts about courses nobody can reconstruct, and a
+    later edit to `build_arm_course` would silently retitle the experiment.
+    """
+    record = load(sidecar)
+    geometry = derive_geometry()
+    arms = {arm.label: arm for arm in build_arms(geometry)}
+    for entry in record["arms"]:
+        course = build_arm_course(arms[entry["label"]], geometry, record["layer_height"])
+        digest = hashlib.sha256(serialize_course(course)).hexdigest()
+        assert digest == entry["payload_sha256"], entry["label"]
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_the_campaign_returned_window_only(sidecar: Path) -> None:
+    record = load(sidecar)
+    assert record["verdict"] == "WINDOW_ONLY"
+
+
+def replay(sidecar: Path) -> tuple[str, str]:
+    """Re-run today's `classify` over the validities the campaign recorded."""
+    record = load(sidecar)
+    by_label = {arm.label: arm for arm in build_arms(derive_geometry())}
+    replayed = []
+    for entry in record["arms"]:
+        arm = by_label[entry["label"]]
+        arm.validity = entry["validity"]
+        replayed.append(arm)
+    return classify(replayed)
+
+
+def test_classify_reproduces_the_ten_arm_verdict_from_its_recorded_validities() -> None:
+    """`classify` is graded on synthetic arms above; here it is graded on the run.
+
+    A synthetic battery proves every branch is reachable. It cannot prove that
+    the branch the *real* validities land in is the one the sidecar recorded,
+    which is the claim the canonical files actually rest on.
+    """
+    verdict, _reason = replay(SIDECAR_10ARM)
+    assert verdict == load(SIDECAR_10ARM)["verdict"] == "WINDOW_ONLY"
+
+
+def test_todays_classifier_refuses_to_score_the_nine_arm_run_at_all() -> None:
+    """A frozen quotation, and the reason the re-run exists (`decisions.md`, s22).
+
+    The nine-arm campaign recorded `WINDOW_ONLY`. Replayed through the
+    classifier that ships today it comes back **ORACLE_SUSPECT**, because it has
+    no negative control and `classify` now refuses an all-active run that has
+    not shown the oracle can still say `inactive` on that boot -- the s27
+    false-active failure mode. The verdict in that sidecar is therefore a
+    verdict from a superseded guard, not a second independent confirmation.
+
+    Nothing about the conclusion changes: the ten-arm re-run carries its own
+    negative control and stands alone. What changes is what may be *said*. "The
+    campaign returned WINDOW_ONLY twice" reads as two confirmations, and at
+    today's bar it is one confirmation plus one run the shipped classifier would
+    decline to score. This test exists so that sentence cannot drift back in
+    without something failing.
+    """
+    verdict, reason = replay(SIDECAR_9ARM)
+    assert verdict == "ORACLE_SUSPECT"
+    assert "negative control" in reason
+    assert load(SIDECAR_9ARM)["verdict"] == "WINDOW_ONLY", "as recorded at the time"
+    assert "negative_control" not in {e["label"] for e in load(SIDECAR_9ARM)["arms"]}
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_the_brackets_and_the_local_control_held(sidecar: Path) -> None:
+    """Both certified controls active, and the same course at both ends.
+
+    The bracket only means something if the closing arm is the *same* geometry
+    as the opening one; two different courses that both rendered would prove the
+    harness worked twice on different things rather than that it was still
+    working at the end (`decisions.md`, 2026-08-07).
+    """
+    arms = {entry["label"]: entry for entry in load(sidecar)["arms"]}
+    assert arms["certified_open"]["validity"] == "active"
+    assert arms["certified_close"]["validity"] == "active"
+    assert arms["certified_open"]["payload_sha256"] == arms["certified_close"]["payload_sha256"]
+    assert arms["local_control"]["validity"] == "active"
+
+
+def test_the_negative_control_came_back_dark_on_the_same_boot() -> None:
+    """What makes an all-active run a measurement rather than a stuck oracle.
+
+    It is the ten-arm re-run's whole reason for existing, and it is asserted
+    only there: the nine-arm run has no such arm, and a test written over both
+    would have to soften into "if present", which is how a missing control stops
+    being noticed.
+    """
+    arms = {entry["label"]: entry for entry in load(SIDECAR_10ARM)["arms"]}
+    negative = arms["negative_control"]
+    assert negative["validity"] == "inactive"
+    assert negative["goal_local"] == arms["lone_E"]["goal_local"], "same cell as lone_E"
+    assert negative["goal_rot"] != arms["lone_E"]["goal_rot"], "at the wrong rotation"
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_the_predicted_null_held_on_both_directions(sidecar: Path) -> None:
+    """`lone` == `null` == active is what excludes the one-plate-vs-two confound.
+
+    Adding the non-completing plate changes the physical support of *zero* of
+    this plate's cells, so that arm must show no change; a difference there
+    would refute the reading rather than support it. Written over the directions
+    the sidecar records rather than over `E` and `SW` by name, so a redesigned
+    geometry is graded rather than skipped.
+    """
+    arms = {entry["label"]: entry for entry in load(sidecar)["arms"]}
+    directions = sorted({DIRECTION_NAMES[e["direction"]] for e in arms.values()
+                         if e["role"] in {"lone", "completed", "null"}})
+    assert len(directions) == 2, directions
+    for name in directions:
+        lone = arms[f"lone_{name}"]["validity"]
+        null = arms[f"null_{name}"]["validity"]
+        completed = arms[f"completed_{name}"]["validity"]
+        assert lone == null == completed == "active", name
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_nothing_deduped_every_non_control_arm_got_its_own_share_code(sidecar: Path) -> None:
+    """Counted off the record rather than typed.
+
+    Seven of seven in the nine-arm run and eight of eight in the ten-arm is the
+    sentence in `plan.md`; typing either number here would make this test a copy
+    of the claim instead of a check on it (#12), and would have to be edited by
+    hand the next time the design gains an arm.
+    """
+    tested = [e for e in load(sidecar)["arms"] if e["role"] not in CONTROL_ROLES]
+    codes = {e["code"] for e in tested}
+    assert len(codes) == len(tested) > 0
+    assert all(code for code in codes), "every tested arm uploaded"
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_both_campaigns_ran_clean(sidecar: Path) -> None:
+    """No retries and no refused screens, which is why the guards are unspent
+    insurance here rather than something that carried the run."""
+    for entry in load(sidecar)["arms"]:
+        assert entry["upload_attempts"] == 1, entry["label"]
+        assert entry["render_attempts"] == 1, entry["label"]
+        assert entry["refused_screens"] == [], entry["label"]
+        assert entry["render_error"] is None and entry["upload_error"] is None, entry["label"]
+
+
+@pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
+def test_the_shipped_model_predicted_every_arm_the_run_rendered(sidecar: Path) -> None:
+    """Prediction against measurement, arm by arm, off the record itself.
+
+    The sidecar carries what the model said *before* the render, so this is the
+    honest form of the claim in the run's own `reason` -- that the model is
+    right here -- rather than a model refitted to the outcome (#20).
+    """
+    for entry in load(sidecar)["arms"]:
+        assert entry["predicted"] == entry["validity"], entry["label"]
+
+
+def test_the_two_campaigns_rendered_the_same_courses_where_they_overlap() -> None:
+    """What makes the ten-arm run a *re-run* rather than a second experiment."""
+    nine = {e["label"]: e["payload_sha256"] for e in load(SIDECAR_9ARM)["arms"]}
+    ten = {e["label"]: e["payload_sha256"] for e in load(SIDECAR_10ARM)["arms"]}
+    shared = nine.keys() & ten.keys()
+    assert len(shared) == 9
+    for label in shared:
+        assert nine[label] == ten[label], label
+
+
+def test_the_two_campaigns_are_not_interchangeable() -> None:
+    """#37, made mechanical.
+
+    The close that welded `ten renders ... at 589.3s` did it because both
+    numbers were true of *a* run. Nothing structural stopped it. This pins that
+    the two sidecars differ in both arm count and duration, so any figure quoted
+    from one is checkably not a figure from the other.
+    """
+    nine, ten = load(SIDECAR_9ARM), load(SIDECAR_10ARM)
+    assert len(nine["arms"]) != len(ten["arms"])
+    assert nine["elapsed_seconds"] != ten["elapsed_seconds"]
+    assert "negative_control" not in {e["label"] for e in nine["arms"]}

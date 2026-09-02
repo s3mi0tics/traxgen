@@ -22,7 +22,7 @@ This is one execution-surface adapter over a shared core. Cursor and other
 agents read this `AGENTS.md`; Claude Code auto-loads `CLAUDE.md`; both point at
 the same canonical files rather than copying them.
 
-<!-- BEGIN allostatik v0.3.4 sha256:941bd8d34c70 (managed — updated by the upgrade routine, gated on a verbatim diff; your edits belong outside it. Project additions — an extra canonical file to load, say — go below the END marker, outside the fence) -->
+<!-- BEGIN allostatik v0.3.7 sha256:a331be536e27 (managed — updated by the upgrade routine, gated on a verbatim diff; your edits belong outside it. Project additions — an extra canonical file to load, say — go below the END marker, outside the fence) -->
 
 This region is contributed by Allostatik. It declares this as an Allostatik project and lists the project-scope files your AI loads each session. Architectural background for this pattern lives in the methodology's `README.md` — not duplicated here.
 
@@ -41,9 +41,9 @@ This surface has no `@`-import syntax; read these files at the start of every se
 - `allostatik/project-instructions.md`
 - `allostatik/workflow.md`
 - `allostatik/plan.md`
-- `allostatik/decisions.md`
-- `allostatik/observations.md`
 - `allostatik/vision.md`
+
+The record — `allostatik/decisions.md` and `allostatik/observations.md` — is deliberately not listed here. The open routine reads it directly, so that it can read a generated index instead once the record outgrows its budget. That switch is a routine's decision, not a manifest's, and keeping it out of this block is what lets a project make it without editing an upstream-owned region.
 
 Read when relevant (optional):
 

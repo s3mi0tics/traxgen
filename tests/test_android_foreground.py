@@ -90,6 +90,11 @@ def _solid_png(width: int, height: int, colour: tuple[int, int, int]) -> bytes:
 
 
 PNG_FRAME = _solid_png(2400, 1080, (40, 44, 52))
+# The shipped main-menu signature itself, at its own geometry: distance 0 from
+# the reference, which is what "the menu is on screen" looks like to the wait.
+MAIN_MENU_PNG = (
+    Path(__file__).parent.parent / "traxgen" / "data" / "known_screens" / "main_menu.png"
+).read_bytes()
 
 
 # --- The fake adb ----------------------------------------------------------
@@ -112,11 +117,18 @@ class FakeAdb:
         devices: str = "List of devices attached\nemulator-5554\tdevice\n\n",
         boot_completed: str = "1",
         screencap_png: bytes = PNG_FRAME,
+        screencap_pngs: Sequence[bytes] | None = None,
     ) -> None:
         self.foreground_dump = foreground_dump
         self.devices = devices
         self.boot_completed = boot_completed
         self.screencap_png = screencap_png
+        # A *sequence* of frames, served one per screencap call, the last one
+        # repeating -- so a wait that polls the screen can be shown a splash
+        # that then clears (s32). `screencap_png` alone is a screen that never
+        # changes, which is the one thing a polling wait cannot be tested on.
+        self.screencap_pngs = tuple(screencap_pngs) if screencap_pngs is not None else None
+        self.screencaps_served = 0
         self.calls: list[list[str]] = []
 
     def __call__(
@@ -127,7 +139,12 @@ class FakeAdb:
         joined = " ".join(argv)
 
         if "screencap" in joined:
-            return subprocess.CompletedProcess(argv, 0, self.screencap_png, b"")
+            frame = self.screencap_png
+            if self.screencap_pngs:
+                index = min(self.screencaps_served, len(self.screencap_pngs) - 1)
+                frame = self.screencap_pngs[index]
+            self.screencaps_served += 1
+            return subprocess.CompletedProcess(argv, 0, frame, b"")
 
         if argv[1:2] == ["devices"]:
             out = self.devices
@@ -165,9 +182,30 @@ def no_sleep(_seconds: float) -> None:
     """
 
 
+class FakeClock:
+    """A clock that only moves when something sleeps on it.
+
+    Wired into `ctx_with` as both `sleep` and `clock`, so a bounded wait that
+    would otherwise spin against real time for its whole ceiling runs its
+    deadline out in as many polls as the ceiling holds intervals, instantly.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def ctx_with(fake: FakeAdb) -> AdbContext:
     """A context wired to the fake. The path is never touched -- nothing execs it."""
-    return AdbContext(adb_path=Path("/nonexistent/adb"), runner=fake, sleep=no_sleep)
+    clock = FakeClock()
+    return AdbContext(
+        adb_path=Path("/nonexistent/adb"), runner=fake, sleep=clock.sleep, clock=clock
+    )
 
 
 IS_TAP = lambda c: "input tap" in c  # noqa: E731
@@ -330,26 +368,26 @@ def test_render_does_not_reset_by_default(tmp_path: Path) -> None:
 
 
 def test_reset_first_establishes_state_then_verifies_it(tmp_path: Path) -> None:
-    """Order: force-stop, launch, *then* check -- and the check is before any tap.
+    """Order: force-stop, launch, *wait for the menu on screen*, check, then tap.
 
-    `reset_first` **establishes** main-menu state rather than checking it: the
-    Unity surface is opaque, so there is nothing to read. What the guard then
-    verifies is the weaker, real claim -- that the relaunch put the app in
-    front at all.
+    Until s32 the menu half was a fixed sleep, because `dumpsys window` cannot
+    tell splash from menu. Now a screencap has to match the main-menu signature
+    before the foreground check runs and before any tap lands -- so the first
+    screencap in the recorded calls sits between the launch and the check.
     """
-    fake = FakeAdb()
+    fake = FakeAdb(screencap_png=MAIN_MENU_PNG)
     render_course(
         "ABC1234567",
         ctx=ctx_with(fake),
         screenshot_dir=tmp_path,
         cleanup=False,
         reset_first=True,
-        settle_seconds=0.0,
     )
     stop = fake.index_of(IS_FORCE_STOP)
     launch = fake.index_of(IS_LAUNCH)
+    menu_poll = fake.index_of(IS_SCREENCAP)
     check = fake.index_of(IS_FOREGROUND_CHECK)
-    assert stop < launch < check < fake.index_of(IS_TAP)
+    assert stop < launch < menu_poll < check < fake.index_of(IS_TAP)
 
 
 def test_reset_first_reports_a_relaunch_that_did_not_take(tmp_path: Path) -> None:
@@ -361,7 +399,7 @@ def test_reset_first_reports_a_relaunch_that_did_not_take(tmp_path: Path) -> Non
             ctx=ctx_with(fake),
             screenshot_dir=tmp_path,
             reset_first=True,
-            settle_seconds=0.0,
+            menu_timeout=0.0,
         )
     assert not fake.has(IS_TAP)
 

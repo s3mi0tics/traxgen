@@ -393,6 +393,65 @@ def boot(
     return checks
 
 
+@contextmanager
+def session(
+    *,
+    avd: str = DEFAULT_AVD,
+    android_home: Path | None = None,
+    log_path: Path = DEFAULT_EMULATOR_LOG,
+    package: str = DEFAULT_PACKAGE,
+    ctx: AdbContext | None = None,
+    out: Callable[[str], None] = print,
+    boot_fn: Callable[..., list[Check]] = boot,
+    kill_fn: Callable[..., KillOutcome] = kill_emulator,
+) -> Iterator[AdbContext]:
+    """A cold emulator for exactly the duration of the block.
+
+    Three guarantees, each of which a fixed habit failed to give this project:
+
+    * **It starts from nothing.** Whatever is running is killed first -- and
+      `kill_emulator` on nothing running is a pass, so this is idempotent. The
+      2026-09-06 render ran on an emulator up for a day and met one
+      `bad color buffer`; the next morning's diagnosis ran on the same one.
+    * **It always comes down.** The teardown is in `finally`: a clean run, an
+      exception, a harness refusal and a Ctrl-C all leave no `qemu-system`
+      behind. Nothing inside the block can opt out.
+    * **It refuses rather than guesses.** A pre-kill that leaves survivors, or
+      a boot whose device checks fail, raises before the body runs -- a run on
+      a half-dead emulator is the thing every guard in `android.py` exists to
+      catch after the fact, and this catches it before.
+
+    The unit is the *run* -- one CLI render, one campaign -- not the arm.
+    Cold boot plus app launch is ~75s against a ~25s render, so per-arm cycling
+    would quadruple a campaign; per run it is the ~4% `decisions.md` measured.
+    `render_course.py --fresh` is the first caller; campaigns adopt it with the
+    harness extraction rather than by a fourth copy of the loop.
+    """
+    ctx = ctx or resolve_context(android_home=android_home, package=package)
+    before = kill_fn(ctx)
+    out(before.line())
+    if not before.died:
+        raise EmulatorLifecycleError(
+            f"refusing to boot over a running emulator: {before.detail}; "
+            f"survivors {' '.join(before.survivors)}"
+        )
+    checks = boot_fn(
+        avd=avd, android_home=android_home, log_path=log_path, package=package, ctx=ctx, out=out
+    )
+    failed = [check.name for check in checks if not check.ok]
+    if failed:
+        after = kill_fn(ctx)
+        out(after.line())
+        raise EmulatorLifecycleError(f"device checks failed after cold boot: {failed}")
+    try:
+        yield ctx
+    finally:
+        after = kill_fn(ctx)
+        out(after.line())
+        if not after.died:
+            out(f"WARNING: emulator survived teardown: {after.detail}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)

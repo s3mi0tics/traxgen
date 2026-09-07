@@ -462,9 +462,10 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "(-4,0) rot 5 for SW, rendered active both times (UY36K96VLM, "
             "E3FMVREOBV): connection composes across a plate boundary. "
             "`predict_connection` called both dark and was refuted by "
-            "prediction, as the probe's docstring declared it would be. 7/7, "
-            "both certified controls active (KN6F459ZR3), no retries, no "
-            "refused screens; ADDRESSING_MATTERS"
+            "prediction, as the probe's docstring declared it would be. 7 of 7 "
+            "arms rendered, 5 of 7 predicted (both arm 1s wrong -- that is the "
+            "refutation); both certified controls active (KN6F459ZR3), no "
+            "retries, no refused screens; ADDRESSING_MATTERS"
         ),
     ),
 )

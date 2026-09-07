@@ -5,10 +5,17 @@ Usage:
     uv run python -m scripts.render_course X3WEQ6F296
     uv run python -m scripts.render_course MT756NLLMI --name invalid_disconnected_rail
     uv run python -m scripts.render_course HKN3ZZYUI7 --no-cleanup --no-disclaimer
+    uv run python -m scripts.render_course KN6F459ZR3 --fresh --detect-validity
 
-Preconditions:
+Preconditions (without --fresh):
     - Android emulator (AVD: traxgen_m6c) is running and booted
     - GraviTrax app is launched and showing the main menu
+
+`--fresh` removes both preconditions: it kills any running emulator, cold-boots
+the AVD, relaunches the app and waits until the main menu is recognised on
+screen, renders, and tears the emulator down again on every exit route. That is
+the end-to-end unit -- one run, from nothing to nothing (s32, 2026-09-07).
+`--reset-first` is the middle of that on an emulator you keep up yourself.
 
 Output:
     - stdout: the screenshot path, newline-terminated
@@ -30,8 +37,10 @@ import sys
 from pathlib import Path
 
 from traxgen.android import (
-    AndroidAutomationError,
     DEFAULT_SCREENSHOT_DIR,
+    AdbContext,
+    AndroidAutomationError,
+    RenderResult,
     render_course,
     resolve_context,
 )
@@ -77,6 +86,22 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="After capture, classify the play button as active/inactive (validity oracle).",
     )
+    parser.add_argument(
+        "--reset-first",
+        action="store_true",
+        help=(
+            "Force-stop and relaunch the app, then wait until the main menu is recognised "
+            "on screen before the first tap (bounded; no fixed settle)."
+        ),
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help=(
+            "Kill any running emulator, cold-boot, render, and tear the emulator down "
+            "afterwards whatever happens. Implies --reset-first."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -94,9 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"rendering {code} via emulator...", file=sys.stderr)
 
-    try:
-        ctx = resolve_context()
-        result = render_course(
+    def render(ctx: AdbContext) -> RenderResult:
+        return render_course(
             code,
             ctx=ctx,
             screenshot_dir=args.screenshot_dir,
@@ -104,7 +128,22 @@ def main(argv: list[str] | None = None) -> int:
             cleanup=not args.no_cleanup,
             expect_disclaimer=not args.no_disclaimer,
             detect_validity=args.detect_validity,
+            reset_first=args.reset_first or args.fresh,
         )
+
+    try:
+        if args.fresh:
+            # Imported here so a plain render never loads the emulator lifecycle.
+            from scripts.emulator import EmulatorLifecycleError, session
+
+            try:
+                with session(out=lambda line: print(line, file=sys.stderr)) as ctx:
+                    result = render(ctx)
+            except EmulatorLifecycleError as exc:
+                print(f"emulator lifecycle failed: {exc}", file=sys.stderr)
+                return 1
+        else:
+            result = render(resolve_context())
     except AndroidAutomationError as exc:
         print(f"render failed: {exc}", file=sys.stderr)
         return 3

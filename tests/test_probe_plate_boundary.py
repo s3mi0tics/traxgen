@@ -30,7 +30,7 @@ from scripts.probe_plate_boundary import (
     plate_positions,
     render_arm,
 )
-from tests.test_android_foreground import LAUNCHER_DUMP, FakeAdb, ctx_with
+from tests.test_android_foreground import LAUNCHER_DUMP, MAIN_MENU_PNG, FakeAdb, ctx_with
 from traxgen.graph import STARTER_PLATE_ONLY, measured_live_directions
 from traxgen.hex import HEX_DIRECTIONS
 from traxgen.layout import CERTIFIED_LAYER_HEIGHT
@@ -372,6 +372,12 @@ class _ScriptedAdb(FakeAdb):
 
     The base fake returns one frame forever, which cannot express "refused, then
     fine" -- and that sequence is the entire behaviour under test.
+
+    Since s32 every attempt reads the screen *twice*: `reset_first` polls until
+    a screencap matches the main-menu signature, then the render captures its
+    frame. So screencap calls alternate -- even ones answer the menu poll with
+    the menu, odd ones serve the scripted capture frames in order, the last
+    repeating -- and `frames` still lists only the captures, as before.
     """
 
     def __init__(self, frames: list[bytes]) -> None:
@@ -381,8 +387,11 @@ class _ScriptedAdb(FakeAdb):
 
     def __call__(self, cmd, **kwargs):  # type: ignore[no-untyped-def]
         if "screencap" in " ".join(str(part) for part in cmd):
-            index = min(self.screencaps, len(self._frames) - 1)
-            self.screencap_png = self._frames[index]
+            if self.screencaps % 2 == 0:
+                self.screencap_png = MAIN_MENU_PNG
+            else:
+                index = min(self.screencaps // 2, len(self._frames) - 1)
+                self.screencap_png = self._frames[index]
             self.screencaps += 1
         return super().__call__(cmd, **kwargs)
 

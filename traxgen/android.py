@@ -25,7 +25,9 @@ from typing import Any, NamedTuple
 
 DEFAULT_ANDROID_HOME = Path.home() / "Library" / "Android" / "sdk"
 DEFAULT_PACKAGE = "com.ravensburger.gravitrax"
-DEFAULT_SCREENSHOT_DIR = Path.home() / "Desktop" / "Hub" / "Projects" / "traxgen" / "screenshots"
+# Repo-relative: `screenshots/` at the repo root, gitignored. The previous value pointed at a
+# `~/Desktop/Hub` checkout deleted in July 2026 and was silently recreated by every render.
+DEFAULT_SCREENSHOT_DIR = Path(__file__).resolve().parent.parent / "screenshots"
 
 # Tap coordinates in 2400x1080 device space. Mapped manually; document any
 # changes in docs/refs/android-automation.md.
@@ -75,7 +77,22 @@ WAITS = {
 # `reset_first` below unable to reach it without traxgen importing from scripts
 # -- the dependency arrow backwards. Moved here 2026-08-23 (s23); both scripts
 # now import it from the library.
+#
+# 2026-09-07 (s32): SUPERSEDED on the reset path. On a cold boot of app 2.8 the
+# splash cleared between 40s and 50s after launch -- measured, one frame every
+# 10s -- so 35s put every tap of a render onto the splash and the *later* taps
+# onto the main menu at coordinates meant for other screens, which is how a
+# render ends on the build tutorial (the 2026-08-25 refused screen, and again
+# 2026-09-06). `reset_to_main_menu` now waits for the menu to be *recognised*
+# (`wait_for_main_menu` below) instead of sleeping a number. The constant stays
+# because the campaign scripts still sleep it after their own reset; those
+# sleeps are now redundant and retire with the harness extraction.
 SETTLE_SECONDS = 35.0
+
+# Ceiling and cadence for `wait_for_main_menu`. 90s is twice the slowest
+# arrival measured (50s, cold boot, app 2.8); 2s polls cost one screencap each.
+MENU_WAIT_TIMEOUT = 90.0
+MENU_WAIT_INTERVAL = 2.0
 
 
 # --- Exceptions ------------------------------------------------------------
@@ -215,6 +232,14 @@ class AdbContext:
     )
     sleep: Callable[[float], None] = field(
         default=time.sleep, repr=False, compare=False
+    )
+    # The clock the bounded waits read their deadlines from. Injected beside
+    # `sleep` for the same reason and as the same pair: a test that swallows
+    # sleeps against a *real* clock turns a 90s ceiling into 90s of busy
+    # polling (found the day `wait_for_main_menu` landed, s32). A fake clock
+    # whose `sleep` advances it makes the ceiling deterministic and instant.
+    clock: Callable[[], float] = field(
+        default=time.monotonic, repr=False, compare=False
     )
 
 
@@ -946,6 +971,131 @@ def match_refused_screen(
     return best
 
 
+# --- Known screens: the positive test ---------------------------------------
+#
+# Everything above recognises screens we have been burned by. This recognises
+# the one screen every render needs to START from, which is the check the
+# module said (above) did not exist. Same comparison form, same metric, same
+# threshold as the refused set -- so the name `RefusedScreen` is now just the
+# type's history, and `ScreenSignature` is the honest alias.
+#
+# Why a signature and not `frame_white_fraction`: the main menu is 68%
+# near-white by that measure (0.674-0.684 across 70s of its own animation), the
+# splash is 94% and the blank frame before it 100%. A white-fraction threshold
+# would have to sit inside a 0.26 gap on two samples of each class. The
+# signature separates by more than an order of magnitude and the menu's own
+# animation stays inside the threshold.
+#
+# Measured 2026-09-07, cold boot, app 2.8, 150x67 BOX, mean absolute channel
+# difference from `data/known_screens/main_menu.png` (the t=50s frame):
+#
+#   main_menu vs t=60/70/90/120s frames (the menu animating)   2.84 - 3.04
+#   main_menu vs splash (t=40s)                                22.035
+#   main_menu vs blank white frame (t=10s)                     21.712
+#   main_menu vs the Load-track dialog                         48.584
+#   main_menu vs build_tutorial (the refused screen)           98.509
+#
+# The threshold is `REFUSED_SCREEN_DISTANCE` reused, not a second constant:
+# 10.0 sits 3.3x above the menu-to-menu maximum and 2.2x below the nearest
+# non-menu. `tests/fixtures/frames/` holds the four comparison frames so the
+# table is re-runnable (observations #24).
+
+ScreenSignature = RefusedScreen
+
+KNOWN_SCREEN_DIR = Path(__file__).parent / "data" / "known_screens"
+KNOWN_SCREEN_DISTANCE = REFUSED_SCREEN_DISTANCE
+
+
+def load_known_screen(name: str, directory: Path = KNOWN_SCREEN_DIR) -> ScreenSignature:
+    """One known screen by fixture stem, in comparison form."""
+    from PIL import Image
+
+    image = Image.open(directory / f"{name}.png").convert("RGB")
+    return ScreenSignature(name, image.width, image.height, image.tobytes())
+
+
+_MAIN_MENU_CACHE: ScreenSignature | None = None
+
+
+def main_menu_signature() -> ScreenSignature:
+    """The shipped main-menu signature, decoded once per process."""
+    global _MAIN_MENU_CACHE
+    if _MAIN_MENU_CACHE is None:
+        _MAIN_MENU_CACHE = load_known_screen("main_menu")
+    return _MAIN_MENU_CACHE
+
+
+class MenuArrival(NamedTuple):
+    """What `wait_for_main_menu` measured: how long, how many frames, how close."""
+
+    elapsed: float
+    polls: int
+    distance: float
+
+
+def wait_for_main_menu(
+    ctx: AdbContext,
+    *,
+    reference: ScreenSignature | None = None,
+    threshold: float = KNOWN_SCREEN_DISTANCE,
+    timeout: float = MENU_WAIT_TIMEOUT,
+    interval: float = MENU_WAIT_INTERVAL,
+    clock: Callable[[], float] | None = None,
+) -> MenuArrival:
+    """Poll screencaps until one matches the main-menu signature.
+
+    A mode guard, not a signature guard, in the module's own terms: it asks
+    whether the screen is the one the flow needs, not whether it is one the
+    flow has been burned by. Bounded by `timeout`; every poll is one screencap.
+
+    On timeout it says *which* failure this was, because the two need different
+    hands: if `ctx.package` is not in front, the relaunch did not take and that
+    is `WrongForegroundAppError`, same as the foreground guard raises; if the
+    app is in front but never matched, that is `UiConditionTimeout` carrying the
+    last distance, so a menu that has been redesigned (the fixture is stale) is
+    distinguishable from an app that never got past its splash.
+    """
+    reference = reference or main_menu_signature()
+    clock = clock or ctx.clock
+    start = clock()
+    polls = 0
+    last: float | None = None
+
+    def sample() -> bytes:
+        nonlocal polls
+        polls += 1
+        return _run_adb_binary(ctx, "exec-out", "screencap", "-p")
+
+    def is_menu(frame: bytes) -> bool:
+        nonlocal last
+        last = screen_distance(frame, reference)
+        return last <= threshold
+
+    try:
+        wait_until(
+            sample,
+            is_menu,
+            timeout=timeout,
+            interval=interval,
+            description=f"the {reference.name} screen",
+            sleep_fn=ctx.sleep,
+            clock=clock,
+        )
+    except UiConditionTimeout as exc:
+        in_front = read_foreground_package(ctx)
+        if in_front != ctx.package:
+            raise WrongForegroundAppError(
+                expected=ctx.package, found=in_front or "unreadable"
+            ) from exc
+        raise UiConditionTimeout(
+            f"{exc}; {ctx.package} is in front but the last frame was {last:.3f} from "
+            f"{reference.name} (threshold {threshold}) -- a splash that never cleared, "
+            "or a menu the fixture no longer describes"
+        ) from exc
+    assert last is not None
+    return MenuArrival(elapsed=clock() - start, polls=polls, distance=last)
+
+
 # --- High-level flow -------------------------------------------------------
 
 class RenderResult(NamedTuple):
@@ -965,7 +1115,7 @@ def render_course(
     expect_disclaimer: bool = True,
     detect_validity: bool = False,
     reset_first: bool = False,
-    settle_seconds: float = SETTLE_SECONDS,
+    menu_timeout: float = MENU_WAIT_TIMEOUT,
     refused_screens: Sequence[RefusedScreen] | None = None,
     refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
 ) -> RenderResult:
@@ -986,11 +1136,13 @@ def render_course(
     cleanup", not "cleanup is guarded". Two of those taps are destructive,
     which is the reason to state the gap rather than round it off.
 
-    The menu half is *not* checked, because it cannot be: splash and main menu
-    are byte-identical to `dumpsys window`. `reset_first=True` **establishes**
-    that state by force-stop-and-relaunch plus `settle_seconds`, rather than
-    verifying it. Opt-in, so existing callers keep their current cost;
-    `run_sweep_queue.py` already resets before every sweep and does not need it.
+    The menu half cannot be read from `dumpsys window` (splash and main menu
+    are byte-identical there), so `reset_first=True` force-stops, relaunches,
+    and then **waits until a screencap matches the main-menu signature**
+    (`wait_for_main_menu`, bounded by `menu_timeout`) rather than sleeping a
+    fixed settle -- the fixed settle is what put renders on the build tutorial
+    (2026-08-25, 2026-09-06). Opt-in, so existing callers keep their current
+    cost; `run_sweep_queue.py` already resets before every sweep.
 
     The captured frame is then checked against the refused-screen set and
     `RefusedScreenError` is raised if it matches one -- after cleanup, so the
@@ -1003,8 +1155,7 @@ def render_course(
     assert_emulator_ready(ctx)
 
     if reset_first:
-        reset_to_main_menu(ctx)
-        ctx.sleep(settle_seconds)
+        reset_to_main_menu(ctx, timeout=menu_timeout)
 
     # Before the first tap. After it, the tap has already landed on whatever
     # was in front, and the run is spending renders on the wrong surface.
@@ -1071,12 +1222,22 @@ def render_course(
     return RenderResult(screenshot=out_path, validity=validity)
 
 
-def reset_to_main_menu(ctx: AdbContext | None = None) -> None:
-    """Force-stop and relaunch the app."""
+def reset_to_main_menu(
+    ctx: AdbContext | None = None,
+    *,
+    timeout: float = MENU_WAIT_TIMEOUT,
+    clock: Callable[[], float] | None = None,
+) -> MenuArrival:
+    """Force-stop and relaunch the app, then wait until the main menu is on screen.
+
+    Returns what the wait measured, so a caller can log how long the app took
+    to come up -- the number that `SETTLE_SECONDS` used to guess.
+    """
     ctx = ctx or resolve_context()
     force_stop(ctx)
     ctx.sleep(1.0)
     launch(ctx)
+    return wait_for_main_menu(ctx, timeout=timeout, clock=clock)
 
 
 # --- Validity oracle: play-button color sampling ---------------------------

@@ -15,13 +15,15 @@ Before answering "where are we", "what's next", or the status of any work, ask m
     allostatik/project-instructions.md \
     allostatik/plan.md \
     allostatik/workflow.md \
-    allostatik/decisions.md \
-    allostatik/observations.md \
-    allostatik/vision.md ; do
+    allostatik/decisions-and-observations-index.md \
+    allostatik/vision.md \
+    allostatik/session-ledger.md ; do
     echo "===== FILE: $f ====="
     cat "$f"
     echo ""
   done
+  echo "===== FILE: allostatik/log.md (newest entry) ====="
+  tail -n 1 allostatik/log.md
 } 2>&1 | tee >(pbcopy)
 ```
 
@@ -31,15 +33,17 @@ Do not reconstruct state from this field alone. If I open with a specific questi
 
 `allostatik/workflow.md` holds the full open and close routines. The short version:
 
-**Opening.** Load the files above, then run the open checks — is `plan.md`'s session log current (if it's behind, a previous close was skipped: backfill before new work), and do the deployed surfaces still match canonical?
+**Opening.** Load the files above, then run the open checks — is `log.md` current (if it's behind, a previous close was skipped: backfill before new work), does the index still describe the record, and do the deployed surfaces still match canonical?
 
 **Closing.** Update the canonical files for whatever changed, confirm the writes landed, commit and push, *then* write the handoff. The handoff points at those files; it does not carry state. Deliver it as a file, not inline prose.
 
 ## What lives where
 
-- `allostatik/plan.md` — operational state: milestones, sequenced work, open unknowns, session log.
+- `allostatik/plan.md` — operational state: milestones, sequenced work, open unknowns.
+- `allostatik/log.md` — the session-by-session record; its last line is the newest entry.
 - `allostatik/decisions.md` — locked choices with their reasoning. Don't relitigate without a checkpoint.
 - `allostatik/observations.md` — process patterns, numbered cumulatively. Never renumber.
+- `allostatik/decisions-and-observations-index.md` — one line per record entry, and what the open loads instead of the two files above; look an entry up by its line address. Regenerate after any record edit: `uv run python -m scripts.make_record_index` (`--verify` to check).
 - `allostatik/vision.md` — longer-arc direction (the three generation modes, why it matters).
 - `allostatik/knowledge/` — environment and resources.
 - `.cursorrules` (repo root) — **code conventions, and authoritative.** Schema fidelity, type hints, testing markers, fixtures, generation modes, physics/variance rules. Read it before editing source.

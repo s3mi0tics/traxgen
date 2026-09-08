@@ -157,11 +157,29 @@ class MeasuredRun:
     standing on it, and resolving it to the plate beneath would smuggle that
     equivalence into the record as if a render had established it.
 
+    **`starter_kind` and `goal_kind` say which pieces were rendered (s33).**
+    Every campaign in this record placed a STARTER and a GOAL_RAIL, and until
+    s33 nothing recorded it. `GOAL_KINDS` resolves to {GOAL_RAIL, GOAL_BASIN},
+    so a GOAL_BASIN beside a STARTER matched the GOAL_RAIL rows and inherited
+    their verdicts -- a measured DISCONNECTED at a wrong rotation, reported by
+    `START_GOAL_CONNECTED` at ERROR, for a piece no render has placed. Fifth of
+    the s21/s24/s25/s27 family, on the axis plan item 1 widens from two kinds to
+    ninety-three: the same move as every term before it -- what the builders
+    silently supplied becomes part of the key, and an unrendered pair misses
+    the record rather than borrowing a neighbour's answer. Required with no
+    default for the same reason the other terms are (see `connection_status`).
+    Note what this does *not* do: `predict_*` still models exactly one pairing,
+    STARTER -> GOAL_RAIL, and takes no kind -- the model gains kinds when the
+    port taxonomy (plan item 1) gives it something measured to say about them.
+
     Broken window, named rather than fixed here: `layer_kind` is the *starter's*
     and now sits beside `goal_layer_kind`, which reads worse than it should.
     Renaming it `starter_layer_kind` is mechanical and touches `measured_run`,
-    `connection_status`, `measured_live_directions` and every caller, so it
-    belongs in its own pass rather than inside a change about the goal side.
+    `connection_status`, `measured_live_directions` and every caller. s33
+    touched all of those and still declined: the reason is no longer the
+    blast radius but that a rename mixed into a change of meaning is the
+    wrong commit (#10, commit by "why"). It is its own pass, and it is now
+    beside `starter_kind`, which makes the mismatch read worse still.
 
     `plate_offsets` is where every baseplate in the rendered course sat
     **relative to the starter's own plate** -- the precondition the first nine
@@ -211,12 +229,14 @@ class MeasuredRun:
     layer_kind: LayerKind
     starter_local_pos: tuple[int, int]
     starter_rot: int
+    starter_kind: TileKind
     live_directions: frozenset[int]
     directions_probed: frozenset[int]
     goal_rotations_swept: bool
     plate_offsets: tuple[tuple[int, int], ...]
     goal_layer_kind: LayerKind
     goal_plate_offset: tuple[int, int] | None
+    goal_kind: TileKind
     provenance: str
 
     def __post_init__(self) -> None:
@@ -235,11 +255,13 @@ class MeasuredRun:
         LayerKind,
         tuple[int, int],
         int,
+        TileKind,
         tuple[tuple[int, int], ...],
         LayerKind,
         tuple[int, int] | None,
+        TileKind,
     ]:
-        """The six terms `measured_run` matches on, defined once.
+        """The eight terms `measured_run` matches on, defined once.
 
         `tests/test_graph.py` asserts every row's key is distinct through this
         property. Its previous typed copy of the key stopped at four terms when
@@ -251,9 +273,11 @@ class MeasuredRun:
             self.layer_kind,
             self.starter_local_pos,
             self.starter_rot,
+            self.starter_kind,
             self.plate_offsets,
             self.goal_layer_kind,
             self.goal_plate_offset,
+            self.goal_kind,
         )
 
 
@@ -293,72 +317,84 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 2}),  # E, NW
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-07 36-cell sweep + 2026-08-08 NW-rot-0 backfill",
     ),
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=1,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({1}),  # NE
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-08 full sweep -- exactly one live cell in 36",
     ),
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=2,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 2}),  # E, NW
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-10 queue run; one 520'd upload closed by auto-resume",
     ),
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=3,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({1}),  # NE
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-10 queue run",
     ),
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=4,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 2}),  # E, NW
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-10 queue run; one frame-guard hole closed by auto-resume",
     ),
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 0),
         starter_rot=5,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({1}),  # NE
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=True,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="2026-08-10 queue run",
     ),
     # The two runs that found the missing coordinate. Both declared every
@@ -367,12 +403,14 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 1),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({2}),  # NW alone
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-21 edge probe -- E and SW are port-allowed but off-plate "
             "and both rendered inactive, which refuted the port-only model"
@@ -382,12 +420,14 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(-3, 2),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 2, 4}),  # E, NW, SW
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-21 interior probe -- SW rendered active after six "
             "exhaustive corner sweeps called it dark, which refuted this "
@@ -402,12 +442,14 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(-3, 2),
         starter_rot=1,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({1, 3, 5}),  # NE, W, SE
         directions_probed=ALL_DIRECTIONS,
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-23 interior probe at odd rotation -- W and SE rendered "
             "active after being dark in all six exhaustive corner sweeps, "
@@ -431,12 +473,14 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 1),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({2}),  # NW: the local control
         directions_probed=frozenset({0, 2, 4}),  # E, NW, SW
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_PLUS_COMPLETER,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-25 #17 2x2, home-plate arms -- E (0,2) and SW (1,0) are "
             "the same world cells as the arm-1 goals, addressed as "
@@ -450,12 +494,14 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 1),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 4}),  # E, SW -- both across the boundary
         directions_probed=frozenset({0, 4}),
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_PLUS_COMPLETER,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=(5, 0),  # the goal stood on the completing plate
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-25 #17 2x2, completer-plate arms -- the goal addressed "
             "in-window on the plate that owns the cell, (-5,2) rot 1 for E and "
@@ -493,6 +539,13 @@ MEASURED_LIVE_DIRECTIONS: Mapping[int, frozenset[int]] = MappingProxyType(
         # later.
         and run.plate_offsets == STARTER_PLATE_ONLY
         and run.goal_rotations_swept
+        # The corner table is a STARTER -> GOAL_RAIL table (s33). Every row
+        # carries these two values today, so the clauses exclude nothing; they
+        # are here because this is a dict comprehension keyed on rotation
+        # alone, and a first campaign of another kind at the corner would
+        # otherwise overwrite the sweeps' row silently rather than miss it.
+        and run.starter_kind is TileKind.STARTER
+        and run.goal_kind is TileKind.GOAL_RAIL
     }
 )
 
@@ -552,6 +605,13 @@ def predicted_live_directions(
     goal_plate_offset: tuple[int, int] | None,
 ) -> frozenset[int]:
     """The conjunction's **prediction** for which directions connect.
+
+    Models exactly one pairing, STARTER -> GOAL_RAIL, and takes no tile kind:
+    the port set is the STARTER's and the goal rule is GOAL_RAIL's derived
+    port (s33). A caller asking about any other piece gets that pairing's
+    answer, which is a prediction with nothing behind it -- the claim surface
+    (`classify_pair`) says UNMEASURED for the same pair. Kinds enter the model
+    when the port taxonomy (plan item 1) has something measured to say.
 
     This is a model, not a claim -- it will happily answer for geometries no
     render has visited. Callers that need to know what the record supports want
@@ -613,9 +673,11 @@ def measured_run(
     *,
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
+    starter_kind: TileKind,
     plate_offsets: tuple[tuple[int, int], ...],
     goal_layer_kind: LayerKind,
     goal_plate_offset: tuple[int, int] | None,
+    goal_kind: TileKind,
 ) -> MeasuredRun | None:
     """The rendered run covering this placement, or None if none does.
 
@@ -629,14 +691,19 @@ def measured_run(
     misses the record rather than being turned away by `classify_pair` before
     the key was built -- which is why arm 1 of the #17 2x2 is expressible here
     and was not before.
+
+    The two kind terms (s33) work the same way again: a pair of pieces no
+    campaign has rendered -- a GOAL_BASIN, today -- misses the record.
     """
     key = (
         layer_kind,
         (starter_local_pos.y, starter_local_pos.x),
         starter_rot,
+        starter_kind,
         plate_offsets,
         goal_layer_kind,
         goal_plate_offset,
+        goal_kind,
     )
     for run in MEASURED_RUNS:
         if run.lookup_key == key:
@@ -649,9 +716,11 @@ def measured_live_directions(
     *,
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
+    starter_kind: TileKind,
     plate_offsets: tuple[tuple[int, int], ...],
     goal_layer_kind: LayerKind,
     goal_plate_offset: tuple[int, int] | None,
+    goal_kind: TileKind,
 ) -> frozenset[int] | None:
     """The live directions a render measured here, or None if none has.
 
@@ -669,9 +738,11 @@ def measured_live_directions(
         starter_rot,
         layer_kind=layer_kind,
         starter_local_pos=starter_local_pos,
+        starter_kind=starter_kind,
         plate_offsets=plate_offsets,
         goal_layer_kind=goal_layer_kind,
         goal_plate_offset=goal_plate_offset,
+        goal_kind=goal_kind,
     )
     return None if run is None else run.live_directions
 
@@ -691,16 +762,20 @@ def connection_status(
     *,
     layer_kind: LayerKind,
     starter_local_pos: HexVector,
+    starter_kind: TileKind,
     plate_offsets: tuple[tuple[int, int], ...],
     goal_layer_kind: LayerKind,
     goal_plate_offset: tuple[int, int] | None,
+    goal_kind: TileKind,
 ) -> ConnectionStatus:
     """Classify one cell against the rendered record.
 
-    `layer_kind`, `starter_local_pos`, `plate_offsets`, `goal_layer_kind` and
-    `goal_plate_offset` are required, all five deliberately and all five for the
-    same reason: each was once a term this function silently absorbed from the
-    configuration that happened to be rendered.
+    `layer_kind`, `starter_local_pos`, `starter_kind`, `plate_offsets`,
+    `goal_layer_kind`, `goal_plate_offset` and `goal_kind` are required, all
+    seven deliberately and all seven for the same reason: each was once a term
+    this function silently absorbed from the configuration that happened to be
+    rendered. The kind terms were absorbed until s33 -- every campaign placed
+    STARTER and GOAL_RAIL, and a GOAL_BASIN was answered from their rows.
 
     The first two were absorbed between 2026-08-10 and 2026-08-21 -- it answered
     for the plate corner and applied that answer everywhere, so a valid course
@@ -721,9 +796,11 @@ def connection_status(
         starter_rot,
         layer_kind=layer_kind,
         starter_local_pos=starter_local_pos,
+        starter_kind=starter_kind,
         plate_offsets=plate_offsets,
         goal_layer_kind=goal_layer_kind,
         goal_plate_offset=goal_plate_offset,
+        goal_kind=goal_kind,
     )
     if run is None:
         return ConnectionStatus.UNMEASURED
@@ -753,6 +830,9 @@ def predict_connection(
     goal_plate_offset: tuple[int, int] | None,
 ) -> bool:
     """Whether the conjunction predicts this cell connects. A model, not a claim.
+
+    STARTER -> GOAL_RAIL only, and it takes no tile kind -- see
+    `predicted_live_directions`.
 
     Two-valued on purpose: a model has an opinion everywhere, and pretending
     otherwise would blur the line this module exists to keep sharp. Use
@@ -900,9 +980,12 @@ def classify_pair(
     plate, could be rendered and had nowhere to be recorded. Now the goal's
     layer kind and its plate offset go into the lookup, and a configuration
     nothing has measured misses the record on its own. The verdict for every
-    shape that exists today is unchanged: no row carries a non-zero goal offset
-    or a non-baseplate goal kind, so cross-layer pairs still come back
-    UNMEASURED -- as a consequence rather than a rule.
+    shape that existed then was unchanged: no row then carried a non-zero goal
+    offset or a non-baseplate goal kind (the 2x2's completer-plate row, s28, was
+    the first with an offset), so cross-layer pairs came back UNMEASURED -- as a
+    consequence rather than a rule. s33 added the two tile
+    kinds the same way, and that one *did* move a verdict: a GOAL_BASIN beside
+    a STARTER had been answered from the GOAL_RAIL campaigns.
 
     **The record is consulted before any claim is made, including the
     adjacency one.** That ordering is the whole fix and it is easy to get
@@ -936,9 +1019,11 @@ def classify_pair(
             starter.hex_rotation,
             layer_kind=starter.layer_kind,
             starter_local_pos=starter.local_pos,
+            starter_kind=starter.kind,
             plate_offsets=plate_offsets,
             goal_layer_kind=goal.layer_kind,
             goal_plate_offset=goal_offset,
+            goal_kind=goal.kind,
         )
         is None
     ):
@@ -952,9 +1037,11 @@ def classify_pair(
         goal.hex_rotation,
         layer_kind=starter.layer_kind,
         starter_local_pos=starter.local_pos,
+        starter_kind=starter.kind,
         plate_offsets=plate_offsets,
         goal_layer_kind=goal.layer_kind,
         goal_plate_offset=goal_offset,
+        goal_kind=goal.kind,
     )
 
 

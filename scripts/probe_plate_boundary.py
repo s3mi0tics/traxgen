@@ -185,9 +185,11 @@ def derive_geometry() -> Geometry:
         STARTER_ROT,
         layer_kind=PLATE,
         starter_local_pos=STARTER_LOCAL,
+        starter_kind=TileKind.STARTER,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=None,
+        goal_kind=TileKind.GOAL_RAIL,
     )
     if not live:
         raise ValueError(

@@ -32,21 +32,24 @@ ARM_ONE_ROW = """    MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(0, 1),
         starter_rot=0,
+        starter_kind=TileKind.STARTER,
         live_directions=frozenset({0, 4}),  # E, SW -- both across the boundary
         directions_probed=frozenset({0, 4}),
         goal_rotations_swept=False,
         plate_offsets=STARTER_PLATE_PLUS_COMPLETER,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=(5, 0),  # the goal stood on the completing plate
+        goal_kind=TileKind.GOAL_RAIL,
         provenance=(
             "2026-08-25 #17 2x2, completer-plate arms -- the goal addressed "
             "in-window on the plate that owns the cell, (-5,2) rot 1 for E and "
             "(-4,0) rot 5 for SW, rendered active both times (UY36K96VLM, "
             "E3FMVREOBV): connection composes across a plate boundary. "
             "`predict_connection` called both dark and was refuted by "
-            "prediction, as the probe's docstring declared it would be. 7/7, "
-            "both certified controls active (KN6F459ZR3), no retries, no "
-            "refused screens; ADDRESSING_MATTERS"
+            "prediction, as the probe's docstring declared it would be. 7 of 7 "
+            "arms rendered, 5 of 7 predicted (both arm 1s wrong -- that is the "
+            "refutation); both certified controls active (KN6F459ZR3), no "
+            "retries, no refused screens; ADDRESSING_MATTERS"
         ),
     ),
 """
@@ -115,16 +118,22 @@ MUTATIONS = [
         "new": "return tuple(sorted((x - origin.x, y - origin.y) for y, x in plate_positions))",
     },
     {
-        "label": "lookup ignores both goal terms",
+        "label": "lookup ignores both goal terms (goal_layer_kind, goal_plate_offset)",
         "file": GRAPH,
         "old": "        if run.lookup_key == key:",
-        "new": "        if run.lookup_key[:4] == key[:4]:",
+        # Positional against the eight-term key of s33: indices 5 and 6. The
+        # s28 original sliced `[:4]` against a six-term key; after s33 that
+        # dropped two more terms than its label said and reported `caught`
+        # for the wrong reason (found by the s33 panel).
+        "new": "        if run.lookup_key[:5] + run.lookup_key[7:] == key[:5] + key[7:]:",
     },
     {
         "label": "lookup ignores the plate layout",
         "file": GRAPH,
         "old": "        if run.lookup_key == key:",
-        "new": "        if run.lookup_key[:3] + run.lookup_key[4:] == key[:3] + key[4:]:",
+        # Index 4 after s33 inserted `starter_kind` at 3; the s28 slice `[:3]`
+        # had come to drop the starter kind instead, caught only by an s33 test.
+        "new": "        if run.lookup_key[:4] + run.lookup_key[5:] == key[:4] + key[5:]:",
     },
     {
         "label": "corner-table plate_offsets clause deleted (claimed dead)",

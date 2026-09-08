@@ -489,14 +489,59 @@ def test_both_campaigns_ran_clean(sidecar: Path) -> None:
 
 @pytest.mark.parametrize("sidecar", SIDECARS, ids=lambda p: p.stem)
 def test_the_shipped_model_predicted_every_arm_the_run_rendered(sidecar: Path) -> None:
-    """Prediction against measurement, arm by arm, off the record itself.
+    """Prediction against measurement, arm by arm, with the model in the loop.
 
     The sidecar carries what the model said *before* the render, so this is the
     honest form of the claim in the run's own `reason` -- that the model is
     right here -- rather than a model refitted to the outcome (#20).
+
+    Until s33 this compared two stored strings, `predicted` against `validity`,
+    and never called the model: a `predict_connection` that had since drifted
+    from what it said on 2026-08-26 would have left it green (the 2026-08-28
+    assessment, item 4). It now re-derives each arm's prediction from
+    *today's* model off the sidecar's own geometry, and requires it to agree
+    with both the recorded prediction and the render. The two certified
+    controls carry no geometry of their own -- they are `generate_minimal()`
+    -- and stay a literal check, said rather than left to look like coverage.
+
+    Two limits, measured by mutation in s33 rather than assumed. The recorded
+    prediction and the render agree on every arm of both sidecars (the run had
+    no misses), so the two agreement assertions below are one assertion on
+    this data and come apart only on a campaign the model got wrong. And the
+    only arm the model calls dark is dark on *goal rotation*, so a model that
+    lost its plate term -- every direction live -- still passes here; the
+    direction half of the conjunction is graded by the record tests in
+    `test_graph.py`, not by this file.
     """
-    for entry in load(sidecar)["arms"]:
-        assert entry["predicted"] == entry["validity"], entry["label"]
+    from traxgen.graph import predict_connection
+
+    record = load(sidecar)
+    g = record["geometry"]
+    kind = LayerKind(g["kind"])
+    starter_local = HexVector(*g["starter_local"])
+    modelled = 0
+    for entry in record["arms"]:
+        if entry["direction"] is None:
+            assert entry["role"] == "certified_control", entry["label"]
+            assert entry["predicted"] == entry["validity"] == "active", entry["label"]
+            continue
+        today = predict_connection(
+            g["starter_rot"],
+            entry["direction"],
+            entry["goal_rot"],
+            layer_kind=kind,
+            starter_local_pos=starter_local,
+            goal_plate_offset=None,  # every arm addresses its goal on the home plate
+        )
+        predicted_today = "active" if today else "inactive"
+        assert predicted_today == entry["predicted"], (
+            f"{entry['label']}: the model has drifted from what it said before the render"
+        )
+        assert predicted_today == entry["validity"], entry["label"]
+        modelled += 1
+    assert modelled == len(record["arms"]) - 2, (
+        "every arm but the two certified controls went through the model"
+    )
 
 
 def test_the_two_campaigns_rendered_the_same_courses_where_they_overlap() -> None:

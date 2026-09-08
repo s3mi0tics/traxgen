@@ -36,7 +36,7 @@ from traxgen.hex import HEX_DIRECTIONS
 from traxgen.layout import CERTIFIED_LAYER_HEIGHT
 from traxgen.plates import MEASURED_FOOTPRINTS
 from traxgen.serializer import serialize_course
-from traxgen.types import LayerKind
+from traxgen.types import LayerKind, TileKind
 
 PLATE = LayerKind.BASE_LAYER_PIECE
 FOOTPRINT = frozenset(MEASURED_FOOTPRINTS[PLATE])
@@ -149,9 +149,11 @@ def test_the_local_control_comes_from_the_rendered_record() -> None:
         STARTER_ROT,
         layer_kind=PLATE,
         starter_local_pos=STARTER_LOCAL,
+        starter_kind=TileKind.STARTER,
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=None,
+        goal_kind=TileKind.GOAL_RAIL,
     )
     assert live is not None and GEOMETRY.control_direction in live
     assert GEOMETRY.control_home_local in FOOTPRINT, (

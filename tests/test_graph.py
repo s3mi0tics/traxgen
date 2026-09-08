@@ -181,6 +181,8 @@ def _at_corner(starter_rot: int, direction: int, goal_rot: int) -> ConnectionSta
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=None,
+        starter_kind=TileKind.STARTER,
+        goal_kind=TileKind.GOAL_RAIL,
     )
 
 
@@ -304,6 +306,55 @@ def test_the_certified_geometry_classifies_connected_as_a_pair() -> None:
     )
 
 
+def test_a_goal_basin_at_a_wrong_rotation_is_unmeasured_not_disconnected() -> None:
+    """The record has rendered exactly one pair of kinds: STARTER -> GOAL_RAIL.
+
+    `GOAL_KINDS` resolves to {GOAL_RAIL, GOAL_BASIN}, and until s33 the lookup
+    key carried neither endpoint's `TileKind` -- so a GOAL_BASIN beside a
+    STARTER matched the GOAL_RAIL campaigns and inherited their verdicts. At
+    the certified cell with a *wrong* goal rotation that verdict is a measured
+    DISCONNECTED, which `START_GOAL_CONNECTED` reports at ERROR: a claim about
+    a piece no render has ever placed. Fifth of the s21/s24/s25/s27 family --
+    an answer measured in one configuration, applied to another -- this time
+    on the tile-kind axis.
+
+    Reproduced against pre-fix code first: on `6216e54` the basin half of this
+    test returns DISCONNECTED. The contrast beside it is what makes the fix a
+    key term rather than a special case -- the same cell, same rotation, with
+    the kind the record *did* render still answers from the record.
+    """
+    starter = _tile(TileKind.STARTER, 0, 0, rot=0)
+    rail_wrong_rot = _tile(TileKind.GOAL_RAIL, -1, 0, rot=4)
+    basin_wrong_rot = _tile(TileKind.GOAL_BASIN, -1, 0, rot=4)
+    assert (
+        classify_pair(starter, rail_wrong_rot, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.DISCONNECTED
+    ), "the rendered kind at a wrong rotation is a measured miss"
+    assert (
+        classify_pair(starter, basin_wrong_rot, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.UNMEASURED
+    ), "no campaign has ever placed a GOAL_BASIN; the record cannot answer"
+
+
+def test_a_goal_basin_at_the_certified_cell_is_unmeasured_not_connected() -> None:
+    """The same hole in the flattering direction.
+
+    A basin at the certified GOAL_RAIL geometry -- (-1, 0) rot 3 -- would have
+    been claimed CONNECTED from the rail's campaigns. That direction never
+    fires an ERROR, which is exactly why it would have survived: a false
+    CONNECTED is a generator shipping a course the app may refuse, found only
+    at the render.
+    """
+    starter = _tile(TileKind.STARTER, 0, 0, rot=0)
+    basin_certified_geometry = _tile(TileKind.GOAL_BASIN, -1, 0, rot=3)
+    assert (
+        classify_pair(
+            starter, basin_certified_geometry, plate_positions=ORIGIN_PLATE_ONLY
+        )
+        is ConnectionStatus.UNMEASURED
+    )
+
+
 # --- Course-level status + the validator rule ------------------------------
 
 
@@ -338,6 +389,48 @@ def test_a_wrong_goal_rotation_is_a_validator_error() -> None:
     assert violation.severity is Severity.ERROR
     with pytest.raises(ValidationError):
         validate_strict(course, PRO_VERTICAL_STARTER_SET)
+
+
+def _with_goal_kind(course: Course, kind: TileKind) -> Course:
+    """The same course with every goal tile re-kinded -- geometry untouched."""
+    layers = []
+    for layer in course.layer_construction_data:
+        cells = []
+        for cell in layer.cell_construction_datas:
+            node = cell.tree_node_data
+            data = node.construction_data
+            if data.kind in GOAL_KINDS:
+                node = dataclasses.replace(
+                    node, construction_data=dataclasses.replace(data, kind=kind)
+                )
+            cells.append(dataclasses.replace(cell, tree_node_data=node))
+        layers.append(dataclasses.replace(layer, cell_construction_datas=tuple(cells)))
+    return dataclasses.replace(course, layer_construction_data=tuple(layers))
+
+
+def test_a_goal_basin_at_a_wrong_rotation_is_not_a_validator_error() -> None:
+    """The course-level face of the kind-blind key: `START_GOAL_CONNECTED`.
+
+    `GOAL_BASIN` is in the PRO Vertical Starter-Set inventory, so it is a
+    piece the generator will be asked to place once it takes a build palette
+    (plan item 14; `vision.md`'s user story). Today only a hand-built course
+    reaches it -- `generate_minimal()` emits GOAL_RAIL and the CLI has no
+    piece option -- which is why this test rebuilds one. Before s33 it
+    validated as a measured-disconnected ERROR off campaigns that only ever
+    rendered GOAL_RAIL. UNMEASURED reports as WARNING (D034: severities mirror
+    the epistemics), and the rail-kinded twin beside it keeps the ERROR.
+    """
+    rail = build_variant(
+        generate_minimal(), starter_rot=0, goal_pos=HexVector(-1, 0), goal_rot=4
+    )
+    basin = _with_goal_kind(rail, TileKind.GOAL_BASIN)
+    assert {t.kind for t in placed_tiles(basin)} == {TileKind.STARTER, TileKind.GOAL_BASIN}
+    assert start_goal_status(rail) is ConnectionStatus.DISCONNECTED
+    (violation,) = _start_goal_violations(rail)
+    assert violation.severity is Severity.ERROR
+    assert start_goal_status(basin) is ConnectionStatus.UNMEASURED
+    (violation,) = _start_goal_violations(basin)
+    assert violation.severity is Severity.WARNING
 
 
 def test_a_dead_direction_at_a_swept_rotation_is_a_validator_error() -> None:
@@ -644,6 +737,8 @@ def test_the_model_answers_where_the_record_is_silent() -> None:
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=None,
+        starter_kind=TileKind.STARTER,
+        goal_kind=TileKind.GOAL_RAIL,
     ) is None
     assert predict_connection(
         0,
@@ -663,6 +758,8 @@ def test_the_model_answers_where_the_record_is_silent() -> None:
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
         )
         is ConnectionStatus.UNMEASURED
     )
@@ -685,6 +782,8 @@ def test_a_probe_run_does_not_borrow_the_sweeps_goal_rotation_coverage() -> None
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
         )
         is ConnectionStatus.CONNECTED
     )
@@ -701,6 +800,8 @@ def test_a_probe_run_does_not_borrow_the_sweeps_goal_rotation_coverage() -> None
                 plate_offsets=STARTER_PLATE_ONLY,
                 goal_layer_kind=PLATE,
                 goal_plate_offset=None,
+                starter_kind=TileKind.STARTER,
+                goal_kind=TileKind.GOAL_RAIL,
             )
             is ConnectionStatus.UNMEASURED
         )
@@ -946,6 +1047,8 @@ def test_the_2x2_rows_claim_nothing_at_rotations_they_never_rendered() -> None:
                     plate_offsets=run.plate_offsets,
                     goal_layer_kind=run.goal_layer_kind,
                     goal_plate_offset=run.goal_plate_offset,
+                    starter_kind=run.starter_kind,
+                    goal_kind=run.goal_kind,
                 )
                 assert status is ConnectionStatus.UNMEASURED, (direction, rotation)
 
@@ -1204,6 +1307,8 @@ def test_a_single_plate_in_the_wrong_place_is_not_the_measured_one() -> None:
             plate_offsets=elsewhere,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
         )
         is None
     )
@@ -1217,6 +1322,8 @@ def test_a_single_plate_in_the_wrong_place_is_not_the_measured_one() -> None:
             plate_offsets=elsewhere,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
         )
         is ConnectionStatus.UNMEASURED
     )
@@ -1258,11 +1365,41 @@ def test_the_rebase_is_arithmetic_not_a_predicate() -> None:
     )
 
 
+KEY_SURFACES = {
+    "connection_status": lambda **kw: connection_status(0, 0, 1, **kw),
+    "measured_run": lambda **kw: measured_run(0, **kw),
+    "measured_live_directions": lambda **kw: measured_live_directions(0, **kw),
+}
+
+
+@pytest.mark.parametrize("surface", sorted(KEY_SURFACES))
 @pytest.mark.parametrize(
-    "omit", ["layer_kind", "starter_local_pos", "plate_offsets"]
+    "omit",
+    [
+        "layer_kind",
+        "starter_local_pos",
+        "starter_kind",
+        "plate_offsets",
+        "goal_layer_kind",
+        "goal_plate_offset",
+        "goal_kind",
+    ],
 )
-def test_no_term_of_the_key_may_go_missing(omit: str) -> None:
-    """All three terms, not just the newest one.
+def test_no_term_of_the_key_may_go_missing(surface: str, omit: str) -> None:
+    """Every term, one omission at a time, on every surface -- and the set
+    must be complete.
+
+    Until s33 this listed three terms and the kwargs it built carried only
+    those three, so once s27 made the goal terms required the call raised
+    TypeError for their absence whichever term was omitted: green for any
+    implementation, the sibling-hollowing shape of observations #12 one more
+    time. The kwargs now carry the whole key, so each case fails only for the
+    term it drops -- and the property runs over all three surfaces that take
+    the key, since a default on `measured_run` alone would let the other two
+    look required while the lookup beneath them absorbed the term (*Classes*).
+    Historical framing follows.
+
+    All three terms, not just the newest one.
 
     `connection_status`'s docstring says a default on *any* of the three
     restores the corresponding defect. Only one was pinned: the older
@@ -1278,11 +1415,17 @@ def test_no_term_of_the_key_may_go_missing(omit: str) -> None:
     kwargs = {
         "layer_kind": PLATE,
         "starter_local_pos": CORNER,
+        "starter_kind": TileKind.STARTER,
         "plate_offsets": STARTER_PLATE_ONLY,
+        "goal_layer_kind": PLATE,
+        "goal_plate_offset": None,
+        "goal_kind": TileKind.GOAL_RAIL,
     }
+    call = KEY_SURFACES[surface]
+    call(**kwargs)  # the complete set is accepted; each case below drops exactly one term
     del kwargs[omit]
     with pytest.raises(TypeError):
-        connection_status(0, 0, 1, **kwargs)  # type: ignore[arg-type]
+        call(**kwargs)
 
 
 def test_the_key_is_required_on_every_surface_that_takes_it() -> None:
@@ -1355,6 +1498,8 @@ def test_a_measured_run_cannot_be_written_without_its_layout() -> None:
             goal_rotations_swept=False,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
             provenance="a campaign whose author forgot the layout",
         )
 
@@ -1376,6 +1521,8 @@ def test_a_measured_run_cannot_be_written_without_its_direction_coverage() -> No
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
             provenance="a campaign whose author forgot what it rendered",
         )
 
@@ -1399,6 +1546,8 @@ def test_a_run_cannot_claim_a_direction_it_never_probed() -> None:
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
             provenance="claims W active in a run that only rendered E",
         )
 
@@ -1428,6 +1577,8 @@ def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=None,
+        starter_kind=TileKind.STARTER,
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="synthetic: E rendered active, W rendered dark, rest untouched",
     )
     monkeypatch.setattr(graph, "MEASURED_RUNS", (partial,))
@@ -1442,6 +1593,8 @@ def test_an_unprobed_direction_is_unmeasured_rather_than_disconnected(
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
         )
 
     assert status(0) is ConnectionStatus.CONNECTED, "probed and live"
@@ -1588,6 +1741,8 @@ def test_a_measured_run_cannot_be_written_without_the_goals_layer_kind() -> None
             goal_rotations_swept=False,
             plate_offsets=STARTER_PLATE_ONLY,
             goal_plate_offset=None,
+            starter_kind=TileKind.STARTER,
+            goal_kind=TileKind.GOAL_RAIL,
             provenance="a campaign that forgot what the goal stood on",
         )
 
@@ -1604,8 +1759,128 @@ def test_a_measured_run_cannot_be_written_without_the_goals_plate_offset() -> No
             goal_rotations_swept=False,
             plate_offsets=STARTER_PLATE_ONLY,
             goal_layer_kind=PLATE,
+            goal_kind=TileKind.GOAL_RAIL,
+            starter_kind=TileKind.STARTER,
             provenance="a campaign that forgot which plate the goal stood on",
         )
+
+
+@pytest.mark.parametrize("omit", ["starter_kind", "goal_kind"])
+def test_a_measured_run_cannot_be_written_without_its_tile_kinds(omit: str) -> None:
+    """s33's terms, one omission per case, as the s27 pair above.
+
+    A default of STARTER / GOAL_RAIL would be true of every row today and is
+    exactly the absorbed precondition the field exists to record: the next
+    campaign to render a different piece would default into claiming it had
+    rendered the old one.
+    """
+    kwargs = {
+        "layer_kind": PLATE,
+        "starter_local_pos": (0, 0),
+        "starter_rot": 0,
+        "starter_kind": TileKind.STARTER,
+        "live_directions": frozenset({0}),
+        "directions_probed": ALL_DIRECTIONS,
+        "goal_rotations_swept": False,
+        "plate_offsets": STARTER_PLATE_ONLY,
+        "goal_layer_kind": PLATE,
+        "goal_plate_offset": None,
+        "goal_kind": TileKind.GOAL_RAIL,
+        "provenance": "a campaign that forgot which pieces it rendered",
+    }
+    assert MeasuredRun(**kwargs).lookup_key[3] is TileKind.STARTER
+    del kwargs[omit]
+    with pytest.raises(TypeError):
+        MeasuredRun(**kwargs)  # type: ignore[call-arg]
+
+
+def test_every_row_in_the_record_rendered_the_same_pair_of_kinds() -> None:
+    """The fixture coincidence, stated (#26): all eleven rows are STARTER -> GOAL_RAIL.
+
+    So the kind terms separate no two real rows today, and a test that the
+    record answers GOAL_BASIN with UNMEASURED is graded against that
+    coincidence rather than against a row that differs. The first campaign to
+    render another kind is the one that makes this term separate real rows;
+    the test below grades the term on a row built here in the meantime.
+    """
+    assert {(r.starter_kind, r.goal_kind) for r in MEASURED_RUNS} == {
+        (TileKind.STARTER, TileKind.GOAL_RAIL)
+    }
+
+
+def _kinded_row(starter_kind: TileKind, goal_kind: TileKind) -> MeasuredRun:
+    return MeasuredRun(
+        layer_kind=PLATE,
+        starter_local_pos=(0, 0),
+        starter_rot=0,
+        starter_kind=starter_kind,
+        live_directions=frozenset({0}),
+        directions_probed=ALL_DIRECTIONS,
+        goal_rotations_swept=True,
+        plate_offsets=STARTER_PLATE_ONLY,
+        goal_layer_kind=PLATE,
+        goal_plate_offset=None,
+        goal_kind=goal_kind,
+        provenance="synthetic: a campaign that rendered a pair no real row has",
+    )
+
+
+def test_the_kind_terms_separate_rows_and_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both kinds are in the key, and `measured_run` matches on both.
+
+    Graded on a synthetic row with kinds no campaign has rendered -- the
+    partial-coverage test above does the same for `directions_probed` -- so
+    that a kind term made inert on either side of the lookup (the row's key or
+    the caller's) fails here rather than hiding behind every real row sharing
+    one value. Each kind is varied on its own: a lookup that matches on the
+    goal kind alone would pass a test that varied both together.
+    """
+    row = _kinded_row(TileKind.CANNON, TileKind.GOAL_BASIN)
+    assert row.lookup_key[3] is TileKind.CANNON
+    assert row.lookup_key[7] is TileKind.GOAL_BASIN
+    assert row.lookup_key != _kinded_row(TileKind.STARTER, TileKind.GOAL_BASIN).lookup_key
+    assert row.lookup_key != _kinded_row(TileKind.CANNON, TileKind.GOAL_RAIL).lookup_key
+    monkeypatch.setattr(graph, "MEASURED_RUNS", (row,))
+
+    def lookup(starter_kind: TileKind, goal_kind: TileKind) -> MeasuredRun | None:
+        return measured_run(
+            0,
+            layer_kind=PLATE,
+            starter_local_pos=CORNER,
+            starter_kind=starter_kind,
+            plate_offsets=STARTER_PLATE_ONLY,
+            goal_layer_kind=PLATE,
+            goal_plate_offset=None,
+            goal_kind=goal_kind,
+        )
+
+    assert lookup(TileKind.CANNON, TileKind.GOAL_BASIN) is row
+    assert lookup(TileKind.STARTER, TileKind.GOAL_BASIN) is None, "starter kind alone"
+    assert lookup(TileKind.CANNON, TileKind.GOAL_RAIL) is None, "goal kind alone"
+
+
+def test_classify_pair_passes_both_kinds_to_the_record() -> None:
+    """The surface an external caller reaches, graded on the starter side.
+
+    The basin tests above vary only the goal kind. `STARTER_KINDS` has one
+    member (D018: the cannon is not a starter), so no course
+    `start_goal_status` builds can vary the starter kind -- and the s33 panel
+    hard-wired `starter_kind=TileKind.STARTER` at both of `classify_pair`'s
+    lookups and the suite stayed green. `classify_pair` is public and takes
+    any `PlacedTile`, so it is graded here directly with a piece that is not a
+    starter at the certified geometry: the record has no CANNON campaign and
+    must say so. The day `STARTER_KINDS` gains a member, this is the test that
+    already covers the starter half of the key.
+    """
+    goal = _tile(TileKind.GOAL_RAIL, -1, 0, rot=3)
+    assert (
+        classify_pair(_tile(TileKind.STARTER, 0, 0), goal, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.CONNECTED
+    )
+    assert (
+        classify_pair(_tile(TileKind.CANNON, 0, 0), goal, plate_positions=ORIGIN_PLATE_ONLY)
+        is ConnectionStatus.UNMEASURED
+    )
 
 
 def _cross_layer_pair(goal_layer_kind: LayerKind = PLATE) -> tuple[PlacedTile, PlacedTile]:
@@ -1651,6 +1926,8 @@ def test_a_goal_on_another_plate_is_recordable_rather_than_refused(
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=(0, 0),
+        starter_kind=TileKind.STARTER,
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="synthetic: the shape arm 1 of the #17 2x2 will produce",
     )
     monkeypatch.setattr(graph, "MEASURED_RUNS", (arm_one,))
@@ -1731,6 +2008,8 @@ def test_the_goals_layer_kind_refuses_a_raised_layer_at_a_recorded_offset(
         plate_offsets=STARTER_PLATE_ONLY,
         goal_layer_kind=PLATE,
         goal_plate_offset=(0, 0),
+        starter_kind=TileKind.STARTER,
+        goal_kind=TileKind.GOAL_RAIL,
         provenance="synthetic: the shape arm 1 of the #17 2x2 will produce",
     )
     monkeypatch.setattr(graph, "MEASURED_RUNS", (arm_one,))

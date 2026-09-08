@@ -57,6 +57,7 @@ from pathlib import Path
 from scripts.preflight import (
     DEFAULT_EMULATOR_LOG,
     Check,
+    check_app_version,
     check_boot_complete,
     check_device_attached,
     check_graphics_errors,
@@ -381,6 +382,10 @@ def boot(
         check_device_attached(ctx),
         check_boot_complete(ctx),
         check_graphics_errors(log_path),
+        # Device-level like the three above -- `dumpsys package` answers with
+        # the launcher in front -- and the one that turns a silent Play Store
+        # update into a refused session rather than a voided campaign (s33).
+        check_app_version(ctx),
     ]
     for check in checks:
         out(check.line())

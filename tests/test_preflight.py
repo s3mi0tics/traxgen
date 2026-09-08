@@ -30,6 +30,7 @@ from scripts.preflight import (
     TAP_SPACE,
     Check,
     check_app_in_foreground,
+    check_app_version,
     check_boot_complete,
     check_device_attached,
     check_graphics_errors,
@@ -40,10 +41,11 @@ from scripts.preflight import (
 from tests.test_android_foreground import (
     LAUNCHER_DUMP,
     LAUNCHER_PKG,
+    PACKAGE_DUMP,
     FakeAdb,
     ctx_with,
 )
-from traxgen.android import COORDS, DEFAULT_PACKAGE
+from traxgen.android import COORDS, DEFAULT_PACKAGE, MEASURED_APP_VERSION
 
 
 def png(size: tuple[int, int]) -> bytes:
@@ -65,13 +67,14 @@ def clean_log(tmp_path: Path, *lines: str) -> Path:
 # -- the healthy path ------------------------------------------------------------
 
 
-def test_all_five_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
+def test_all_six_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
     fake = FakeAdb(screencap_png=LANDSCAPE)
     checks = run_all(ctx_with(fake), clean_log(tmp_path))
     assert [c.name for c in checks] == [
         "device_attached",
         "boot_complete",
         "graphics_errors",
+        "app_version",
         "app_in_foreground",
         "screencap_geometry",
     ]
@@ -79,7 +82,7 @@ def test_all_five_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
     lines: list[str] = []
     assert report(checks, lines.append) is True
     assert lines[0].startswith("preflight 20") and lines[0].endswith("Z")
-    assert lines[-1] == "preflight: all five passed"
+    assert lines[-1] == "preflight: all six passed"
 
 
 def test_the_measured_text_says_what_was_read_not_what_it_means(tmp_path: Path) -> None:
@@ -89,6 +92,7 @@ def test_the_measured_text_says_what_was_read_not_what_it_means(tmp_path: Path) 
     assert by_name["device_attached"].measured == "emulator-5554 device"
     assert by_name["boot_complete"].measured == "sys.boot_completed='1'"
     assert by_name["graphics_errors"].measured.startswith("0 x 'bad color buffer' in ")
+    assert by_name["app_version"].measured == f"versionName={MEASURED_APP_VERSION}"
     assert by_name["app_in_foreground"].measured == f"foreground package: {DEFAULT_PACKAGE}"
     assert by_name["screencap_geometry"].measured == "screencap 2400x1080, tap space 2400x1080"
 
@@ -132,6 +136,32 @@ def test_a_missing_emulator_log_is_a_failure_not_a_pass(tmp_path: Path) -> None:
     check = check_graphics_errors(tmp_path / "absent.log")
     assert not check.ok
     assert check.measured.startswith("no emulator log at ")
+
+
+def test_a_different_app_version_fails_the_version_check() -> None:
+    """The check that catches a Play Store update: measured and expected both named."""
+    dump = PACKAGE_DUMP.replace("versionName=2.8", "versionName=2.9")
+    check = check_app_version(ctx_with(FakeAdb(package_dump=dump)))
+    assert not check.ok
+    assert check.measured == "versionName=2.9"
+    assert f"expected {MEASURED_APP_VERSION}" in check.on_fail
+
+
+def test_an_uninstalled_app_fails_the_version_check_rather_than_passing() -> None:
+    """No `versionName` line at all -- the package is absent -- is a failure with
+    the absence named, not a pass on a version that could not be compared."""
+    check = check_app_version(ctx_with(FakeAdb(package_dump="Unable to find package: nope\n")))
+    assert not check.ok
+    assert check.measured == "versionName=unreadable from dumpsys package"
+
+
+def test_the_version_check_asks_dumpsys_package_for_the_context_package() -> None:
+    """The argv is real: `adb shell dumpsys package <ctx.package>`, so a context
+    pointed at another package asks about that one."""
+    fake = FakeAdb()
+    ctx = ctx_with(fake)
+    check_app_version(ctx)
+    assert fake.has(lambda s: s.endswith(f"shell dumpsys package {ctx.package}"))
 
 
 def test_the_launcher_in_front_fails_the_foreground_check() -> None:
@@ -182,7 +212,7 @@ class HangingShell(FakeAdb):
         return super().__call__(cmd, **kwargs)
 
 
-def test_a_wedged_device_fails_four_checks_and_names_the_signature(tmp_path: Path) -> None:
+def test_a_wedged_device_fails_five_checks_and_names_the_signature(tmp_path: Path) -> None:
     fake = HangingShell()
     checks = run_all(ctx_with(fake), clean_log(tmp_path))
     outcomes = {c.name: c.ok for c in checks}
@@ -190,6 +220,7 @@ def test_a_wedged_device_fails_four_checks_and_names_the_signature(tmp_path: Pat
         "device_attached": True,
         "boot_complete": False,
         "graphics_errors": True,
+        "app_version": False,
         "app_in_foreground": False,
         "screencap_geometry": False,
     }
@@ -197,7 +228,7 @@ def test_a_wedged_device_fails_four_checks_and_names_the_signature(tmp_path: Pat
     assert all(c.measured.startswith("adb command failed (timeout:") for c in timed_out)
     assert all("2026-08-25 signature" in c.on_fail for c in timed_out)
     # Nothing was skipped: every adb-backed check ran and recorded its own timeout.
-    assert len(fake.calls) == 4
+    assert len(fake.calls) == 5
 
 
 # -- report and the tap-space pin ------------------------------------------------

@@ -41,7 +41,7 @@ from scripts.emulator import (
     spawn_emulator,
     wait_for_boot,
 )
-from tests.test_android_foreground import GRAVITRAX_DUMP
+from tests.test_android_foreground import GRAVITRAX_DUMP, PACKAGE_DUMP
 from traxgen.android import AdbContext
 
 # --- fakes -----------------------------------------------------------------
@@ -107,6 +107,8 @@ class ScriptedAdb:
             )
         if "dumpsys window" in joined:
             return subprocess.CompletedProcess(argv, 0, GRAVITRAX_DUMP, "")
+        if "dumpsys package" in joined:
+            return subprocess.CompletedProcess(argv, 0, PACKAGE_DUMP, "")
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     def ran(self, needle: str) -> bool:
@@ -468,9 +470,10 @@ def test_boot_grades_the_device_and_says_which_checks_it_did_not_run(tmp_path: P
     has to say so rather than let three passes read as five."""
     printed = boot_offline(tmp_path, ScriptedAdb(["1"]), FakePgrep([()]), FakePopen())
     graded = [line for line in printed if line.startswith(("PASS ", "FAIL "))]
-    assert len(graded) == 3
+    assert len(graded) == 4
     names = " ".join(graded)
     assert "device_attached" in names and "boot_complete" in names and "graphics_errors" in names
+    assert "app_version" in names, "device-level: it reads with the launcher in front (s33)"
     assert "app_in_foreground" not in names and "screencap_geometry" not in names
     assert any("campaign-time" in line for line in printed)
 

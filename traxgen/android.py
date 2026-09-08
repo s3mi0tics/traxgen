@@ -25,6 +25,17 @@ from typing import Any, NamedTuple
 
 DEFAULT_ANDROID_HOME = Path.home() / "Library" / "Android" / "sdk"
 DEFAULT_PACKAGE = "com.ravensburger.gravitrax"
+# The app version the harness is calibrated against: the main-menu signature,
+# the refused-screen set, the 40-50s splash timing and the DoD render were all
+# measured on it (2026-09-06/07, s32), and it was the first version ever written
+# down -- four months into the measured runs, so which version the earlier
+# campaigns rendered on is not recorded anywhere. `scripts/preflight.py` fails
+# when the installed `versionName` differs, because the AVD is a Play Store
+# image with auto-update on and a silent update would invalidate every
+# signature above while `adb devices` still said `device`. Bumping this is a
+# deliberate act: archive the new APK splits beside the 2.8 ones
+# (`knowledge/environment.md`), re-measure the signatures, then change it.
+MEASURED_APP_VERSION = "2.8"
 # Repo-relative: `screenshots/` at the repo root, gitignored. The previous value pointed at a
 # `~/Desktop/Hub` checkout deleted in July 2026 and was silently recreated by every render.
 DEFAULT_SCREENSHOT_DIR = Path(__file__).resolve().parent.parent / "screenshots"
@@ -399,6 +410,30 @@ def parse_foreground_package(dumpsys_window_output: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+_VERSION_NAME = re.compile(r"^\s*versionName=(\S+)", re.MULTILINE)
+
+
+def parse_app_version(dumpsys_package_output: str) -> str | None:
+    """The `versionName=` value in a `dumpsys package <pkg>` dump, or None.
+
+    None means the dump did not carry one -- the package is not installed, or
+    adb answered with something else -- and is deliberately distinct from a
+    version that differs. Callers must not treat it as "unknown but fine".
+    """
+    match = _VERSION_NAME.search(dumpsys_package_output)
+    return match.group(1) if match else None
+
+
+def read_app_version(ctx: AdbContext) -> str | None:
+    """Ask the device which version of `ctx.package` is installed.
+
+    `dumpsys package` works with the app closed and the launcher in front, so
+    this is a device-level reading -- it belongs with the boot checks rather
+    than the campaign-time ones (`scripts/emulator.py`).
+    """
+    return parse_app_version(_run_adb(ctx, "shell", "dumpsys", "package", ctx.package))
 
 
 def _dump_foreground(ctx: AdbContext) -> str:

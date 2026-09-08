@@ -58,7 +58,9 @@ from traxgen.android import (
     ForegroundUnreadableError,
     WrongForegroundAppError,
     assert_app_in_foreground,
+    parse_app_version,
     parse_foreground_package,
+    read_app_version,
     read_foreground_package,
     render_course,
 )
@@ -100,6 +102,20 @@ MAIN_MENU_PNG = (
 # --- The fake adb ----------------------------------------------------------
 
 
+# The shape of `dumpsys package <pkg>` around its version lines, hand-written
+# from the s32 reading (`... | grep -m1 versionName` -> `versionName=2.8`) rather
+# than a committed capture: the parser is graded on this excerpt, and only a
+# live preflight grades it on the real dump. The `versionCode` line above it is
+# there so a parser that grabs the first `version` it sees is caught.
+PACKAGE_DUMP = """Packages:
+  Package [com.ravensburger.gravitrax] (1a2b3c4):
+    userId=10123
+    versionCode=280 minSdk=24 targetSdk=34
+    versionName=2.8
+    splits=[base, config.arm64_v8a]
+"""
+
+
 class FakeAdb:
     """Stands in for `subprocess.run`, recording argv and scripting stdout.
 
@@ -118,8 +134,10 @@ class FakeAdb:
         boot_completed: str = "1",
         screencap_png: bytes = PNG_FRAME,
         screencap_pngs: Sequence[bytes] | None = None,
+        package_dump: str = PACKAGE_DUMP,
     ) -> None:
         self.foreground_dump = foreground_dump
+        self.package_dump = package_dump
         self.devices = devices
         self.boot_completed = boot_completed
         self.screencap_png = screencap_png
@@ -152,6 +170,8 @@ class FakeAdb:
             out = self.boot_completed + "\n"
         elif "dumpsys window" in joined:
             out = self.foreground_dump
+        elif "dumpsys package" in joined:
+            out = self.package_dump
         else:
             out = ""
         return subprocess.CompletedProcess(argv, 0, out, "")
@@ -247,6 +267,29 @@ def test_empty_and_garbage_are_none() -> None:
     """An adb hiccup must not parse into a package name."""
     assert parse_foreground_package("") is None
     assert parse_foreground_package("error: no devices/emulators found") is None
+
+
+# -- the app version (s33, plan item 13) --------------------------------------------
+
+
+def test_parses_version_name_and_not_the_version_code_above_it() -> None:
+    """`versionCode=280` sits one line above `versionName=2.8` in a real dump;
+    a parser that takes the first `version` it sees returns the wrong field."""
+    assert parse_app_version(PACKAGE_DUMP) == "2.8"
+    assert parse_app_version("    versionName=2.9.1\n") == "2.9.1"
+
+
+def test_a_dump_without_a_version_name_is_none_rather_than_a_guess() -> None:
+    assert parse_app_version("") is None
+    assert parse_app_version("Unable to find package: com.example.nope\n") is None
+    assert parse_app_version("    versionCode=280 minSdk=24 targetSdk=34\n") is None
+
+
+def test_read_app_version_asks_dumpsys_package_for_the_context_package() -> None:
+    fake = FakeAdb()
+    ctx = ctx_with(fake)
+    assert read_app_version(ctx) == "2.8"
+    assert fake.has(lambda s: s.endswith(f"shell dumpsys package {ctx.package}"))
 
 
 def test_parser_does_not_read_the_activities_dump_format() -> None:

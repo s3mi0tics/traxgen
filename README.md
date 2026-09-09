@@ -7,22 +7,22 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 ## Status
 
-Early development. Parser, serializer, validator, and minimal generator
-(M5.b) are complete; the uploader (M6.a) is complete and verified
-against the live endpoint. M6.c (Android emulator automation) is
-complete: `traxgen.android.render_course()` drives the GraviTrax
-Android app to render a share code and capture a screenshot in
-~25 seconds, with optional play-button-state classification
-(`active` = course valid by app rules, `inactive` = invalid).
-M6.b (rail rendering, `side_hex_rot` convention, v7 schema delta)
-is in progress, now unblocked for fast iteration via the M6.c
-automation harness.
+Phase 1 closed on 2026-09-07: `python -m traxgen generate --set vertical-starter`
+writes a course that the share-code upload endpoint accepts and the
+official app renders as valid, verified through the Android harness
+(`traxgen.android.render_course()` and its play-button oracle) on a
+cold-booted emulator. Parser, serializer, validator, uploader and the
+minimal generator are complete. Connection claims come from a rendered
+record (`traxgen/graph.py`, `MEASURED_RUNS`), keyed on where each piece
+stood, on which plate, and which pieces they were; the model that
+proposes placements lives on a separate prediction surface and is
+refuted by render, on purpose, when it is wrong.
 
-Phase 1 goal: generate a topologically valid single-track course using
-the PRO Vertical Starter-Set (26832) that loads in the GraviTrax app
-via its share-code system.
-
-See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap including race mode and perpetual mode (Phase 3).
+Phase 2's target is the generator: multi-plate placement inside what
+the record has measured. Current state lives in
+[`allostatik/plan.md`](allostatik/plan.md); [`docs/PLAN.md`](docs/PLAN.md)
+is the archived pre-August roadmap, including race mode and perpetual
+mode (Phase 3).
 
 ## Quick start
 

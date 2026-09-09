@@ -100,6 +100,8 @@ D070 · The queue is re-sequenced around the product, per the 2026-08-28 five-le
 D071 · Phase 1 is closed as written (2026-09-07, s32) → decisions.md:88, body 141w
 D072 · A render run starts from a cold emulator and a recognised main menu, and ends with the emulator down (2026-09-07, s32) → decisions.md:89, body 283w
 D073 · Decompiling the app stays declined, now on a measurement (2026-09-07, s32) → decisions.md:90, body 121w
+D074 · Tile kinds are key terms in the rendered record, required with no default (2026-09-08, s33) → decisions.md:91, body 216w
+D075 · The installed app version is a device-level gate, measured once and bumped by hand (2026-09-09, s33) → decisions.md:92, body 198w
 
 ## Observations
 
@@ -114,7 +116,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #3 · **App-built oracle fixtures are the ground truth of last resort.** → observations.md:17, body 35w
 #7 · **Tooling-first is the working style — flag automation before the third repetition.** → observations.md:18, body 105w
 #8 · **Multi-edit patch scripts with exact-match validation are the default for doc edits.** → observations.md:19, body 97w
-#12 · **A check can pass while asserting something false — verify the claim, not the check.** **[?revised]** → observations.md:20, body 2148w
+#12 · **A check can pass while asserting something false — verify the claim, not the check.** **[?revised]** → observations.md:20, body 2228w
 #19 · **A verdict function can assert more than its own design guarantees.** → observations.md:22, body 1369w
 #29 · **On a surface where the deployed field arrives in context, the drift-check has an ordering hazard.** → observations.md:24, body 534w
 
@@ -153,5 +155,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #39 · **A gated walk that shows diffs and triage flags without saying what the change is for and what it costs reads as mechanics, and approval without understanding is not the security control the routine thinks it is.** → observations.md:82, body 68w
 #40 · **A verdict recorded under an earlier version of its own classifier is not a second confirmation.** **[?revised]** → observations.md:84, body 184w
 #41 · **A decision made on a declared figure should name the measurement that would overturn it, and then that measurement gets taken.** → observations.md:86, body 174w
-#42 · **(candidate, six firings in s31 alone)** → observations.md:88, body 97w
-#43 · **(candidate, s32; two failures and one measurement across s23, s27, s32)** → observations.md:90, body 199w
+#42 · **A composed message that ends in an implied decision is exactly where the actual question call gets dropped.** → observations.md:88, body 85w
+#43 · **A fixed sleep before a blind tap is a guess the harness cannot see fail, and when it fails the symptom looks like a different screen's problem.** → observations.md:90, body 183w
+#44 · **A panel lens that mutates the working tree poisons the lenses reading it.** → observations.md:92, body 100w
+#45 · **A committed spec that quotes source is a test of that source's text, and nothing runs it at close, so it goes stale silently.** → observations.md:94, body 108w

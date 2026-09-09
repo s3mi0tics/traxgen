@@ -48,15 +48,19 @@ Bundle command to load the project's canonical files into a new conversation. Pr
     allostatik/project-instructions.md \
     allostatik/plan.md \
     allostatik/workflow.md \
-    allostatik/decisions.md \
-    allostatik/observations.md \
-    allostatik/vision.md ; do
+    allostatik/decisions-and-observations-index.md \
+    allostatik/vision.md \
+    allostatik/session-ledger.md ; do
     echo "===== FILE: $f ====="
     cat "$f"
     echo ""
   done
+  echo "===== FILE: allostatik/log.md (newest entry) ====="
+  tail -n 1 allostatik/log.md
 } 2>&1 | tee >(pbcopy)
 ```
+
+(The record loads through its index since s32, D069. This list matched the deployed field's only from s33 -- it had still named the two record files.)
 
 ## Other files available on request
 

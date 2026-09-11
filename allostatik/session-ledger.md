@@ -24,3 +24,12 @@ OPENED s32 2026-09-02
 CLOSED s32
 OPENED s33 2026-09-08
 CLOSED s33
+OPENED s34 2026-09-11
+STEP upgrade 1/5 v0.3.9 30dd2463f9f37cc3062c409e48650124f4bfb16c routine:6f233cd4cebc from:fc6045c84f71 tree:clean part1:v0.3.9 sha256:4ddca856d3d1 claude-md:v0.3.9 sha256:9e2268059b59 agents-md:v0.3.9 sha256:a331be536e27
+STEP upgrade 2/5 part1:PRISTINE-STALE claude-md:CURRENT agents-md:CURRENT
+STEP upgrade 3/5 part1 applied v0.3.9 sha256:4ddca856d3d1
+STEP upgrade 3/5 claude-md applied v0.3.9 sha256:9e2268059b59
+STEP upgrade 3/5 agents-md applied v0.3.9 sha256:a331be536e27
+STEP upgrade 4/5 offered:0 placed:0 declined:0 deferred:0
+STEP upgrade 5/5 verified
+STEP-DONE upgrade

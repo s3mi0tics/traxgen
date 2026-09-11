@@ -22,7 +22,7 @@ This is one execution-surface adapter over a shared core. Claude Code auto-loads
 this `CLAUDE.md`; the root `AGENTS.md` is the same pointer for Cursor and other
 agents; both point at the same canonical files rather than copying them.
 
-<!-- BEGIN allostatik v0.3.7 sha256:9e2268059b59 (managed — updated by the upgrade routine, gated on a verbatim diff; your edits belong outside it. Project additions — an extra canonical file to load, say — go below the END marker, outside the fence) -->
+<!-- BEGIN allostatik v0.3.9 sha256:9e2268059b59 (managed — updated by the upgrade routine, gated on a verbatim diff; your edits belong outside it. Project additions — an extra canonical file to load, say — go below the END marker, outside the fence) -->
 
 This region is contributed by Allostatik. It declares this as an Allostatik project and lists the project-scope files Claude loads each session. Architectural background for this pattern lives in the methodology's `README.md` — not duplicated here.
 

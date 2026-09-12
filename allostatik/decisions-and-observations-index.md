@@ -102,6 +102,8 @@ D072 · A render run starts from a cold emulator and a recognised main menu, and
 D073 · Decompiling the app stays declined, now on a measurement (2026-09-07, s32) → decisions.md:90, body 121w
 D074 · Tile kinds are key terms in the rendered record, required with no default (2026-09-08, s33) → decisions.md:91, body 216w
 D075 · The installed app version is a device-level gate, measured once and bumped by hand (2026-09-09, s33) → decisions.md:92, body 198w
+D076 · Retired plan narrative goes to the parked file, not `log.md`, when `log.md` already holds a fuller account (2026-09-12, s34) → decisions.md:93, body 68w
+D077 · Allostatik's own wording is fixed at the source, never forked in this project (2026-09-12, s34) → decisions.md:94, body 54w
 
 ## Observations
 
@@ -159,3 +161,6 @@ kind. Promotion means three or more firings across separate sessions.*
 #43 · **A fixed sleep before a blind tap is a guess the harness cannot see fail, and when it fails the symptom looks like a different screen's problem.** → observations.md:90, body 183w
 #44 · **A panel lens that mutates the working tree poisons the lenses reading it.** → observations.md:92, body 100w
 #45 · **A committed spec that quotes source is a test of that source's text, and nothing runs it at close, so it goes stale silently.** → observations.md:94, body 108w
+#46 · **A rule that governs the open's first step cannot live in a file the open reads at step 3.** → observations.md:96, body 145w
+#47 · **A capability ruled out once is inherited as fact by every later session, and the ruling is never re-tested.** → observations.md:98, body 82w
+#48 · **Retiring a plan assumes its finished narrative is unique, and a project that has been double-recording has no correct destination.** → observations.md:100, body 76w

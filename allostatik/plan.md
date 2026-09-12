@@ -17,7 +17,7 @@ This file is **operational state** only. Don't duplicate `decisions.md` (locked 
 
 ## Current state
 
-Phase 1 (single-track pipeline proof), late-stage. Milestone status:
+Phase 1 (single-track pipeline proof), late-stage; no product code changed at s34. Allostatik routines at **v0.3.9** (upgraded s34). Milestone status:
 
 | Milestone | Status |
 |---|---|
@@ -110,6 +110,8 @@ Still-open v1-scope unknowns, numbering preserved from the original PLAN.md for 
 - **#17 Is "off-plate" physical, or outside a canonical coordinate window?** — **ANSWERED 2026-08-25 (s27): the answer is the coordinate window**, with a third state found at s26 — cells **addressable in the format and refused by the app editor** (the half-holes), at **1 tile on an uncompleted half-hole against 2050 on completed ones**. Consequence: **the generator must address every tile on its owning plate**, and **connection composes across plate boundaries**. The four dated design iterations and the residue note are parked in `knowledge/docs/plan-parked.md`.
 
 **Deferred cleanup** (small, non-blocking — from PLAN.md, trimmed to what's still live): the list is parked in `knowledge/docs/plan-parked.md`. It comes back when a cleanup session runs, or when Sequenced item 8 (SkyTrax) picks up the `CourseElementGeneration` ids it names.
+
+- **#18 Does #17's residue note still point at a live item?** — new 2026-09-12 (s34). The parked #17 body ends "Residue, and it is item 5's", but Sequenced item 5 was retired 2026-08-26 (s28). Either the residue moved to another item or it is discharged; reading the parked body against the current Sequenced list settles it in one pass. *Trigger:* whoever next opens #17's parked body.
 
 ## Session log
 

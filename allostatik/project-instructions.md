@@ -56,7 +56,7 @@ Bundle command to load the project's canonical files into a new conversation. Pr
     echo ""
   done
   echo "===== FILE: allostatik/log.md (newest entry) ====="
-  tail -n 1 allostatik/log.md
+  awk '/^## /{exit} 1' allostatik/log.md | grep -E '^- \*\*[0-9]{4}-' | tail -n 1
 } 2>&1 | tee >(pbcopy)
 ```
 

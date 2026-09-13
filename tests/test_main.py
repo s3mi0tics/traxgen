@@ -28,14 +28,22 @@ from pathlib import Path
 
 import pytest
 
-from traxgen.__main__ import SETS, main
+from traxgen.__main__ import BOARDS, SETS, main
 from traxgen.domain import Course
-from traxgen.generator import generate_minimal
+from traxgen.generator import generate_minimal, generate_multi_plate
 from traxgen.inventory import PRO_VERTICAL_STARTER_SET, Inventory
 from traxgen.serializer import serialize_course
 from traxgen.types import TileKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+# The claim the command prints for the certified single-plate course. Spelled
+# out rather than computed from `start_goal_status`, so the assertion is a
+# statement about what the record says and not a restatement of the code under
+# test: the FLW4TMLP5V geometry is covered by a MeasuredRun, so it is the one
+# course this command can honestly call CONNECTED.
+CERTIFIED_CLAIM_LINE = "claim: CONNECTED (this placement is in the rendered record)"
 
 
 def goalless(inventory: Inventory) -> Course:
@@ -56,7 +64,10 @@ def test_generate_writes_exactly_the_library_bytes(tmp_path: Path) -> None:
     stdout = io.StringIO()
     assert main(["generate", "--set", "vertical-starter", "--out", str(out)], stdout=stdout) == 0
     assert out.read_bytes() == serialize_course(generate_minimal(PRO_VERTICAL_STARTER_SET))
-    assert stdout.getvalue() == f"wrote {out.stat().st_size} bytes to {out}\n"
+    assert stdout.getvalue() == (
+        f"wrote {out.stat().st_size} bytes to {out}\n"
+        f"{CERTIFIED_CLAIM_LINE}\n"
+    )
 
 
 def test_default_output_is_the_set_name_in_cwd(
@@ -98,6 +109,46 @@ def test_only_certified_sets_are_offered() -> None:
     assert set(SETS) == {"vertical-starter"}
 
 
+def test_boards_offered_are_the_two_the_library_builds() -> None:
+    """A board appears here once the library can build on it; the app gates the rest."""
+    assert set(BOARDS) == {"single-plate", "standard-square"}
+
+
+def test_multi_plate_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -> None:
+    """The s35 ruling, end to end: a predicted course is written AND labelled.
+
+    The label is the whole reason this passes rather than being a problem --
+    the command hands over a course it does not claim the app accepts.
+    """
+    out = tmp_path / "square.course"
+    stdout = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--out", str(out)],
+        stdout=stdout,
+    )
+    assert code == 0
+    assert out.read_bytes() == serialize_course(
+        generate_multi_plate(PRO_VERTICAL_STARTER_SET)
+    )
+    assert "claim: UNMEASURED" in stdout.getvalue()
+    assert "CONNECTED" not in stdout.getvalue()
+
+
+def test_measured_only_refuses_and_writes_nothing(tmp_path: Path) -> None:
+    """Exit 3, not 1: there is no course, so nothing was invalid."""
+    out = tmp_path / "nope.course"
+    stderr = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--measured-only", "--out", str(out)],
+        stderr=stderr,
+    )
+    assert code == 3
+    assert not out.exists()
+    assert "CONNECTED in the rendered record" in stderr.getvalue()
+
+
 @pytest.mark.integration
 def test_python_dash_m_traxgen_runs_the_dod_command(tmp_path: Path) -> None:
     out = tmp_path / "dod.course"
@@ -107,5 +158,8 @@ def test_python_dash_m_traxgen_runs_the_dod_command(tmp_path: Path) -> None:
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout == f"wrote {out.stat().st_size} bytes to {out}\n"
+    assert proc.stdout == (
+        f"wrote {out.stat().st_size} bytes to {out}\n"
+        f"{CERTIFIED_CLAIM_LINE}\n"
+    )
     assert out.read_bytes() == serialize_course(generate_minimal(PRO_VERTICAL_STARTER_SET))

@@ -55,6 +55,7 @@ positive evidence only.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -198,6 +199,63 @@ def is_on_plate(kind: LayerKind, local_pos: HexVector) -> bool:
     rather than reporting every one of its cells as off-plate.
     """
     return (local_pos.y, local_pos.x) in plate_footprint(kind)
+
+
+def _column_centre(cell: tuple[int, int]) -> Fraction:
+    """Physical column of a cell's centre, in hole widths: `y + x/2`.
+
+    Axial hex rows stagger by half a hole, so the physical column is not `y`.
+    `Fraction` rather than `float` because every quantity here is a
+    half-integer and the comparison at the boundary has to be exact.
+    """
+    return cell[0] + Fraction(cell[1], 2)
+
+
+def half_hole_cells(kind: LayerKind) -> frozenset[tuple[int, int]]:
+    """The cells of `kind` whose hole is only *half* on the plate.
+
+    The plate boundary sits at the largest physical column any cell reaches,
+    so a cell centred there has half its hole hanging past the edge. Derived
+    from the measured footprint rather than typed out, because a typed list of
+    a checkable property is the same untested claim one layer down.
+
+    `scripts/probe_plate_seams.py` is the producer that measured what these
+    cells mean -- 2050 tiles on completed half-holes against 1 on an
+    uncompleted one, with a passing control -- and derives the identical set.
+    Duplicated here rather than imported so nothing under `traxgen/` depends
+    on `scripts/`; the probe owns the measurement, this owns the rule.
+    """
+    footprint = plate_footprint(kind)
+    edge = max(_column_centre(cell) for cell in footprint)
+    return frozenset(cell for cell in footprint if _column_centre(cell) == edge)
+
+
+def is_buildable_on_plate(kind: LayerKind, local_pos: HexVector) -> bool:
+    """Whether the app *editor* accepts a piece on `local_pos` of a lone plate.
+
+    This is D066 -- "a half-hole is not a usable square until a neighbouring
+    plate completes it" -- and it is the first legality rule this project has
+    that came from the editor rather than from a render. A lone
+    `BASE_LAYER_PIECE` has 30 addressable cells and 27 buildable ones.
+
+    **Distinct from `is_addressable_on_plate`, and the pair is not redundant.**
+    Addressing decides whether a placed goal *connects*; the half-hole
+    campaign rendered goals on physically incomplete cells **active**, so
+    completeness does not gate connection and deliberately does not appear
+    there. It gates whether a human can *build* the course on a table, which
+    is what the generator owes its user.
+
+    **Conservative by design: it never looks at the layout.** A neighbouring
+    plate physically completes a half-hole without sharing its address -- the
+    four plates of `STANDARD_SQUARE` tile 120 cells with no overlap, so the
+    cell still belongs to exactly one footprint -- which means widening this
+    to "completed by a neighbour" needs a geometric adjacency rule no render
+    has measured. Refusing those cells can only cost placements, never emit a
+    bad one. Measured cost as of 2026-09-12: of 36 cross-plate candidates the
+    connection model calls live on `STANDARD_SQUARE`, 33 survive this rule.
+    """
+    key = _as_key(local_pos)
+    return key in plate_footprint(kind) and key not in half_hole_cells(kind)
 
 
 def plate_available_directions(kind: LayerKind, local_pos: HexVector) -> frozenset[int]:

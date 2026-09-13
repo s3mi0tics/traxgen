@@ -23,7 +23,7 @@ Before answering "where are we", "what's next", or the status of any work, ask m
     echo ""
   done
   echo "===== FILE: allostatik/log.md (newest entry) ====="
-  tail -n 1 allostatik/log.md
+  awk '/^## /{exit} 1' allostatik/log.md | grep -E '^- \*\*[0-9]{4}-' | tail -n 1
 } 2>&1 | tee >(pbcopy)
 ```
 
@@ -40,7 +40,7 @@ Do not reconstruct state from this field alone. If I open with a specific questi
 ## What lives where
 
 - `allostatik/plan.md` — operational state: milestones, sequenced work, open unknowns.
-- `allostatik/log.md` — the session-by-session record; its last line is the newest entry.
+- `allostatik/log.md` — the session-by-session record; the newest entry is the last dated bullet before the first `##` heading (retired plan narrative sits below those, so the file's last line is not the newest entry).
 - `allostatik/decisions.md` — locked choices with their reasoning. Don't relitigate without a checkpoint.
 - `allostatik/observations.md` — process patterns, numbered cumulatively. Never renumber.
 - `allostatik/decisions-and-observations-index.md` — one line per record entry, and what the open loads instead of the two files above; look an entry up by its line address. Regenerate after any record edit: `uv run python -m scripts.make_record_index` (`--verify` to check).

@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Prove a traxgen change against its outside judges -- generate a GraviTrax .course with the real CLI, byte round-trip it through the parser, run the full validator, upload it to Ravensburger for a share code, and optionally have the Android app render it. Use after touching the generator, serializer, parser, validator or uploader, before claiming a course works, or when asked to verify, prove, or get a share code for a generated course.
+description: Prove a traxgen change against its outside judges -- generate a GraviTrax .course with the real CLI, byte round-trip it through the parser, run the full validator, upload it to Ravensburger for a share code, and optionally have the Android app render it (the render stage has never been run and is unverified). Use after touching the generator, serializer, parser, validator or uploader, before claiming a course works, or when asked to verify, prove, or get a share code for a generated course.
 ---
 
 # verify (traxgen)
@@ -13,11 +13,36 @@ runs the whole chain and leaves evidence on disk:
 .claude/skills/verify/scripts/verify_chain.sh                       # single-plate, with upload
 .claude/skills/verify/scripts/verify_chain.sh --board standard-square
 .claude/skills/verify/scripts/verify_chain.sh --no-upload           # offline only
-.claude/skills/verify/scripts/verify_chain.sh --render              # + app oracle, ~2.5 min
+.claude/skills/verify/scripts/verify_chain.sh --render              # + app oracle, ~2.5 min, UNPROVEN
 ```
 
 Read `summary.txt` in the printed `verify-runs/...` directory. Each stage is one
 `PASS|FAIL|REFUSED <stage> <detail>` line.
+
+## Status: what has and has not been run
+
+- **Proven by running** (2026-09-13 at `bb1ea4f`, re-run 2026-09-14): `generate`,
+  `determinism`, `pin`, `check`, `upload`, `code_pin`, on both boards, plus the
+  `--measured-only` refusal and negative controls for `check`, `pin` and `doctor`.
+- **UNPROVEN: the `render` stage has never executed from this skill.** Its
+  wiring was checked by reading `scripts/render_course.py`, not by running it.
+  Every render output this file and `features/render.md` describe (summary
+  lines, `render.log` contents, screenshot names) is what the code should
+  produce. None of it has been observed. Until a `--render` run passes, treat a
+  `render` line as an untested stage, and do not cite this skill as having
+  verified any course's validity.
+- **Retiring this notice:** after the first `verify_chain.sh --render` that
+  passes, compare its `summary.txt` and `render.log` against
+  `features/render.md`, correct what differs, then remove every `UNPROVEN`
+  marker in this directory (`grep -rn UNPROVEN .claude/skills/verify`) in the
+  same commit.
+
+## Platform
+
+Stages `generate` through `code_pin` need only `git`, `uv` and the repo's
+Python. They were run on a PATH without `shasum`. The `render` stage is
+macOS-only as written: the SDK fallback is `~/Library/Android/sdk`, the display
+hold is `caffeinate`, and the AVD is this repo's Apple-silicon image.
 
 ## What each judge can and cannot prove
 
@@ -29,7 +54,7 @@ State the strongest claim the run supports. Do not state a stronger one.
 | check | `check_course.py` | bytes parse and re-serialize identically; full violation list | that the app agrees with the format |
 | upload | Ravensburger's endpoint | the server accepted the bytes and assigned a code | **validity**: the endpoint stores bytes and never runs the ball path |
 | code_pin | the endpoint's content dedup | single-plate bytes are the ones the app certified at Phase 1 close | anything about other boards |
-| render | GraviTrax app, play-button oracle | the app calls the course valid (`active`) | nothing further; this is the judge of record |
+| render (**UNPROVEN**, never run from this skill) | GraviTrax app, play-button oracle | the app, at version 2.8, lights the play button for this course | that the marble reaches the goal (the oracle reads the button's colour and never presses play); validity on any other app version; anything, if the harness sampled the wrong screen (a splash has read `active`, the launcher `inactive`) |
 
 Project rule (`allostatik/project-instructions.md`): validity claims go through
 `render_course()` and the play-button oracle, never a human looking at a phone.
@@ -43,7 +68,7 @@ Nothing to launch for stages 1-4. Run from anywhere in the repo; the script
 `cd`s to the root. Dependencies are the repo's `uv` environment (`uv sync` if
 `uv run` complains).
 
-The render stage launches the emulator itself: `render_course --fresh` kills
+UNPROVEN, see Status. The render stage launches the emulator itself: `render_course --fresh` kills
 any running emulator, cold-boots AVD `traxgen_m6c`, waits for the recognised
 main menu, renders, and tears the emulator down on every exit path. Ready is
 internal to that command. You do not start or poll anything.
@@ -83,8 +108,10 @@ uv run python -m scripts.upload_course path/to/file.course     # stdout: the cod
 
 Every run writes `verify-runs/<UTC stamp>-<board>[-measured]-<4 chars>/` (gitignored) containing:
 `summary.txt`, `course.course`, `course.again.course`, `generate.log`,
-`check.log`, and when run, `upload.log`, `share_code.txt`, `render.log`, and
-`rendered_<code>.png`. A report cites the directory and quotes `summary.txt`.
+`check.log`, and when run, `upload.log` and `share_code.txt`. A render run
+should add `render.log` and `rendered_<code>.png`. Those two names come from
+the code and have never been observed (UNPROVEN, see Status). A report cites
+the directory and quotes `summary.txt`.
 
 Proof standards:
 

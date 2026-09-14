@@ -37,4 +37,4 @@ Each file: H1 title, one paragraph, then `Sub-features`, `How to get to it
 - [Generate a course](./generate.md) covers boards, the measured-only refusal, and the claim line.
 - [Check a course file](./check.md) covers the byte round trip and the full validator.
 - [Get a share code](./upload.md) covers upload, dedup, and the Phase 1 pin.
-- [Render in the app](./render.md) covers the play-button validity oracle.
+- [Render in the app](./render.md) covers the play-button validity oracle. **UNPROVEN: never run from this skill.**

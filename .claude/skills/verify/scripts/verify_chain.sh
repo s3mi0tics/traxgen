@@ -12,7 +12,8 @@
 #   check         check_course.py: byte round trip + full validator
 #   upload        share code from Ravensburger's endpoint (network, public)
 #   code_pin      single-plate only: code is KN6F459ZR3 (endpoint dedups by content)
-#   render        opt-in: app play-button oracle on a cold-booted emulator
+#   render        opt-in: app play-button oracle on a cold-booted emulator.
+#                 UNPROVEN: this stage has never executed. See SKILL.md, Status.
 #
 # Evidence: verify-runs/<UTC stamp>-<board>[-measured]-<4 chars>/ at the repo root (gitignored).
 # Exit: 0 every run stage passed; 1 a stage failed; 3 generator refused
@@ -67,10 +68,18 @@ else
   record FAIL determinism "two generates differ"
 fi
 
-sha=$(shasum -a 256 "$run/course.course" | cut -d' ' -f1)
+# hashlib, not shasum: the chain already needs uv's Python, and shasum is not
+# on every platform. An empty hash is a tooling failure, never a byte mismatch.
+sha=$(uv run python -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' \
+      "$run/course.course" 2>>"$run/generate.log")
 if [ "$board" = single-plate ] && [ -z "$measured" ]; then
-  [ "$sha" = "$PIN_SHA" ] && record PASS pin "sha256 matches Phase 1 bytes" \
-                          || record FAIL pin "sha256 $sha, expected $PIN_SHA"
+  if [ -z "$sha" ]; then
+    record FAIL pin "could not compute sha256 (tooling, not a byte regression), see generate.log"
+  elif [ "$sha" = "$PIN_SHA" ]; then
+    record PASS pin "sha256 matches Phase 1 bytes"
+  else
+    record FAIL pin "sha256 $sha, expected $PIN_SHA"
+  fi
 fi
 
 uv run python "$HERE/check_course.py" "$run/course.course" >"$run/check.log" 2>&1

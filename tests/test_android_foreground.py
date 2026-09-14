@@ -63,6 +63,8 @@ from traxgen.android import (
     read_app_version,
     read_foreground_package,
     render_course,
+    tap,
+    type_text,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -148,12 +150,14 @@ class FakeAdb:
         self.screencap_pngs = tuple(screencap_pngs) if screencap_pngs is not None else None
         self.screencaps_served = 0
         self.calls: list[list[str]] = []
+        self.timeouts: list[object] = []
 
     def __call__(
         self, cmd: Sequence[str], **kwargs: object
     ) -> subprocess.CompletedProcess:
         argv = [str(part) for part in cmd]
         self.calls.append(argv)
+        self.timeouts.append(kwargs.get("timeout"))
         joined = " ".join(argv)
 
         if "screencap" in joined:
@@ -236,6 +240,29 @@ IS_LAUNCH = lambda c: "monkey" in c  # noqa: E731
 
 
 # --- The parser, against real captured text --------------------------------
+
+
+def test_text_entry_gets_a_longer_bound_than_the_cheap_commands() -> None:
+    """Text entry must not share `input tap`'s timeout (2026-09-14).
+
+    Three render runs died at the blanket 10 seconds. The screenshot showed
+    nine of the share code's ten characters already typed, so injection was
+    working and slow, not stuck -- a bound sized for a one-shot tap cannot fit
+    a command that types a character at a time.
+
+    Asserts the *relationship*, not the constant: what would regress is someone
+    dropping the explicit argument and silently inheriting the default again.
+    """
+    fake = FakeAdb()
+    ctx = ctx_with(fake)
+    tap(ctx, "code_input_field")
+    type_text(ctx, "H4OI26V7Q7")
+
+    tap_timeout = fake.timeouts[fake.index_of(IS_TAP)]
+    text_timeout = fake.timeouts[fake.index_of(lambda c: "input text" in c)]
+    assert isinstance(tap_timeout, float) and isinstance(text_timeout, float)
+    assert text_timeout > tap_timeout
+    assert text_timeout >= 30.0, "a ten-character code at ~1 char/s needs real headroom"
 
 
 def test_parses_the_launcher_capture_that_fooled_s21() -> None:

@@ -78,6 +78,16 @@ WAITS = {
     "after_delete": 1.5,
 }
 
+# How long `input text` gets. The blanket 10s default cost three render runs in
+# a row. The screenshot from 2026-09-14 settled why: nine of the share code's
+# ten characters were already in the field when the command was killed, so
+# injection was running at roughly a character a second and had simply not
+# finished. That rate is a property of a slow device -- this AVD renders in
+# software -- not of anything here, so the bound is set generously rather than
+# tuned to the measurement. The asymmetry is the argument: overshooting costs a
+# slower failure, undershooting costs the entire run, which it did three times.
+TEXT_ENTRY_TIMEOUT = 60.0
+
 # How long the Unity app needs after a force-stop-and-relaunch before it will
 # drive. Measured during the 2026-08-10 queue work; a cold splash needs real
 # time and 8s was demonstrably not enough (2026-08-07).
@@ -334,9 +344,17 @@ def tap(ctx: AdbContext, coord_name_or_xy: str | tuple[int, int]) -> None:
     ctx.sleep(WAITS["after_tap"])
 
 
-def type_text(ctx: AdbContext, text: str) -> None:
-    """Inject text via the native IME."""
-    _run_adb(ctx, "shell", "input", "text", text)
+def type_text(
+    ctx: AdbContext, text: str, *, timeout: float = TEXT_ENTRY_TIMEOUT
+) -> None:
+    """Inject text via the native IME.
+
+    Carries its own timeout rather than the module-wide default for cheap
+    commands: injection happens a character at a time and is visibly slow on
+    this device, so a bound that fits `input tap` does not fit this. See
+    `TEXT_ENTRY_TIMEOUT` for what was measured.
+    """
+    _run_adb(ctx, "shell", "input", "text", text, timeout=timeout)
     ctx.sleep(WAITS["after_text"])
 
 

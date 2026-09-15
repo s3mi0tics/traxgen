@@ -56,3 +56,5 @@ window_dump_*.xml
 # constrains).
 outputs/
 
+# Evidence from .claude/skills/verify runs. Proofs, not test data.
+verify-runs/

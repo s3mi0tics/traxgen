@@ -4,24 +4,22 @@ The official GraviTrax app loads a share code and shows the course. Its play
 button is lit (`active`) only when the app considers the course valid. This is
 the project's judge of record for validity.
 
-> **UNPROVEN. Nothing in this file has been executed from the verify skill.**
-> The commands match `scripts/render_course.py`'s flags and the chain's render
-> wiring, checked by reading the code. Every result below marked *expected* is
-> what that code should print, and none of it has been observed. A reader must
-> not treat this recipe as verified, or a course as valid because this file
-> describes how it would be shown valid. The first passing
-> `verify_chain.sh --render` retires this notice; see `../SKILL.md`, Status.
+Run once from this skill: 2026-09-15, `b07ddba`, single-plate, app 2.8,
+evidence `verify-runs/20260915T040428Z-single-plate-8mW4/` (gitignored, on the
+machine that ran it). Results below marked *observed* come from that run.
 
 ## Sub-features
 
-- `render-active` a valid course renders with the play button `active`.
-- `render-inactive` an invalid course renders with it `inactive`.
-- `render-lifecycle` `--fresh` runs from nothing to nothing: kill, cold boot, menu, render, kill.
+- `render-active` a valid course renders with the play button `active`. Observed.
+- `render-inactive` an invalid course renders with it `inactive`. Not yet run
+  from this skill.
+- `render-lifecycle` `--fresh` runs from nothing to nothing: kill, cold boot,
+  menu, render, kill. Observed on the passing path only.
 
 ## How to get to it (user POV)
 
 - `uv run python -m scripts.render_course CODE --fresh --detect-validity`
-- As the opt-in `render` stage: `verify_chain.sh --render`.
+- As the opt-in `render` stage: `caffeinate -di verify_chain.sh --render`.
 
 ## Driving it with verify_chain
 
@@ -30,18 +28,26 @@ Preconditions:
 - macOS. The recipe assumes the SDK at `~/Library/Android/sdk` (or
   `ANDROID_HOME`), `caffeinate`, and AVD `traxgen_m6c`.
 - Doctor shows `adb present` and `emulator not running`.
-- About 2.5 minutes with the machine left alone. Do not touch or rotate the
+- About 2 minutes with the machine left alone. Do not touch or rotate the
   emulator window.
 
-- **Certified course.** Run `verify_chain.sh --render`. *Expected, never
-  observed:* `summary.txt` ends with
-  `PASS render play button active (...rendered_KN6F459ZR3.png)`, the screenshot
-  is in the run directory, and `render.log` ends with `PASS emulator_down`.
-  Anything different is a finding about this file, not only about the course.
-- **New course.** Run `verify_chain.sh --board standard-square --render`.
-  *Expected, never observed:* a `render` line whose verdict turns that board's
-  `claim: UNMEASURED` into a measurement, either way. Record it before claiming
-  anything about four-plate generation.
+- **Certified course.** Run `caffeinate -di verify_chain.sh --render`.
+  *Observed:* exit 0 in 2m10s. `summary.txt` ends with
+  `PASS render play button active (<run dir>/rendered_KN6F459ZR3.png)`. The
+  screenshot shows the course editor with the one-plate course loaded and a
+  lit play button. `render.log` reads, in order: the pre-boot
+  `PASS emulator_down`, `boot_completed in 29.2s`, four device checks
+  (`device_attached`, `boot_complete`, `graphics_errors` at 0,
+  `app_version` 2.8), the teardown `PASS emulator_down ... process gone after
+  5.2s`, then `screenshot saved:` and `play button: active`. The verdict comes
+  after teardown, so `render.log` ends with `play button:`, not with
+  `emulator_down`.
+- **New course.** Run `caffeinate -di verify_chain.sh --board standard-square --render`.
+  Not yet run. No earlier run records a share code for this board, so its
+  upload may publish a new public course. The
+  `render` line it produces turns that board's `claim: UNMEASURED` into a
+  measurement, either way. Record it before claiming anything about
+  four-plate generation.
 
 ## Gotchas
 
@@ -50,11 +56,15 @@ Preconditions:
   does not show that the marble reaches the goal.
 - A wrong screen fools the oracle: a splash has read `active`, and the
   launcher `inactive`. `--fresh` waits for a recognised main menu to prevent
-  this. That wait is also unobserved from this skill.
+  this, and a wait that times out fails the render. `render.log` has no line
+  for the wait, so how long the menu took is not recorded. Open the
+  screenshot to confirm the screen.
 - The oracle samples pixels. A locked or occluded display throttles the
-  emulator, so hold the display: prefix with `caffeinate -di`.
-- `grep -c "bad color buffer" /tmp/emulator.log` should be 0. A climbing count
-  means stop, not retry.
+  emulator. The chain does not hold the display, so prefix with
+  `caffeinate -di`.
+- `render.log`'s `graphics_errors` line counts `bad color buffer` in
+  `/tmp/emulator.log` after boot. It should be 0. A climbing count means stop,
+  not retry.
 - The app version must be `android.MEASURED_APP_VERSION` (2.8). The cold boot's
-  device checks refuse any other, because a Play Store update invalidates the
-  tap map.
+  `app_version` check refuses any other, because a Play Store update
+  invalidates the tap map.

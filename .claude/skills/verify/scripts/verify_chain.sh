@@ -13,7 +13,6 @@
 #   upload        share code from Ravensburger's endpoint (network, public)
 #   code_pin      single-plate only: code is KN6F459ZR3 (endpoint dedups by content)
 #   render        opt-in: app play-button oracle on a cold-booted emulator.
-#                 UNPROVEN: this stage has never executed. See SKILL.md, Status.
 #
 # Evidence: verify-runs/<UTC stamp>-<board>[-measured]-<4 chars>/ at the repo root (gitignored).
 # Exit: 0 every run stage passed; 1 a stage failed; 3 generator refused

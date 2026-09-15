@@ -4,9 +4,11 @@ The official GraviTrax app loads a share code and shows the course. Its play
 button is lit (`active`) only when the app considers the course valid. This is
 the project's judge of record for validity.
 
-Run once from this skill: 2026-09-15, `b07ddba`, single-plate, app 2.8,
-evidence `verify-runs/20260915T040428Z-single-plate-8mW4/` (gitignored, on the
-machine that ran it). Results below marked *observed* come from that run.
+Run from this skill on 2026-09-15, app 2.8: single-plate at `b07ddba`
+(`verify-runs/20260915T040428Z-single-plate-8mW4/`) and standard-square at
+`47a062d` (`verify-runs/20260915T041644Z-standard-square-pQRf/`). Both
+directories are gitignored and live on the machine that ran them. Results below
+marked *observed* come from those runs.
 
 ## Sub-features
 
@@ -43,11 +45,14 @@ Preconditions:
   after teardown, so `render.log` ends with `play button:`, not with
   `emulator_down`.
 - **New course.** Run `caffeinate -di verify_chain.sh --board standard-square --render`.
-  Not yet run. No earlier run records a share code for this board, so its
-  upload may publish a new public course. The
-  `render` line it produces turns that board's `claim: UNMEASURED` into a
-  measurement, either way. Record it before claiming anything about
-  four-plate generation.
+  *Observed:* exit 0 in 2m11s, code `H4OI26V7Q7`, `PASS render play button
+  active`, and the same `render.log` sequence as above (boot 28.7s). The
+  screenshot shows all four plates, with the starter and goal rail on the
+  right-hand plate. The course places the STARTER at local `(y=-4, x=0)` on
+  the plate at world `(0,0)`, and the GOAL_RAIL at local `(y=-6, x=5)`,
+  rotation 5, on the plate at world `(y=3, x=-6)`. `generate` and `check`
+  still print `claim: UNMEASURED`, because the verdict lives only in the run
+  directory until `MEASURED_RUNS` records it.
 
 ## Gotchas
 

@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Prove a traxgen change against its outside judges -- generate a GraviTrax .course with the real CLI, byte round-trip it through the parser, run the full validator, upload it to Ravensburger for a share code, and optionally have the Android app render it (render proven once, on the single-plate course). Use after touching the generator, serializer, parser, validator or uploader, before claiming a course works, or when asked to verify, prove, or get a share code for a generated course.
+description: Prove a traxgen change against its outside judges -- generate a GraviTrax .course with the real CLI, byte round-trip it through the parser, run the full validator, upload it to Ravensburger for a share code, and optionally have the Android app render it (render proven on both boards; never seen to answer inactive). Use after touching the generator, serializer, parser, validator or uploader, before claiming a course works, or when asked to verify, prove, or get a share code for a generated course.
 ---
 
 # verify (traxgen)
@@ -29,9 +29,12 @@ Read `summary.txt` in the printed `verify-runs/...` directory. Each stage is one
   PASS, `render` reading `play button active`. The screenshot shows the course
   editor with the course loaded, not a splash or the launcher. Outputs as
   observed are in `features/render.md`.
-- **Not yet run:** `render` on `standard-square`, so four-plate generation is
-  still `UNMEASURED`; and `render` on an invalid course, so this skill has not
-  seen the oracle answer `inactive`.
+- **`render` on `standard-square`** (2026-09-15 at `47a062d`): exit 0, code
+  `H4OI26V7Q7`, play button `active`. That measures the one placement the
+  default four-plate generate emits. The generator still prints
+  `claim: UNMEASURED` for it, because `MEASURED_RUNS` has not recorded the run.
+- **Not yet run:** `render` on an invalid course, so this skill has not seen
+  the oracle answer `inactive`.
 
 ## Platform
 
@@ -51,7 +54,7 @@ State the strongest claim the run supports. Do not state a stronger one.
 | check | `check_course.py` | bytes parse and re-serialize identically; full violation list | that the app agrees with the format |
 | upload | Ravensburger's endpoint | the server accepted the bytes and assigned a code | **validity**: the endpoint stores bytes and never runs the ball path |
 | code_pin | the endpoint's content dedup | single-plate bytes are the ones the app certified at Phase 1 close | anything about other boards |
-| render (run once, single-plate) | GraviTrax app, play-button oracle | the app, at version 2.8, lights the play button for this course | that the marble reaches the goal (the oracle reads the button's colour and never presses play); validity on any other app version; anything, if the harness sampled the wrong screen (a splash has read `active`, the launcher `inactive`) |
+| render (run on both boards) | GraviTrax app, play-button oracle | the app, at version 2.8, lights the play button for this course | that the marble reaches the goal (the oracle reads the button's colour and never presses play); validity on any other app version; anything, if the harness sampled the wrong screen (a splash has read `active`, the launcher `inactive`) |
 
 Project rule (`allostatik/project-instructions.md`): validity claims go through
 `render_course()` and the play-button oracle, never a human looking at a phone.

@@ -115,6 +115,15 @@ SETTLE_SECONDS = 35.0
 MENU_WAIT_TIMEOUT = 90.0
 MENU_WAIT_INTERVAL = 2.0
 
+# How many screencaps in a row with no frame in them -- zero bytes, or bytes
+# that are not a PNG -- `wait_for_main_menu` takes before it calls the device
+# dead. Declared, not measured (s37, plan item 17(d)). The first version
+# counted every unreadable frame, and its first live run refuted it: three
+# truncated frames in a row (polls 5-7, 336-1,116 KB each), which is a device
+# sending most of an image, not one that stopped answering. Truncated frames
+# are skipped and counted with no run limit; the wait's own ceiling bounds them.
+MENU_WAIT_MAX_NO_FRAME_RUN = 3
+
 
 # --- Exceptions ------------------------------------------------------------
 
@@ -153,10 +162,14 @@ class OracleFrameError(AndroidAutomationError):
 class FrameUnreadableError(AndroidAutomationError):
     """A screencap did not come back as a whole PNG.
 
-    Three shapes, one finding -- the device stopped answering: zero bytes,
-    bytes that are not a PNG at all, and a PNG cut off before its IEND chunk.
-    `adb exec-out screencap` exits 0 in all three, so without this guard the
-    first thing to notice is Pillow, thirty lines into a decode (s35, twice).
+    Three shapes: zero bytes, bytes that are not a PNG at all, and a PNG cut
+    off before its IEND chunk. `adb exec-out screencap` exits 0 in all three,
+    so without this guard the first thing to notice is Pillow, thirty lines
+    into a decode (s35, twice). Until s37 they were read as one finding, the
+    device stopped answering. The first two still mean no frame arrived; the
+    third does not -- s37 caught three in a row carrying 336-1,116 KB each,
+    a frame that started and was cut off. `truncated` keeps that difference
+    readable by code, not only in the message.
 
     Deliberately NOT the frame equivalent of `dump_ui` returning None.
     `uiautomator dump` fails *while a view animates*, which is exactly when a
@@ -165,7 +178,18 @@ class FrameUnreadableError(AndroidAutomationError):
     than useless, because `wait_until` skips the predicate on a None sample --
     so the frame before the gap and the frame after it would count as
     consecutive, stitching a quiet streak across an interval nobody observed.
+
+    That argument binds waits whose predicate compares *successive* frames.
+    `wait_for_main_menu` asks a per-frame question -- is this the menu? -- and
+    a frame that never arrived cannot answer yes, so it catches this error and
+    counts the poll as a missed look (s37, plan item 17(d)), stopping only on
+    `MENU_WAIT_MAX_NO_FRAME_RUN` screencaps in a row with no frame in them.
+    Everything else still raises it at once.
     """
+
+    def __init__(self, message: str, *, truncated: bool) -> None:
+        super().__init__(message)
+        self.truncated = truncated  # a PNG began arriving and was cut off
 
 
 class WrongForegroundAppError(AndroidAutomationError):
@@ -380,15 +404,17 @@ def _require_png(raw: bytes | None, *, what: str) -> bytes:
     "the device stopped answering part-way through".
     """
     if not raw:
-        raise FrameUnreadableError(f"{what}: screencap returned 0 bytes")
+        raise FrameUnreadableError(f"{what}: screencap returned 0 bytes", truncated=False)
     if not raw.startswith(PNG_MAGIC):
         raise FrameUnreadableError(
             f"{what}: screencap returned {len(raw)} bytes that are not a PNG "
-            f"(first 8 bytes: {raw[:8]!r})"
+            f"(first 8 bytes: {raw[:8]!r})",
+            truncated=False,
         )
     if not raw.endswith(PNG_TRAILER):
         raise FrameUnreadableError(
-            f"{what}: screencap returned a truncated PNG -- {len(raw)} bytes, no IEND chunk"
+            f"{what}: screencap returned a truncated PNG -- {len(raw)} bytes, no IEND chunk",
+            truncated=True,
         )
     return raw
 
@@ -912,7 +938,8 @@ def wait_for_stable_frame(
         raw = grab()
         if not raw:
             raise FrameUnreadableError(
-                "frame sample came back empty; screencap has no 'not readable yet' state"
+                "frame sample came back empty; screencap has no 'not readable yet' state",
+                truncated=False,
             )
         return frame_fingerprint(raw)
 
@@ -1162,6 +1189,21 @@ class MenuArrival(NamedTuple):
     elapsed: float
     polls: int
     distance: float
+    # One message per poll whose frame came back unreadable and was skipped, as
+    # `_require_png` worded it (poll number, byte count, which end failed). The
+    # empty tuple is reported too: plan #20 asks how often a cold boot loses a
+    # frame, and that needs the boots that lost none.
+    unreadable: tuple[str, ...]
+
+    def line(self) -> str:
+        """One log line: when the menu came up, and what the wait had to skip."""
+        skipped = f"unreadable frames skipped: {len(self.unreadable)}"
+        if self.unreadable:
+            skipped += f" ({'; '.join(self.unreadable)})"
+        return (
+            f"main menu after {self.elapsed:.1f}s ({self.polls} polls, "
+            f"distance {self.distance:.3f}); {skipped}"
+        )
 
 
 def wait_for_main_menu(
@@ -1171,6 +1213,7 @@ def wait_for_main_menu(
     threshold: float = KNOWN_SCREEN_DISTANCE,
     timeout: float = MENU_WAIT_TIMEOUT,
     interval: float = MENU_WAIT_INTERVAL,
+    max_no_frame_run: int = MENU_WAIT_MAX_NO_FRAME_RUN,
     clock: Callable[[], float] | None = None,
 ) -> MenuArrival:
     """Poll screencaps until one matches the main-menu signature.
@@ -1185,17 +1228,41 @@ def wait_for_main_menu(
     app is in front but never matched, that is `UiConditionTimeout` carrying the
     last distance, so a menu that has been redesigned (the fixture is stale) is
     distinguishable from an app that never got past its splash.
+
+    An unreadable frame is a missed look, not a failed run (s37, plan item
+    17(d)): it is skipped and counted into `MenuArrival.unreadable`. A device
+    that has stopped answering is not waited out -- `max_no_frame_run`
+    screencaps in a row with no frame in them (empty, or not a PNG at all)
+    raise `FrameUnreadableError` on the spot, with every one in the message. A
+    truncated frame breaks that run: it is a frame that started arriving.
     """
     reference = reference or main_menu_signature()
     clock = clock or ctx.clock
     start = clock()
     polls = 0
     last: float | None = None
+    unreadable: list[str] = []
+    no_frame_run = 0
 
-    def sample() -> bytes:
-        nonlocal polls
+    def sample() -> bytes | None:
+        nonlocal polls, no_frame_run
         polls += 1
-        return capture_png(ctx, what=f"main-menu poll {polls}")
+        try:
+            frame = capture_png(ctx, what=f"main-menu poll {polls}")
+        except FrameUnreadableError as exc:
+            unreadable.append(str(exc))
+            # A truncated PNG is a frame that started arriving: the device answered.
+            no_frame_run = 0 if exc.truncated else no_frame_run + 1
+            if no_frame_run >= max_no_frame_run:
+                raise FrameUnreadableError(
+                    f"{no_frame_run} screencaps in a row came back with no frame -- the "
+                    f"device stopped answering during the main-menu wait: "
+                    f"{'; '.join(unreadable[-no_frame_run:])}",
+                    truncated=False,
+                ) from exc
+            return None
+        no_frame_run = 0
+        return frame
 
     def is_menu(frame: bytes) -> bool:
         nonlocal last
@@ -1213,18 +1280,29 @@ def wait_for_main_menu(
             clock=clock,
         )
     except UiConditionTimeout as exc:
+        skipped = f"; {len(unreadable)} of {polls} frames unreadable" if unreadable else ""
         in_front = read_foreground_package(ctx)
         if in_front != ctx.package:
-            raise WrongForegroundAppError(
+            wrong_app = WrongForegroundAppError(
                 expected=ctx.package, found=in_front or "unreadable"
+            )
+            # The class's message is about taps. What this wait saw before the app
+            # left the front is what a reader of the failed run needs (s37).
+            wrong_app.add_note(f"main-menu wait: {exc}{skipped}")
+            raise wrong_app from exc
+        if last is None:
+            raise UiConditionTimeout(
+                f"{exc}; {ctx.package} is in front but no frame was readable{skipped}"
             ) from exc
         raise UiConditionTimeout(
             f"{exc}; {ctx.package} is in front but the last frame was {last:.3f} from "
             f"{reference.name} (threshold {threshold}) -- a splash that never cleared, "
-            "or a menu the fixture no longer describes"
+            f"or a menu the fixture no longer describes{skipped}"
         ) from exc
     assert last is not None
-    return MenuArrival(elapsed=clock() - start, polls=polls, distance=last)
+    return MenuArrival(
+        elapsed=clock() - start, polls=polls, distance=last, unreadable=tuple(unreadable)
+    )
 
 
 # --- High-level flow -------------------------------------------------------
@@ -1247,6 +1325,7 @@ def render_course(
     detect_validity: bool = False,
     reset_first: bool = False,
     menu_timeout: float = MENU_WAIT_TIMEOUT,
+    on_menu: Callable[[MenuArrival], None] | None = None,
     refused_screens: Sequence[RefusedScreen] | None = None,
     refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
 ) -> RenderResult:
@@ -1273,7 +1352,9 @@ def render_course(
     (`wait_for_main_menu`, bounded by `menu_timeout`) rather than sleeping a
     fixed settle -- the fixed settle is what put renders on the build tutorial
     (2026-08-25, 2026-09-06). Opt-in, so existing callers keep their current
-    cost; `run_sweep_queue.py` already resets before every sweep.
+    cost; `run_sweep_queue.py` already resets before every sweep. What the wait
+    measured goes to `on_menu` the moment it is known (s37), so a caller can log
+    it even when a later step fails -- which is when it matters most.
 
     The captured frame is then checked against the refused-screen set and
     `RefusedScreenError` is raised if it matches one -- after cleanup, so the
@@ -1286,7 +1367,9 @@ def render_course(
     assert_emulator_ready(ctx)
 
     if reset_first:
-        reset_to_main_menu(ctx, timeout=menu_timeout)
+        arrival = reset_to_main_menu(ctx, timeout=menu_timeout)
+        if on_menu is not None:
+            on_menu(arrival)
 
     # Before the first tap. After it, the tap has already landed on whatever
     # was in front, and the run is spending renders on the wrong surface.

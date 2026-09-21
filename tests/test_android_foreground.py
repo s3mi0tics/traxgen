@@ -56,6 +56,7 @@ from traxgen.android import (
     DEFAULT_PACKAGE,
     AdbContext,
     ForegroundUnreadableError,
+    MenuArrival,
     WrongForegroundAppError,
     assert_app_in_foreground,
     parse_app_version,
@@ -480,6 +481,32 @@ def test_reset_first_establishes_state_then_verifies_it(tmp_path: Path) -> None:
     menu_poll = fake.index_of(IS_SCREENCAP)
     check = fake.index_of(IS_FOREGROUND_CHECK)
     assert stop < launch < menu_poll < check < fake.index_of(IS_TAP)
+
+
+def test_reset_first_reports_the_menu_arrival_before_the_first_tap(tmp_path: Path) -> None:
+    """`on_menu` hears the arrival before any tap lands (s37), so a render that fails
+    later still leaves it behind. Without a reset there is no wait to report."""
+    fake = FakeAdb(screencap_png=MAIN_MENU_PNG)
+    heard: list[tuple[MenuArrival, int]] = []
+    render_course(
+        "ABC1234567",
+        ctx=ctx_with(fake),
+        screenshot_dir=tmp_path,
+        cleanup=False,
+        reset_first=True,
+        on_menu=lambda arrival: heard.append((arrival, len(fake.calls))),
+    )
+    [(arrival, calls_then)] = heard
+    assert (arrival.polls, arrival.unreadable) == (1, ())
+    assert calls_then <= fake.index_of(IS_TAP)
+    render_course(
+        "ABC1234567",
+        ctx=ctx_with(FakeAdb(screencap_png=MAIN_MENU_PNG)),
+        screenshot_dir=tmp_path,
+        cleanup=False,
+        on_menu=lambda arrival: heard.append((arrival, 0)),
+    )
+    assert len(heard) == 1
 
 
 def test_reset_first_reports_a_relaunch_that_did_not_take(tmp_path: Path) -> None:

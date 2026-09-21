@@ -160,6 +160,9 @@ def _run(args: argparse.Namespace) -> int:
             expect_disclaimer=not args.no_disclaimer,
             detect_validity=args.detect_validity,
             reset_first=args.reset_first or args.fresh,
+            # Printed as the menu arrives, not with the result: a render that
+            # fails after the wait must not take the wait's numbers with it (s37).
+            on_menu=lambda arrival: print(arrival.line(), file=sys.stderr),
         )
 
     try:
@@ -177,6 +180,8 @@ def _run(args: argparse.Namespace) -> int:
             result = render(resolve_context())
     except AndroidAutomationError as exc:
         print(f"render failed: {exc}", file=sys.stderr)
+        for note in getattr(exc, "__notes__", ()):
+            print(f"  {note}", file=sys.stderr)
         return 3
 
     print(f"screenshot saved: {result.screenshot}", file=sys.stderr)

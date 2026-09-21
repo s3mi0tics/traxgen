@@ -84,8 +84,9 @@ def test_a_whole_frame_passes_through_byte_for_byte() -> None:
 
 def test_an_empty_capture_is_named_rather_than_decoded() -> None:
     ctx, _ = _ctx(b"")
-    with pytest.raises(FrameUnreadableError, match="0 bytes"):
+    with pytest.raises(FrameUnreadableError, match="0 bytes") as exc:
         capture_png(ctx)
+    assert exc.value.truncated is False
 
 
 def test_bytes_that_are_not_a_png_report_what_arrived_and_where() -> None:
@@ -96,12 +97,14 @@ def test_bytes_that_are_not_a_png_report_what_arrived_and_where() -> None:
     assert "not a PNG" in message
     assert "main-menu poll 7" in message
     assert "22 bytes" in message
+    assert exc.value.truncated is False
 
 
 def test_a_truncated_frame_is_refused_on_its_missing_trailer() -> None:
     ctx, _ = _ctx(TRUNCATED_PNG)
-    with pytest.raises(FrameUnreadableError, match="truncated"):
+    with pytest.raises(FrameUnreadableError, match="truncated") as exc:
         capture_png(ctx)
+    assert exc.value.truncated is True  # a frame that started arriving (s37)
 
 
 def test_a_refused_capture_writes_no_file(tmp_path: Path) -> None:

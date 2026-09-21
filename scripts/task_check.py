@@ -28,6 +28,18 @@ ALWAYS_IN_SCOPE: tuple[str, ...] = (
     "allostatik/knowledge/task_reports/",
 )
 
+# Only the session close writes these, so no task may change them, declared or not.
+# One writer for shared files is what lets tasks run side by side later.
+CLOSE_ONLY: tuple[str, ...] = (
+    "allostatik/plan.md",
+    "allostatik/log.md",
+    "allostatik/decisions.md",
+    "allostatik/observations.md",
+    "allostatik/decisions-and-observations-index.md",
+    "allostatik/knowledge/environment.md",
+    "allostatik/knowledge/resources.md",
+)
+
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
@@ -64,9 +76,13 @@ def covers(entry: str, path: str) -> bool:
 
 
 def outside_scope(changed: Sequence[str], scope: Sequence[str]) -> list[str]:
-    """The changed paths that no declared or always-in-scope entry covers."""
+    """The changed paths that are not this task's: session-close files, or ones no entry covers."""
     entries = (*scope, *ALWAYS_IN_SCOPE)
-    return [path for path in changed if not any(covers(entry, path) for entry in entries)]
+    return [
+        path
+        for path in changed
+        if path in CLOSE_ONLY or not any(covers(entry, path) for entry in entries)
+    ]
 
 
 def changed_since(base: str, run: Runner = subprocess.run) -> list[str]:
@@ -107,9 +123,10 @@ def main(
         return 2
     stray = outside_scope(changed, opened.scope)
     if stray:
+        named = [f"{path} (session close only)" if path in CLOSE_ONLY else path for path in stray]
         print(
             f"{args.task}: OUT OF SCOPE -- {len(stray)} of {len(changed)} changed files "
-            f"not declared: {', '.join(stray)}"
+            f"are not this task's: {', '.join(named)}"
         )
         return 1
     print(

@@ -32,7 +32,7 @@ Copy everything below the line. Replace every line in italics.
 ## Close
 
 - **What happened:** _plain words_
-- **What changed:** _files, and the commit_
+- **What changed:** _the files; the commit is the one that adds this report_
 - **Evidence:** _the `task_check` line, the test summary, any render lines; a passing check is one line_
 - **Decisions made inside the task:** _one sentence each_
 - **For the record:** _what `plan.md`, `decisions.md` or `observations.md` should say; the session close folds it in_

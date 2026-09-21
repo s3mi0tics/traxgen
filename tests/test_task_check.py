@@ -101,9 +101,20 @@ def test_an_undeclared_record_file_fails_the_close_and_is_named(
 ) -> None:
     """The likeliest miss: a task edits `plan.md`, which only the session close writes."""
     assert check(tmp_path, fake_git(diff=["scripts/emulator.py", "allostatik/plan.md"])) == 1
-    assert "OUT OF SCOPE -- 1 of 2 changed files not declared: allostatik/plan.md" in (
+    assert "OUT OF SCOPE -- 1 of 2 changed files are not this task's: allostatik/plan.md" in (
         capsys.readouterr().out
     )
+
+
+def test_a_session_close_file_fails_even_when_declared(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One writer for shared files: declaring `plan.md` does not make it a task's to change."""
+    ledger = tmp_path / "ledger.md"
+    ledger.write_text("TASK-OPEN s38-t4 base=abc1234 scope=allostatik/plan.md,scripts/x.py\n")
+    run = fake_git(diff=["allostatik/plan.md", "scripts/x.py"])
+    assert main(["s38-t4"], run=run, ledger=ledger) == 1
+    assert "allostatik/plan.md (session close only)" in capsys.readouterr().out
 
 
 def test_an_untracked_file_outside_the_scope_is_caught_too(

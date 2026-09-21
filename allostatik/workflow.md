@@ -268,10 +268,10 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 
 **A task** is one step of the approved goal, small enough to end in one commit. Tasks are numbered in the order they open: `s38-t1`, `s38-t2`, and so on.
 
-**Open, before any work.**
+**Open, before the first edit.** Reading to work out the scope comes first. Nothing is edited until the `TASK-OPEN` line is in the ledger. A task runs inside a session that is already open, so it doesn't run the session open again.
 
-1. Append a `TASK-OPEN` line to `session-ledger.md`: the task id, then `base=` with the commit HEAD points at, then `scope=` with a comma-separated list of every file the task may change. An entry ending in `/` covers a folder. The ledger and `knowledge/task_reports/` are always in scope and need no entry. Example: `TASK-OPEN s38-t2 base=453197d scope=scripts/emulator.py,tests/test_emulator_session.py`.
-2. Write the open half of the task's report from the template in `knowledge/task_reports/README.md`: the goal in one sentence, the done check in the five-slot form, the budget, and, for any live run, the outcomes declared before it runs (#53).
+1. Append a `TASK-OPEN` line to `session-ledger.md`: the task id, then `base=` with the commit HEAD points at, then `scope=` with a comma-separated list of every file the task may change. An entry ending in `/` covers a folder. The ledger and `allostatik/knowledge/task_reports/` are always in scope and need no entry. The session-close files named below are never in scope, whether declared or not. Example, from s38: `TASK-OPEN s38-t2 base=91828b6 scope=scripts/emulator.py,scripts/render_course.py,tests/test_emulator_session.py`, where 91828b6 was HEAD when that task opened.
+2. Write the open half of the task's report from the template in `allostatik/knowledge/task_reports/README.md`: the goal in one sentence, the done check in the five-slot form, the budget, and, for any live run, the outcomes declared before it runs (#53).
 
 **Work.** Decisions inside the task are the task's to make. Each one goes into the report as one sentence (*decide inside an approved plan*).
 
@@ -282,7 +282,7 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 3. Every way forward is hard to undo.
 4. Stuck: the same step failed twice for a reason the report cannot name, or the budget is spent.
 
-To stop: put the question in the report's status line, play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), close the task as `STOPPED`, and start nothing else.
+To stop: put the question in the report's status line, then close the task as `STOPPED` using the close steps below, commit included. Only then play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), so the sound means everything is saved and it is Colby's turn. Then start nothing else. `STOPPED` ends the task, and his answer starts a new task that names the stopped one. A done check that can only pass on the Mac stops the task, with the command to run there as the question.
 
 **Close.**
 
@@ -292,7 +292,7 @@ To stop: put the question in the report's status line, play the failure chime (`
 
 `task_check` runs git, so it runs where git is allowed: Claude Code, a container, or a clone. It never runs from the Cowork bridge VM (D058).
 
-**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md` and the record index. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
+**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md`, the record index, `knowledge/environment.md` and `knowledge/resources.md`. `task_check` fails a task that changes any of them, declared or not. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
 
 **Continuity.** A `TASK-OPEN` with no `TASK-CLOSED` after it is a task that died mid-flight. The next open names it, and resuming or closing it is that session's first job. This is the same rule as a `STEP` with no `STEP-DONE`.
 
@@ -300,9 +300,9 @@ To stop: put the question in the report's status line, play the failure chime (`
 
 1. *Step:* a task's work.
 2. *True after:* every file the task changed is inside the scope it declared at open.
-3. *Miss cases:* the task changed a file it did not declare (a shared record file is the likeliest) and the work still looks finished; or there is no `TASK-OPEN` line, so there is no declared scope to hold it to.
+3. *Miss cases:* the task changed a file it did not declare, and the work still looks finished; or it changed a session-close file, even one it declared; or there is no `TASK-OPEN` line, so there is no declared scope to hold it to.
 4. *Reads:* the task's `TASK-OPEN` line, appended before any work, and git's list of files changed since its `base`, untracked files included. It never reads the report, which is the checked party's own account.
-5. *Check:* `task_check` lists every changed file that the `TASK-OPEN` scope does not cover, and says no if that list is not empty or the line is missing. It reports how many files changed.
+5. *Check:* `task_check` lists every changed file that the `TASK-OPEN` scope does not cover, plus every session-close file that changed, and says no if that list is not empty or the line is missing. It reports how many files changed.
 
 One limit, stated rather than solved: the ledger has no clock, so a `TASK-OPEN` line written after the work would still pass. Committing the open half before the work would close that gap, but it costs a commit per task and isn't required yet.
 

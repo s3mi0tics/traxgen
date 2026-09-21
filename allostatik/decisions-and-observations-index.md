@@ -113,6 +113,9 @@ D083 · A long command says when it is done, and a run that did not boot the emu
 D084 · The main-menu wait skips an unreadable frame, and stops only on three frameless screencaps in a row (2026-09-21, s37) → decisions.md:101, body 189w
 D085 · A render reports what its menu wait saw, even when a later step fails (2026-09-21, s37) → decisions.md:102, body 129w
 D086 · 17(c)'s watchful sleep is not built; it folds into item 3 (2026-09-21, s37) → decisions.md:103, body 87w
+D087 · Work runs as tasks under the *Task routine*: each declares the files it may change before its first edit, only the session close writes the shared record, and four named reasons are the only ones to stop for Colby (2026-09-21, s38) → decisions.md:104, body 341w
+D088 · A task commits its declaration before its first edit, and a task left open is found by a script (2026-09-21, s38) → decisions.md:105, body 216w
+D089 · A failed run keeps the phone's account (2026-09-21, s38) → decisions.md:106, body 122w
 
 ## Observations
 
@@ -179,3 +182,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #52 · **A command that reads the clipboard cannot be delivered through the clipboard.** → observations.md:108, body 116w
 #53 · **A retry is a second sample rather than a p-hack when the failure is named, lies off the measured path, and the outcomes are declared before it runs.** → observations.md:110, body 131w
 #54 · **A rule stored where it is read after the first command cannot guard the first command.** → observations.md:112, body 91w
+#55 · **A routine's author passes its text, while its first user and an independent reader find the defects, every one in the generous direction -- so a new routine is checked by its first use and by a reader who did not write it.** → observations.md:114, body 183w

@@ -283,7 +283,7 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 3. Every way forward is hard to undo.
 4. Stuck: the same step failed twice for a reason the report cannot name, or the budget is spent.
 
-To stop: put the question in the report's status line, then close the task as `STOPPED` using the close steps below, commit included. Only then play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), so the sound means everything is saved and it is Colby's turn. Then start nothing else. `STOPPED` ends the task, and his answer starts a new task that names the stopped one. A done check that can only pass on the Mac stops the task, with the command to run there as the question.
+To stop: put the question in the report's status line, then close the task as `STOPPED` using the close steps below, commit included. Only then play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), so the sound means everything is saved and it is Colby's turn. `STOPPED` ends the task, not the session. The question goes to Colby straight away. Tasks that don't depend on the stopped one may go on, and any that do wait for his answer, which starts a new task naming the stopped one. A done check that can only pass on the Mac stops the task, with the command to run there as the question.
 
 **Close.**
 
@@ -293,7 +293,7 @@ To stop: put the question in the report's status line, then close the task as `S
 
 `task_check` runs git, so it runs where git is allowed: Claude Code, a container, or a clone. It never runs from the Cowork bridge VM (D058).
 
-**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md`, the record index, `knowledge/environment.md` and `knowledge/resources.md`. `task_check` fails a task that changes any of them, declared or not. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
+**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md`, the record index, `knowledge/environment.md` and `knowledge/resources.md`. `task_check` fails a task that changes any of them, declared or not. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. The close folds every item in every report's *For the record*, or says in the log why one was left out. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
 
 **Continuity.** A `TASK-OPEN` with no `TASK-CLOSED` after it is a task that died mid-flight. `uv run python -m scripts.task_check --unclosed` lists them from the ledger. The session open runs it, and resuming or closing any it names is that session's first job. The session close runs it too, before `CLOSED`. This is the same rule as a `STEP` with no `STEP-DONE`.
 

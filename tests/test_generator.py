@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from traxgen import graph
 from traxgen.domain import Course
 from traxgen.generator import (
     NoBuildablePlacementError,
@@ -168,15 +169,43 @@ def test_multi_plate_placement_is_one_the_model_predicts() -> None:
     )
 
 
-def test_multi_plate_is_labelled_unmeasured_not_valid() -> None:
-    """The honesty assertion: a predicted course is UNMEASURED until a render says otherwise.
+def record_without_the_s36_row() -> tuple[graph.MeasuredRun, ...]:
+    """`MEASURED_RUNS` as it stood before plan item 14's render -- s35 and earlier.
 
-    `start_goal_status` is the claim surface. It must not return CONNECTED
-    here -- no `MeasuredRun` covers any multi-plate layout, and claiming one
-    would be the severity violation the 2026-08-10 lock forbids.
+    Selected by layout rather than by position: the s36 row is the only one on
+    the four-plate square, so an append elsewhere in the record cannot make
+    this drop the wrong row. Asserted to drop exactly one.
     """
-    status = start_goal_status(generate_multi_plate())
-    assert status is ConnectionStatus.UNMEASURED
+    before = tuple(
+        run
+        for run in graph.MEASURED_RUNS
+        if run.plate_offsets != graph.STANDARD_SQUARE_FROM_ORIGIN_PLATE
+    )
+    assert len(before) == len(graph.MEASURED_RUNS) - 1
+    return before
+
+
+def test_the_rendered_multi_plate_course_is_claimed_connected() -> None:
+    """Plan item 14, closed: a render certified this placement (s36), so the claim says so.
+
+    Until 2026-09-14 this asserted UNMEASURED. What changed is the record, not
+    the generator -- the same 253 bytes, now covered by a `MeasuredRun`.
+    """
+    assert start_goal_status(generate_multi_plate()) is ConnectionStatus.CONNECTED
+
+
+def test_the_claim_comes_from_the_record_and_not_from_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The honesty assertion, kept by taking the render away: the same course is UNMEASURED.
+
+    If the CONNECTED above came from anywhere but the record -- the model
+    leaking onto the claim surface, say -- removing the one row that covers it
+    would leave it CONNECTED, and this would fail. D041 as a test: claims and
+    predictions are separate surfaces, and only a render moves a claim.
+    """
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
+    assert start_goal_status(generate_multi_plate()) is ConnectionStatus.UNMEASURED
 
 
 def test_half_hole_cells_are_the_three_measured_ones() -> None:
@@ -257,13 +286,25 @@ def test_multi_plate_goal_sits_on_a_buildable_square() -> None:
     assert is_buildable_on_plate(goal.layer_kind, goal.local_pos)
 
 
-def test_measured_only_refuses_rather_than_guessing() -> None:
-    """The conservative mode: no measured multi-plate placement exists today, so it refuses.
+def test_measured_only_returns_exactly_the_course_a_render_certified() -> None:
+    """The conservative mode has something to emit now, and it is the rendered course.
 
-    This test is expected to change meaning once a render certifies one --
-    at that point `--measured-only` starts returning a course, and this
-    becomes the test that says so.
+    Until s36 this asserted a refusal, and its own docstring said it would
+    change meaning once a render certified a placement. Byte identity with the
+    default search is the strong form of the claim: it proves the row keys on
+    precisely what the generator emits, not on some neighbouring placement
+    that happens to share a lookup key.
     """
+    measured = generate_multi_plate(measured_only=True)
+    assert serialize_course(measured) == serialize_course(generate_multi_plate())
+    assert start_goal_status(measured) is ConnectionStatus.CONNECTED
+
+
+def test_measured_only_still_refuses_where_nothing_is_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal path survives the row: take it away and the mode refuses again."""
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
     with pytest.raises(NoBuildablePlacementError):
         generate_multi_plate(measured_only=True)
 

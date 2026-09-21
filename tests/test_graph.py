@@ -34,12 +34,13 @@ from traxgen.domain import (
     RailConstructionData,
     RailConstructionExitIdentifier,
 )
-from traxgen.generator import generate_minimal
+from traxgen.generator import generate_minimal, generate_multi_plate
 from traxgen.graph import (
     ALL_DIRECTIONS,
     GOAL_KINDS,
     MEASURED_LIVE_DIRECTIONS,
     MEASURED_RUNS,
+    STANDARD_SQUARE_FROM_ORIGIN_PLATE,
     STARTER_INTRINSIC_PORTS,
     STARTER_KINDS,
     STARTER_PLATE_ONLY,
@@ -943,13 +944,15 @@ def test_plate_membership_is_local_even_when_the_layer_sits_off_origin() -> None
 
 
 def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> None:
-    """`MEASURED_RUNS` claims two layouts: the starter's plate alone, and that
-    plate plus the completer the #17 2x2 added.
+    """`MEASURED_RUNS` claims three layouts: the starter's plate alone, that
+    plate plus the completer the #17 2x2 added, and the four-plate square the
+    generator's first certified course stood on (s36).
 
-    Both claims are graded here against a builder rather than against
-    themselves: `build_variant` and the 2x2 probe's `build_arm_course` are
-    called for real, their plates are read back off the built courses through
-    the production path, and the recorded rows must agree. A test that compared
+    All three claims are graded here against a builder rather than against
+    themselves: `build_variant`, the 2x2 probe's `build_arm_course` and
+    `generate_multi_plate` are called for real, their plates are read back off
+    the built courses through the production path, and the recorded rows must
+    agree. A test that compared
     `STARTER_PLATE_ONLY` to the rows would be comparing two copies of one
     sentence (observations #12).
 
@@ -974,9 +977,14 @@ def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> 
     (starter_two,) = [t for t in placed_tiles(two_plate) if t.kind in STARTER_KINDS]
     built_two = plate_offsets_from(course_plate_positions(two_plate), starter_two)
 
+    square = generate_multi_plate()
+    (starter_square,) = [t for t in placed_tiles(square) if t.kind in STARTER_KINDS]
+    built_square = plate_offsets_from(course_plate_positions(square), starter_square)
+
     assert built == STARTER_PLATE_ONLY
     assert built_two == STARTER_PLATE_PLUS_COMPLETER
-    assert {run.plate_offsets for run in MEASURED_RUNS} == {built, built_two}
+    assert built_square == STANDARD_SQUARE_FROM_ORIGIN_PLATE
+    assert {run.plate_offsets for run in MEASURED_RUNS} == {built, built_two, built_square}
 
 
 SIDECAR_2X2 = Path(__file__).parent / "fixtures" / "plate_boundary_results_2026-08-25.json"

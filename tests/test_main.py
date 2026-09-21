@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_generator import record_without_the_s36_row
+from traxgen import graph
 from traxgen.__main__ import BOARDS, SETS, main
 from traxgen.domain import Course
 from traxgen.generator import generate_minimal, generate_multi_plate
@@ -114,11 +116,14 @@ def test_boards_offered_are_the_two_the_library_builds() -> None:
     assert set(BOARDS) == {"single-plate", "standard-square"}
 
 
-def test_multi_plate_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -> None:
-    """The s35 ruling, end to end: a predicted course is written AND labelled.
+def test_multi_plate_board_writes_the_certified_course_labelled_connected(
+    tmp_path: Path,
+) -> None:
+    """The s35 ruling, end to end, one render later: the label moved and the bytes did not.
 
-    The label is the whole reason this passes rather than being a problem --
-    the command hands over a course it does not claim the app accepts.
+    s35 wrote this course labelled UNMEASURED -- a course the command did not
+    claim the app accepts. s36 rendered it, the record gained a row, and the
+    same command now says CONNECTED about the same 253 bytes.
     """
     out = tmp_path / "square.course"
     stdout = io.StringIO()
@@ -131,12 +136,47 @@ def test_multi_plate_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -
     assert out.read_bytes() == serialize_course(
         generate_multi_plate(PRO_VERTICAL_STARTER_SET)
     )
+    assert "claim: CONNECTED" in stdout.getvalue()
+    assert "UNMEASURED" not in stdout.getvalue()
+
+
+def test_multi_plate_board_is_labelled_unmeasured_without_its_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The label is the record's, not the command's: remove the render and it says UNMEASURED."""
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
+    stdout = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--out", str(tmp_path / "square.course")],
+        stdout=stdout,
+    )
+    assert code == 0
     assert "claim: UNMEASURED" in stdout.getvalue()
     assert "CONNECTED" not in stdout.getvalue()
 
 
-def test_measured_only_refuses_and_writes_nothing(tmp_path: Path) -> None:
-    """Exit 3, not 1: there is no course, so nothing was invalid."""
+def test_measured_only_writes_the_certified_course(tmp_path: Path) -> None:
+    """The conservative switch emits now -- and emits exactly the rendered course."""
+    out = tmp_path / "measured.course"
+    stdout = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--measured-only", "--out", str(out)],
+        stdout=stdout,
+    )
+    assert code == 0
+    assert out.read_bytes() == serialize_course(
+        generate_multi_plate(PRO_VERTICAL_STARTER_SET)
+    )
+    assert "claim: CONNECTED" in stdout.getvalue()
+
+
+def test_measured_only_refuses_and_writes_nothing_where_nothing_is_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exit 3, not 1: there is no course, so nothing was invalid. The path survives the row."""
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
     out = tmp_path / "nope.course"
     stderr = io.StringIO()
     code = main(

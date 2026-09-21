@@ -81,8 +81,8 @@ MUTATIONS = [
     {
         "label": "the boot is warm: -no-snapshot-load dropped",
         "file": EMULATOR,
-        "old": '[str(binary), "-avd", avd, "-no-snapshot-load"],',
-        "new": '[str(binary), "-avd", avd],',
+        "old": '[str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", gpu_mode],',
+        "new": '[str(binary), "-avd", avd, "-gpu", gpu_mode],',
     },
     {
         "label": "a survivor past the bound is reported as dead",

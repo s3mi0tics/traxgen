@@ -85,6 +85,24 @@ LAUNCHER_PKG = "com.google.android.apps.nexuslauncher"
 # and the only property they need from the frame is that it is not one of the
 # refused screens. A test that cares about pixel content must build its own
 # (see tests/test_refused_screens.py, and observations #26 on solid fills).
+# `dumpsys SurfaceFlinger | grep GLES:` -- the line naming the GL stack in use.
+#
+# The healthy one is REAL: captured 2026-09-14 (s36) off `traxgen_m6c` booted
+# with `-gpu host`, the first hardware-rendered boot this project has recorded.
+# The software one is SYNTHESISED -- s35 measured SwiftShader from the emulator
+# log, and that log was gone before its exact `GLES:` wording could be captured.
+# So the deny-list is graded against a plausible spelling of the name, not a
+# measured line; if a future boot ever falls back to software, capture it and
+# replace this (observations #24 -- say which half is evidence).
+SURFACEFLINGER_GLES = (
+    "  GLES: Google (Apple), Android Emulator OpenGL ES Translator (Apple M1 Pro), "
+    "OpenGL ES 3.0 (4.1 Metal - 90.5)\n"
+)
+SURFACEFLINGER_GLES_SOFTWARE = (
+    "  GLES: Google (Android), Google SwiftShader, OpenGL ES 3.2 SwiftShader 4.0.0.1\n"
+)
+
+
 def _solid_png(width: int, height: int, colour: tuple[int, int, int]) -> bytes:
     from PIL import Image
 
@@ -137,9 +155,11 @@ class FakeAdb:
         screencap_png: bytes = PNG_FRAME,
         screencap_pngs: Sequence[bytes] | None = None,
         package_dump: str = PACKAGE_DUMP,
+        surfaceflinger_dump: str = SURFACEFLINGER_GLES,
     ) -> None:
         self.foreground_dump = foreground_dump
         self.package_dump = package_dump
+        self.surfaceflinger_dump = surfaceflinger_dump
         self.devices = devices
         self.boot_completed = boot_completed
         self.screencap_png = screencap_png
@@ -174,6 +194,8 @@ class FakeAdb:
             out = self.boot_completed + "\n"
         elif "dumpsys window" in joined:
             out = self.foreground_dump
+        elif "SurfaceFlinger" in joined:
+            out = self.surfaceflinger_dump
         elif "dumpsys package" in joined:
             out = self.package_dump
         else:

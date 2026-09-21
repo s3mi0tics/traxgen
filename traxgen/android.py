@@ -151,7 +151,12 @@ class OracleFrameError(AndroidAutomationError):
 
 
 class FrameUnreadableError(AndroidAutomationError):
-    """A frame sample came back empty during a pixel-stability wait.
+    """A screencap did not come back as a whole PNG.
+
+    Three shapes, one finding -- the device stopped answering: zero bytes,
+    bytes that are not a PNG at all, and a PNG cut off before its IEND chunk.
+    `adb exec-out screencap` exits 0 in all three, so without this guard the
+    first thing to notice is Pillow, thirty lines into a decode (s35, twice).
 
     Deliberately NOT the frame equivalent of `dump_ui` returning None.
     `uiautomator dump` fails *while a view animates*, which is exactly when a
@@ -358,11 +363,50 @@ def type_text(
     ctx.sleep(WAITS["after_text"])
 
 
+# A PNG opens with this signature and closes with an IEND chunk. Both ends are
+# checked because the capture has broken at both: `adb exec-out screencap` exits
+# 0 with an empty buffer on a dying device, and it also returns a PNG cut off
+# mid-stream, whose header Pillow accepts before raising `image file is
+# truncated` well below this layer (s35). A header check alone misses the second.
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+PNG_TRAILER = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+
+
+def _require_png(raw: bytes | None, *, what: str) -> bytes:
+    """Return `raw` unchanged if it is a whole PNG; otherwise raise.
+
+    The message carries what was measured -- how many bytes arrived and which
+    end failed -- so a reader can tell "the device answered with nothing" from
+    "the device stopped answering part-way through".
+    """
+    if not raw:
+        raise FrameUnreadableError(f"{what}: screencap returned 0 bytes")
+    if not raw.startswith(PNG_MAGIC):
+        raise FrameUnreadableError(
+            f"{what}: screencap returned {len(raw)} bytes that are not a PNG "
+            f"(first 8 bytes: {raw[:8]!r})"
+        )
+    if not raw.endswith(PNG_TRAILER):
+        raise FrameUnreadableError(
+            f"{what}: screencap returned a truncated PNG -- {len(raw)} bytes, no IEND chunk"
+        )
+    return raw
+
+
+def capture_png(ctx: AdbContext, *, what: str = "screencap") -> bytes:
+    """One screencap, verified whole before it is returned.
+
+    Every live capture in this module goes through here. Injected `sample_fn`
+    seams deliberately do not: a fake's bytes are the test's business, a real
+    device's bytes are this guard's.
+    """
+    return _require_png(_run_adb_binary(ctx, "exec-out", "screencap", "-p"), what=what)
+
+
 def screencap(ctx: AdbContext, dest: Path) -> Path:
     """Capture a screenshot to dest."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    png_bytes = _run_adb_binary(ctx, "exec-out", "screencap", "-p")
-    dest.write_bytes(png_bytes)
+    dest.write_bytes(capture_png(ctx, what=f"screencap -> {dest}"))
     return dest
 
 
@@ -452,6 +496,40 @@ def read_app_version(ctx: AdbContext) -> str | None:
     than the campaign-time ones (`scripts/emulator.py`).
     """
     return parse_app_version(_run_adb(ctx, "shell", "dumpsys", "package", ctx.package))
+
+
+# `dumpsys SurfaceFlinger` prints one line naming the GL stack the compositor
+# is actually using -- vendor, renderer, version. It answers with the launcher
+# in front, so it is a device-level reading like the version check above.
+_GLES_LINE = re.compile(r"^\s*GLES:\s*(.+)$", re.MULTILINE)
+
+
+def parse_gles_renderer(dumpsys_surfaceflinger_output: str) -> str | None:
+    """The `GLES:` line's value from a `dumpsys SurfaceFlinger` dump, or None.
+
+    None means the dump did not carry one -- adb answered with something else --
+    and is deliberately distinct from a renderer this project refuses. A reading
+    that never happened must not be reported as a healthy one.
+    """
+    match = _GLES_LINE.search(dumpsys_surfaceflinger_output)
+    return match.group(1).strip() if match else None
+
+
+def read_gles_renderer(ctx: AdbContext) -> str | None:
+    """Ask the device which GL stack is drawing. None if the dump didn't say.
+
+    Filtered on-device like `_dump_foreground`: the unfiltered SurfaceFlinger
+    dump is thousands of lines and one of them is wanted.
+
+    The device is asked rather than the emulator log, which is where s35 read
+    this. A log is not a reliable instrument for it: `/tmp/emulator.log` is
+    truncated at every boot and gone entirely after a reboot, so the next
+    session could not reproduce s35's own finding (s36). The device answers the
+    same question and is always there.
+    """
+    return parse_gles_renderer(
+        _run_adb(ctx, "shell", "dumpsys SurfaceFlinger | grep -i -m1 'GLES:'")
+    )
 
 
 def _dump_foreground(ctx: AdbContext) -> str:
@@ -826,7 +904,7 @@ def wait_for_stable_frame(
         if ctx is None:
             raise ValueError("wait_for_stable_frame needs an AdbContext or a sample_fn")
         bound_ctx = ctx
-        sample_fn = lambda: _run_adb_binary(bound_ctx, "exec-out", "screencap", "-p")  # noqa: E731
+        sample_fn = lambda: capture_png(bound_ctx, what="stable-frame sample")  # noqa: E731
     grab = sample_fn
     stability = FrameStability(required=required, tolerance=tolerance)
 
@@ -1117,7 +1195,7 @@ def wait_for_main_menu(
     def sample() -> bytes:
         nonlocal polls
         polls += 1
-        return _run_adb_binary(ctx, "exec-out", "screencap", "-p")
+        return capture_png(ctx, what=f"main-menu poll {polls}")
 
     def is_menu(frame: bytes) -> bool:
         nonlocal last

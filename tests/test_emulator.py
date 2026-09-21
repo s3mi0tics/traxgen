@@ -28,6 +28,7 @@ import pytest
 
 from scripts.emulator import (
     DEFAULT_AVD,
+    DEFAULT_GPU_MODE,
     QEMU_PATTERN,
     AlreadyRunningError,
     BootTimeoutError,
@@ -41,7 +42,11 @@ from scripts.emulator import (
     spawn_emulator,
     wait_for_boot,
 )
-from tests.test_android_foreground import GRAVITRAX_DUMP, PACKAGE_DUMP
+from tests.test_android_foreground import (
+    GRAVITRAX_DUMP,
+    PACKAGE_DUMP,
+    SURFACEFLINGER_GLES,
+)
 from traxgen.android import AdbContext
 
 # --- fakes -----------------------------------------------------------------
@@ -107,6 +112,8 @@ class ScriptedAdb:
             )
         if "dumpsys window" in joined:
             return subprocess.CompletedProcess(argv, 0, GRAVITRAX_DUMP, "")
+        if "SurfaceFlinger" in joined:
+            return subprocess.CompletedProcess(argv, 0, SURFACEFLINGER_GLES, "")
         if "dumpsys package" in joined:
             return subprocess.CompletedProcess(argv, 0, PACKAGE_DUMP, "")
         return subprocess.CompletedProcess(argv, 0, "", "")
@@ -201,7 +208,14 @@ def test_launch_is_cold_detached_and_truncates_the_log(tmp_path: Path) -> None:
     spawn_emulator(Path("/sdk/emulator/emulator"), DEFAULT_AVD, log, popen=popen)
 
     argv, kwargs = popen.calls[0]
-    assert argv == ["/sdk/emulator/emulator", "-avd", DEFAULT_AVD, "-no-snapshot-load"]
+    assert argv == [
+        "/sdk/emulator/emulator",
+        "-avd",
+        DEFAULT_AVD,
+        "-no-snapshot-load",
+        "-gpu",
+        DEFAULT_GPU_MODE,
+    ]
     assert kwargs["start_new_session"] is True
     # preflight's "zero graphics errors *since boot*" is only honest if the log
     # starts empty; five stale hits would otherwise fail the next boot's check.
@@ -463,16 +477,32 @@ def test_boot_launches_waits_and_reports_the_measured_time(tmp_path: Path) -> No
     assert not any("tearing down" in line for line in printed), printed
 
 
+def test_the_gpu_mode_is_named_by_the_caller_not_by_the_avd_config(tmp_path: Path) -> None:
+    """Until s36 no -gpu flag was passed and the renderer came from config.ini --
+    an environment term every campaign inherited and no file recorded (plan #19)."""
+    popen = FakePopen()
+    spawn_emulator(
+        Path("/sdk/emulator/emulator"),
+        DEFAULT_AVD,
+        tmp_path / "emulator.log",
+        gpu_mode="swiftshader_indirect",
+        popen=popen,
+    )
+    argv, _ = popen.calls[0]
+    assert argv[-2:] == ["-gpu", "swiftshader_indirect"]
+
+
 def test_boot_grades_the_device_and_says_which_checks_it_did_not_run(tmp_path: Path) -> None:
     """The scope statement is a claim, so it gets a test. Right after a cold boot
     the launcher is in front, so `app_in_foreground` and `screencap_geometry`
     would measure the launcher -- they are campaign-time checks, and the output
-    has to say so rather than let three passes read as five."""
+    has to say so rather than let five passes read as seven."""
     printed = boot_offline(tmp_path, ScriptedAdb(["1"]), FakePgrep([()]), FakePopen())
     graded = [line for line in printed if line.startswith(("PASS ", "FAIL "))]
-    assert len(graded) == 4
+    assert len(graded) == 5
     names = " ".join(graded)
     assert "device_attached" in names and "boot_complete" in names and "graphics_errors" in names
+    assert "renderer" in names, "a software renderer is a dead session, graded at boot (s36)"
     assert "app_version" in names, "device-level: it reads with the launcher in front (s33)"
     assert "app_in_foreground" not in names and "screencap_geometry" not in names
     assert any("campaign-time" in line for line in printed)

@@ -54,6 +54,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts.chime import chime
 from scripts.preflight import (
     DEFAULT_EMULATOR_LOG,
     Check,
@@ -61,6 +62,7 @@ from scripts.preflight import (
     check_boot_complete,
     check_device_attached,
     check_graphics_errors,
+    check_renderer,
 )
 from traxgen.android import (
     DEFAULT_ANDROID_HOME,
@@ -73,6 +75,13 @@ from traxgen.android import (
 )
 
 DEFAULT_AVD = "traxgen_m6c"
+
+# What `-gpu` is passed as. Until s36 no `-gpu` flag was passed at all, so the
+# renderer came from the AVD's `config.ini` -- an environment term every
+# campaign silently inherited and no file recorded, and the one that turned out
+# to be software (plan #19). Named here so a boot's renderer is a property of
+# this file rather than of a config nobody reads.
+DEFAULT_GPU_MODE = "host"
 
 # What `pgrep -f` is matched against. The emulator process is `qemu-system-aarch64`
 # on this Mac; the prefix is used so an SDK update that renames the suffix does not
@@ -133,6 +142,7 @@ def spawn_emulator(
     avd: str,
     log_path: Path,
     *,
+    gpu_mode: str = DEFAULT_GPU_MODE,
     popen: Callable[..., object] = subprocess.Popen,
 ) -> object:
     """Launch the AVD cold and detached, with its log truncated.
@@ -148,7 +158,7 @@ def spawn_emulator(
     """
     with log_path.open("wb") as log:
         return popen(
-            [str(binary), "-avd", avd, "-no-snapshot-load"],
+            [str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", gpu_mode],
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -340,6 +350,7 @@ def boot(
     package: str = DEFAULT_PACKAGE,
     timeout: float = BOOT_TIMEOUT,
     interval: float = BOOT_POLL_INTERVAL,
+    gpu_mode: str = DEFAULT_GPU_MODE,
     ctx: AdbContext | None = None,
     out: Callable[[str], None] = print,
     popen: Callable[..., object] = subprocess.Popen,
@@ -366,8 +377,8 @@ def boot(
             "nothing is. Run `kill` first, or leave the existing one if it is this session's."
         )
 
-    out(f"booting {avd} cold; log -> {log_path}")
-    spawn_emulator(binary, avd, log_path, popen=popen)
+    out(f"booting {avd} cold with -gpu {gpu_mode}; log -> {log_path}")
+    spawn_emulator(binary, avd, log_path, gpu_mode=gpu_mode, popen=popen)
 
     def teardown() -> None:
         out("interrupted before boot completed -- tearing down what was launched")
@@ -381,6 +392,9 @@ def boot(
     checks = [
         check_device_attached(ctx),
         check_boot_complete(ctx),
+        # The one that would have stopped s35 on its first attempt instead of
+        # its fifth: a software renderer is a dead session, not a slow one.
+        check_renderer(ctx),
         check_graphics_errors(log_path),
         # Device-level like the three above -- `dumpsys package` answers with
         # the launcher in front -- and the one that turns a silent Play Store
@@ -457,7 +471,7 @@ def session(
             out(f"WARNING: emulator survived teardown: {after.detail}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, chime_fn: Callable[..., str] = chime) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -466,16 +480,39 @@ def main(argv: list[str] | None = None) -> int:
     boot_parser.add_argument("--log", type=Path, default=DEFAULT_EMULATOR_LOG)
     boot_parser.add_argument("--package", default=DEFAULT_PACKAGE)
     boot_parser.add_argument("--timeout", type=float, default=BOOT_TIMEOUT)
+    boot_parser.add_argument(
+        "--gpu",
+        default=DEFAULT_GPU_MODE,
+        help="emulator -gpu mode (host, swiftshader_indirect, angle_indirect, auto...)",
+    )
 
     kill_parser = sub.add_parser("kill", help="ask the AVD to quit and confirm the process died")
     kill_parser.add_argument("--package", default=DEFAULT_PACKAGE)
     kill_parser.add_argument("--timeout", type=float, default=KILL_TIMEOUT)
 
+    for subparser in (boot_parser, kill_parser):
+        subparser.add_argument(
+            "--no-sound",
+            action="store_true",
+            help="suppress the completion chime (for queues and unattended runs)",
+        )
+
     args = parser.parse_args(argv)
+    status = _dispatch(args)
+    chime_fn(status == 0, enabled=not args.no_sound)
+    return status
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    """Run the chosen subcommand. Returns a process exit code."""
     try:
         if args.command == "boot":
             checks = boot(
-                avd=args.avd, log_path=args.log, package=args.package, timeout=args.timeout
+                avd=args.avd,
+                log_path=args.log,
+                package=args.package,
+                timeout=args.timeout,
+                gpu_mode=args.gpu,
             )
             return 0 if all(check.ok for check in checks) else 1
         outcome = kill_emulator(resolve_context(package=args.package), timeout=args.timeout)

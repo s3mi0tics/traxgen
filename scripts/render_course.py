@@ -34,8 +34,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
+from scripts.chime import chime
 from traxgen.android import (
     DEFAULT_SCREENSHOT_DIR,
     AdbContext,
@@ -102,13 +104,42 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "afterwards whatever happens. Implies --reset-first."
         ),
     )
+    parser.add_argument(
+        "--no-sound",
+        action="store_true",
+        help="suppress the completion chime (for queues and unattended runs).",
+    )
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Entry point. Returns a process exit code."""
-    args = _parse_args(argv)
+def main(argv: list[str] | None = None, *, chime_fn: Callable[..., str] = chime) -> int:
+    """Parse, render, then say out loud how it went. Returns a process exit code.
 
+    The chime sits out here rather than inside `_run` so it fires on every exit
+    path. A render that *failed* is the one most worth hearing about from the
+    next room, so chiming on success alone would be silent exactly then.
+
+    The teardown note is here for the same reason. `--fresh` owns the whole
+    lifecycle and kills the emulator in `finally` (D072, "a render run ... ends
+    with the emulator down"); every other mode runs on an emulator it did not
+    boot, so it must not take one down that someone else is using. What it can
+    do is stop the forgetting being anyone's job to remember.
+    """
+    args = _parse_args(argv)
+    status = _run(args)
+    if not args.fresh:
+        print(
+            "NOTE: the emulator is still up -- this run did not boot it, so it does not "
+            "own the teardown. Bring it down with:\n"
+            "  uv run python -m scripts.emulator kill",
+            file=sys.stderr,
+        )
+    chime_fn(status == 0, enabled=not args.no_sound)
+    return status
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Render one code. Returns a process exit code."""
     code = args.code.strip()
     if len(code) != 10 or not code.isalnum():
         print(

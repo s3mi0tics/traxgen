@@ -20,6 +20,9 @@ the end-to-end unit -- one run, from nothing to nothing (s32, 2026-09-07).
 Output:
     - stdout: the screenshot path, newline-terminated
     - stderr: progress messages
+    - with --fresh, a run that fails also leaves the phone's memory report and
+      log in screenshots/device_evidence/, saved before the teardown wipes them
+      (the path is printed to stderr as `device evidence saved: ...`)
 
 Exit codes:
     0  success

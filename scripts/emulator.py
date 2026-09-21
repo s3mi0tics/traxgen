@@ -52,6 +52,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from scripts.chime import chime
@@ -67,10 +68,12 @@ from scripts.preflight import (
 from traxgen.android import (
     DEFAULT_ANDROID_HOME,
     DEFAULT_PACKAGE,
+    DEFAULT_SCREENSHOT_DIR,
     AdbCommandFailedError,
     AdbContext,
     AdbNotFoundError,
     _run_adb,
+    _run_adb_binary,
     resolve_context,
 )
 
@@ -92,6 +95,25 @@ BOOT_TIMEOUT = 300.0
 BOOT_POLL_INTERVAL = 2.0
 KILL_TIMEOUT = 60.0
 KILL_POLL_INTERVAL = 1.0
+
+# Where a failed run leaves the phone's own account of the failure (plan #20).
+# Under the gitignored `screenshots/`, not in `/tmp` beside the emulator's log:
+# #20's next step after a failure is a Mac restart, and a restart empties `/tmp`.
+DEFAULT_EVIDENCE_DIR = DEFAULT_SCREENSHOT_DIR / "device_evidence"
+
+# What a failed run saves, in this order. The wait comes first because one of
+# s37's three failures was the adb connection resetting (`device still
+# authorizing`), and a phone asked at that moment refuses both reads. Memory
+# comes before the log because memory is the reading that keeps moving.
+# `logcat -d` dumps and exits -- without `-d` it streams until the timeout and
+# saves nothing -- and `-b all` takes in the `events` buffer, where the system
+# writes `am_kill` and `am_proc_died` when it kills an app.
+EVIDENCE_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("wait-for-device",),
+    ("shell", "dumpsys", "meminfo"),
+    ("logcat", "-d", "-b", "all"),
+)
+EVIDENCE_TIMEOUT = 30.0
 
 
 class EmulatorLifecycleError(Exception):
@@ -412,6 +434,41 @@ def boot(
     return checks
 
 
+def save_device_evidence(
+    ctx: AdbContext,
+    directory: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    reason: str,
+    now: Callable[[], datetime] = datetime.now,
+    timeout: float = EVIDENCE_TIMEOUT,
+) -> Path:
+    """Write the phone's memory report and log to one file, before a teardown wipes both.
+
+    A command that fails is written into its own section and the next one still
+    runs: a phone that cannot fork a shell, or an adb connection still resetting,
+    is part of the answer #20 is asking for, not a reason to keep nothing. The
+    file is written section by section, so a capture cut short keeps what it had
+    already read. Bytes throughout, because a phone's log is not promised to be
+    valid UTF-8.
+    """
+    stamp = now()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{stamp:%Y%m%d-%H%M%S}.txt"
+    with path.open("wb") as file:
+        file.write(f"device evidence, {stamp:%Y-%m-%d %H:%M:%S}\nwhy: {reason}\n".encode())
+        for args in EVIDENCE_COMMANDS:
+            try:
+                body = _run_adb_binary(ctx, *args, timeout=timeout) or b"(no output)\n"
+            except (AdbCommandFailedError, OSError) as exc:
+                # OSError is the Mac's side: starting `adb` at all can fail on a
+                # host this short of memory (s37 measured ~60 MB free).
+                body = f"FAILED: {exc}\n".encode()
+            file.write(f"\n===== adb {' '.join(args)} =====\n".encode())
+            file.write(body)
+            file.flush()
+    return path
+
+
 @contextmanager
 def session(
     *,
@@ -423,6 +480,8 @@ def session(
     out: Callable[[str], None] = print,
     boot_fn: Callable[..., list[Check]] = boot,
     kill_fn: Callable[..., KillOutcome] = kill_emulator,
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    evidence_fn: Callable[..., Path] = save_device_evidence,
 ) -> Iterator[AdbContext]:
     """A cold emulator for exactly the duration of the block.
 
@@ -440,6 +499,16 @@ def session(
       a half-dead emulator is the thing every guard in `android.py` exists to
       catch after the fact, and this catches it before.
 
+    And a failure leaves the phone's own account behind. When the device checks
+    fail or the body raises, `evidence_fn` saves the phone's memory report and
+    log to `evidence_dir` *before* the teardown kill, because the kill wipes
+    both. s37's three failed renders each left one line of text, and nothing
+    could say whether the phone ran out of memory, killed the app or reset adb
+    (plan #20). A clean run saves nothing, and neither does a Ctrl-C, which is
+    someone stopping the run rather than a failure to explain. A capture that
+    fails is reported, and never stands between the run and its teardown or
+    its own error.
+
     The unit is the *run* -- one CLI render, one campaign -- not the arm.
     Cold boot plus app launch is ~75s against a ~25s render, so per-arm cycling
     would quadruple a campaign; per run it is the ~4% `decisions.md` measured.
@@ -447,6 +516,17 @@ def session(
     harness extraction rather than by a fourth copy of the loop.
     """
     ctx = ctx or resolve_context(android_home=android_home, package=package)
+
+    def keep_evidence(reason: str) -> None:
+        # Broad on purpose: whatever goes wrong in here, the kill still runs and
+        # the caller still sees the run's own error rather than this one.
+        try:
+            path = evidence_fn(ctx, evidence_dir, reason=reason)
+        except Exception as exc:
+            out(f"device evidence NOT saved: {type(exc).__name__}: {exc}")
+        else:
+            out(f"device evidence saved: {path}")
+
     before = kill_fn(ctx)
     out(before.line())
     if not before.died:
@@ -459,11 +539,18 @@ def session(
     )
     failed = [check.name for check in checks if not check.ok]
     if failed:
+        lines = [check.line() for check in checks if not check.ok]
+        keep_evidence("\n  ".join([f"device checks failed after cold boot: {failed}", *lines]))
         after = kill_fn(ctx)
         out(after.line())
         raise EmulatorLifecycleError(f"device checks failed after cold boot: {failed}")
     try:
         yield ctx
+    except Exception as exc:
+        # `Exception`, not `BaseException`: a Ctrl-C goes straight to the kill.
+        notes = getattr(exc, "__notes__", ())
+        keep_evidence("\n  ".join([f"{type(exc).__name__}: {exc}", *notes]))
+        raise
     finally:
         after = kill_fn(ctx)
         out(after.line())

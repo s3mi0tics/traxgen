@@ -260,6 +260,52 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 <!-- Project-only close steps — each with a one-line cheap test (how you confirm it ran), per the test-per-routine pattern. -->
 <!-- Example: **Refresh the published docs** — after the commit lands, run the site build and commit the output. Test (state): the build succeeds and the generated files show as committed. -->
 
+## Task routine
+
+*Added 2026-09-21 (s38). Project-specific: Part 1 is unchanged.*
+
+**What it is for.** A session's approved goal gets cut into tasks that run without Colby between his gates. Each task leaves a report he can read later and records that a check can re-derive. So he can let the work run and still see what happened, and a short list of reasons brings the question to him when one fires.
+
+**A task** is one step of the approved goal, small enough to end in one commit. Tasks are numbered in the order they open: `s38-t1`, `s38-t2`, and so on.
+
+**Open, before any work.**
+
+1. Append a `TASK-OPEN` line to `session-ledger.md`: the task id, then `base=` with the commit HEAD points at, then `scope=` with a comma-separated list of every file the task may change. An entry ending in `/` covers a folder. The ledger and `knowledge/task_reports/` are always in scope and need no entry. Example: `TASK-OPEN s38-t2 base=453197d scope=scripts/emulator.py,tests/test_emulator_session.py`.
+2. Write the open half of the task's report from the template in `knowledge/task_reports/README.md`: the goal in one sentence, the done check in the five-slot form, the budget, and, for any live run, the outcomes declared before it runs (#53).
+
+**Work.** Decisions inside the task are the task's to make. Each one goes into the report as one sentence (*decide inside an approved plan*).
+
+**Stop and ask Colby** when the first of these fires, and only then:
+
+1. The next step needs his hands: a Mac restart, a sign-in, an app update, a push, or code that has to run on the Mac outside the agent's box.
+2. A result would change the shape of the session's goal, or overturn a locked decision.
+3. Every way forward is hard to undo.
+4. Stuck: the same step failed twice for a reason the report cannot name, or the budget is spent.
+
+To stop: put the question in the report's status line, play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), close the task as `STOPPED`, and start nothing else.
+
+**Close.**
+
+1. Run `uv run python -m scripts.task_check` followed by the task id. It prints one line: in scope, or the files outside it. Outside the scope is a failed close. Revert the stray change, or open a new task that declares it. Never widen a `TASK-OPEN` line after the work.
+2. Finish the report: the status (`DONE`, `STOPPED` with the question, or `FAILED` with why), what happened, what changed, the evidence (a passing check is one line), the decisions made, what the record should say, and the next task.
+3. Append `TASK-CLOSED`, the task id and its status to the ledger, and commit the task's files together, the report with them.
+
+`task_check` runs git, so it runs where git is allowed: Claude Code, a container, or a clone. It never runs from the Cowork bridge VM (D058).
+
+**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md` and the record index. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
+
+**Continuity.** A `TASK-OPEN` with no `TASK-CLOSED` after it is a task that died mid-flight. The next open names it, and resuming or closing it is that session's first job. This is the same rule as a `STEP` with no `STEP-DONE`.
+
+**The scope check, in five slots.**
+
+1. *Step:* a task's work.
+2. *True after:* every file the task changed is inside the scope it declared at open.
+3. *Miss cases:* the task changed a file it did not declare (a shared record file is the likeliest) and the work still looks finished; or there is no `TASK-OPEN` line, so there is no declared scope to hold it to.
+4. *Reads:* the task's `TASK-OPEN` line, appended before any work, and git's list of files changed since its `base`, untracked files included. It never reads the report, which is the checked party's own account.
+5. *Check:* `task_check` lists every changed file that the `TASK-OPEN` scope does not cover, and says no if that list is not empty or the line is missing. It reports how many files changed.
+
+One limit, stated rather than solved: the ledger has no clock, so a `TASK-OPEN` line written after the work would still pass. Committing the open half before the work would close that gap, but it costs a commit per task and isn't required yet.
+
 ## Handoff conventions
 
 The *Writing the handoff* routine (Part 1) holds the universal shape — next-session goals, required reading, a pointer to the close routine, blocking carries up top, and sizing the handoff to how mature your layers are. Add here any conventions specific to *this* project's handoffs.

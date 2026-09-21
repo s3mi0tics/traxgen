@@ -40,3 +40,6 @@ OPENED s36 2026-09-14
 CLOSED s36
 OPENED s37 2026-09-21
 CLOSED s37
+OPENED s38 2026-09-21
+TASK-OPEN s38-t1 base=453197d scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py
+TASK-CLOSED s38-t1 DONE

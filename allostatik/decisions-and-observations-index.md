@@ -161,7 +161,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #35 · **A tool built to catch a class of bug can leave the bug behind it — the mutation battery poisoned the bytecode cache.** → observations.md:66, body 256w
 #36 · **A model correction is a claim, and running it over the record before writing the patch is the cheap test.** → observations.md:68, body 282w
 #33 · **Offline tests verify the code; only the environment verifies the assumptions the fakes encode — and the environment needs its own committed check.** → observations.md:70, body 660w
-#37 · **The close commits canonical state before anything reads it back, so the only real verification happens after the push.** → observations.md:72, body 159w
+#37 · **The close commits canonical state before anything reads it back, so the only real verification happens after the push.** → observations.md:72, body 215w
 #38 · **In the Cowork VM, any git command that touches the index leaves a stale `.git/index.lock` — the VM forbids deletes, so git cannot remove its own lock.** → observations.md:80, body 230w
 #39 · **A gated walk that shows diffs and triage flags without saying what the change is for and what it costs reads as mechanics, and approval without understanding is not the security control the routine thinks it is.** → observations.md:82, body 68w
 #40 · **A verdict recorded under an earlier version of its own classifier is not a second confirmation.** **[?revised]** → observations.md:84, body 184w

@@ -223,6 +223,15 @@ def capture(phone: Phone, directory: Path) -> Path:
     )
 
 
+def test_two_failures_in_one_second_keep_both_files(tmp_path: Path) -> None:
+    """s38-t4, the reader's finding: a second capture in one second overwrote the first."""
+    first = capture(Phone(), tmp_path)
+    second = capture(Phone(), tmp_path)
+    assert (first.name, second.name) == ("20260921-143012.txt", "20260921-143012-2.txt")
+    assert first.read_text().startswith("device evidence")
+    assert second.read_text().startswith("device evidence")
+
+
 def test_the_file_holds_the_reason_then_memory_then_the_log(tmp_path: Path) -> None:
     path = capture(Phone(), tmp_path / "device_evidence")
     assert path == tmp_path / "device_evidence" / "20260921-143012.txt"

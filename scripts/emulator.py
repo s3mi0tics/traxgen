@@ -54,6 +54,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import BinaryIO
 
 from scripts.chime import chime
 from scripts.preflight import (
@@ -434,6 +435,17 @@ def boot(
     return checks
 
 
+def _new_evidence_file(directory: Path, stem: str) -> tuple[Path, BinaryIO]:
+    """Create `stem.txt`, or `stem-2.txt` and on: two failures in one second keep both (s38-t4)."""
+    attempt = 1
+    while True:
+        path = directory / (f"{stem}.txt" if attempt == 1 else f"{stem}-{attempt}.txt")
+        try:
+            return path, path.open("xb")
+        except FileExistsError:
+            attempt += 1
+
+
 def save_device_evidence(
     ctx: AdbContext,
     directory: Path = DEFAULT_EVIDENCE_DIR,
@@ -453,8 +465,8 @@ def save_device_evidence(
     """
     stamp = now()
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{stamp:%Y%m%d-%H%M%S}.txt"
-    with path.open("wb") as file:
+    path, file = _new_evidence_file(directory, f"{stamp:%Y%m%d-%H%M%S}")
+    with file:
         file.write(f"device evidence, {stamp:%Y-%m-%d %H:%M:%S}\nwhy: {reason}\n".encode())
         for args in EVIDENCE_COMMANDS:
             try:

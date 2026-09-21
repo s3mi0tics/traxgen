@@ -36,4 +36,5 @@ Copy everything below the line. Replace every line in italics.
 - **Evidence:** _the `task_check` line, the test summary, any render lines; a passing check is one line_
 - **Decisions made inside the task:** _one sentence each_
 - **For the record:** _what `plan.md`, `decisions.md` or `observations.md` should say; the session close folds it in_
+- **Friction:** _any place this routine's text was unclear, missing or wrong, quoted, with what the task did there; the next task reads these here, not from a conversation_
 - **Next:** _the next task, or what the stop is waiting on_

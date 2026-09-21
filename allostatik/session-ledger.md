@@ -48,3 +48,4 @@ TASK-CLOSED s38-t2 STOPPED
 TASK-OPEN s38-t3 base=ca2841b scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py
 TASK-CLOSED s38-t3 DONE
 TASK-OPEN s38-t4 base=11ce663 scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py,scripts/emulator.py,tests/test_emulator_session.py
+TASK-CLOSED s38-t4 DONE

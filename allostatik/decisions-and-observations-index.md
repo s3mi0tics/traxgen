@@ -107,6 +107,9 @@ D077 · Allostatik's own wording is fixed at the source, never forked in this pr
 D078 · The generator proposes from the model, and the record does the labelling (2026-09-14, s35) → decisions.md:95, body 139w
 D079 · The half-hole build rule lives in the library, derived and layout-blind (2026-09-14, s35) → decisions.md:96, body 119w
 D080 · Text entry carries its own timeout, sized on the asymmetry rather than on the measurement (2026-09-14, s35) → decisions.md:97, body 97w
+D081 · The harness names the renderer and refuses a software one (2026-09-14, s36) → decisions.md:98, body 210w
+D082 · Every live screencap is checked whole before anything uses it (2026-09-14, s36) → decisions.md:99, body 184w
+D083 · A long command says when it is done, and a run that did not boot the emulator says so rather than killing it (2026-09-14, s36) → decisions.md:100, body 182w
 
 ## Observations
 
@@ -124,37 +127,37 @@ kind. Promotion means three or more firings across separate sessions.*
 #12 · **A check can pass while asserting something false — verify the claim, not the check.** **[?revised]** → observations.md:20, body 2228w
 #19 · **A verdict function can assert more than its own design guarantees.** → observations.md:22, body 1369w
 #29 · **On a surface where the deployed field arrives in context, the drift-check has an ordering hazard.** → observations.md:24, body 534w
+#34 · **Asserting a mechanism during live diagnosis is a distinct habit from asserting one in code, and it fires hardest when the evidence is thinnest.** → observations.md:26, body 515w
 
 ## Candidates
 
-#4 · **Pre-declared time budgets keep exploratory work honest.** → observations.md:28, body 42w
-#5 · **Manual verification loops hide silent failure modes — automate the loop.** → observations.md:29, body 41w
-#6 · **Chat-session file transfers flatten folders — stage collision-proof copies first.** → observations.md:30, body 61w
-#9 · **Pre-declare stop conditions when the failure mode is predictable.** → observations.md:31, body 29w
-#10 · **Commit by "why," not by session.** → observations.md:32, body 38w
-#11 · **One command at a time in interactive sessions.** → observations.md:33, body 159w
-#13 · **Session attribution doesn't survive across execution surfaces.** → observations.md:35, body 109w
-#14 · **MCP filesystem reads hang while config-only calls return.** **[?revised]** → observations.md:36, body 207w
-#15 · **The upload endpoint fails transiently under batch load.** → observations.md:37, body 380w
-#16 · **Exonerate the obvious suspect before diagnosing.** → observations.md:38, body 49w
-#17 · **Guard the failure that invents data, not just the one that loses it.** → observations.md:39, body 743w
-#18 · **A pre-declared threshold is only as good as the model behind it.** → observations.md:40, body 99w
-#20 · **Reproducing the record is not evidence; only prediction is.** → observations.md:41, body 183w
-#21 · **Before running an experiment, ask what a null result would prove.** → observations.md:42, body 124w
-#22 · **Automating a manual loop relocates the gate; it does not remove one.** → observations.md:43, body 131w
-#23 · **Unattended runs make the environment part of the harness.** → observations.md:44, body 421w
-#24 · **An artifact that exists only as a conversation delivery is not state, and recording that a commit is owed reads to a check like having discharged it.** → observations.md:46, body 1106w
-#25 · **A silent retry loop hides a missing binary.** → observations.md:48, body 197w
-#26 · **A fixture set that shares a coincidence cannot see the bugs the coincidence masks.** → observations.md:50, body 950w
-#27 · **Output that will be pasted back needs a freshness stamp, or a stale paste is indistinguishable from a fresh one.** → observations.md:52, body 235w
-#28 · **A canonical environment note is a measurement with a decay rate, not a constant.** → observations.md:54, body 217w
-#30 · **A generated constant's *order* is part of its content, and a hardcoded index against it is an untested claim.** → observations.md:56, body 193w
-#31 · **Explanation density is the recurring drift, and the note aimed at it names the wrong target.** → observations.md:58, body 435w
-#32 · **A mutation battery needs its control *asserted*, not observed — a broken battery reports reassurance.** → observations.md:61, body 870w
-#35 · **A tool built to catch a class of bug can leave the bug behind it — the mutation battery poisoned the bytecode cache.** → observations.md:64, body 256w
-#36 · **A model correction is a claim, and running it over the record before writing the patch is the cheap test.** → observations.md:66, body 282w
-#33 · **Offline tests verify the code; only the environment verifies the assumptions the fakes encode — and the environment needs its own committed check.** → observations.md:68, body 660w
-#34 · **Asserting a mechanism during live diagnosis is a distinct habit from asserting one in code, and it fires hardest when the evidence is thinnest.** → observations.md:70, body 382w
+#4 · **Pre-declared time budgets keep exploratory work honest.** → observations.md:30, body 42w
+#5 · **Manual verification loops hide silent failure modes — automate the loop.** → observations.md:31, body 41w
+#6 · **Chat-session file transfers flatten folders — stage collision-proof copies first.** → observations.md:32, body 61w
+#9 · **Pre-declare stop conditions when the failure mode is predictable.** → observations.md:33, body 29w
+#10 · **Commit by "why," not by session.** → observations.md:34, body 38w
+#11 · **One command at a time in interactive sessions.** → observations.md:35, body 159w
+#13 · **Session attribution doesn't survive across execution surfaces.** → observations.md:37, body 109w
+#14 · **MCP filesystem reads hang while config-only calls return.** **[?revised]** → observations.md:38, body 207w
+#15 · **The upload endpoint fails transiently under batch load.** → observations.md:39, body 380w
+#16 · **Exonerate the obvious suspect before diagnosing.** → observations.md:40, body 49w
+#17 · **Guard the failure that invents data, not just the one that loses it.** → observations.md:41, body 743w
+#18 · **A pre-declared threshold is only as good as the model behind it.** → observations.md:42, body 99w
+#20 · **Reproducing the record is not evidence; only prediction is.** → observations.md:43, body 183w
+#21 · **Before running an experiment, ask what a null result would prove.** → observations.md:44, body 124w
+#22 · **Automating a manual loop relocates the gate; it does not remove one.** → observations.md:45, body 131w
+#23 · **Unattended runs make the environment part of the harness.** → observations.md:46, body 421w
+#24 · **An artifact that exists only as a conversation delivery is not state, and recording that a commit is owed reads to a check like having discharged it.** → observations.md:48, body 1106w
+#25 · **A silent retry loop hides a missing binary.** → observations.md:50, body 197w
+#26 · **A fixture set that shares a coincidence cannot see the bugs the coincidence masks.** → observations.md:52, body 950w
+#27 · **Output that will be pasted back needs a freshness stamp, or a stale paste is indistinguishable from a fresh one.** → observations.md:54, body 235w
+#28 · **A canonical environment note is a measurement with a decay rate, not a constant.** → observations.md:56, body 217w
+#30 · **A generated constant's *order* is part of its content, and a hardcoded index against it is an untested claim.** → observations.md:58, body 193w
+#31 · **Explanation density is the recurring drift, and the note aimed at it names the wrong target.** → observations.md:60, body 435w
+#32 · **A mutation battery needs its control *asserted*, not observed — a broken battery reports reassurance.** → observations.md:63, body 870w
+#35 · **A tool built to catch a class of bug can leave the bug behind it — the mutation battery poisoned the bytecode cache.** → observations.md:66, body 256w
+#36 · **A model correction is a claim, and running it over the record before writing the patch is the cheap test.** → observations.md:68, body 282w
+#33 · **Offline tests verify the code; only the environment verifies the assumptions the fakes encode — and the environment needs its own committed check.** → observations.md:70, body 660w
 #37 · **The close commits canonical state before anything reads it back, so the only real verification happens after the push.** → observations.md:72, body 159w
 #38 · **In the Cowork VM, any git command that touches the index leaves a stale `.git/index.lock` — the VM forbids deletes, so git cannot remove its own lock.** → observations.md:80, body 147w
 #39 · **A gated walk that shows diffs and triage flags without saying what the change is for and what it costs reads as mechanics, and approval without understanding is not the security control the routine thinks it is.** → observations.md:82, body 68w
@@ -170,3 +173,5 @@ kind. Promotion means three or more firings across separate sessions.*
 #49 · **A test that asks a model surface to confirm what the caller's own loop already enforced cannot fail.** → observations.md:102, body 109w
 #50 · **A rule that forbids a tool silently deletes the checks that tool performed, and nothing re-plans them.** → observations.md:104, body 129w
 #51 · **Logs name the command that failed; only the screen says what the device was doing.** → observations.md:106, body 100w
+#52 · **A command that reads the clipboard cannot be delivered through the clipboard.** → observations.md:108, body 116w
+#53 · **A retry is a second sample rather than a p-hack when the failure is named, lies off the measured path, and the outcomes are declared before it runs.** → observations.md:110, body 131w

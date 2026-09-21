@@ -270,6 +270,8 @@ The *Writing the handoff* routine (Part 1) holds the universal shape — next-se
 
 **Handoff files stay local.** They are artifacts, not canonical state — nothing in a handoff is the source of truth for anything, so a committed handoff goes stale the moment `plan.md` moves. Don't commit them.
 
+**A handoff that may be read on Cowork names D058 above its required reading: no `git` from the bridge VM, reads included.** s28 and s37 both broke it with `git status`, because the note that forbids it sits in `environment.md`, read fifth (#54). (Added 2026-09-21, s37.)
+
 **Observation numbering runs cumulatively across sessions.** `observations.md` numbers are stable references; a handoff citing "#12" must mean the same thing next session. Never renumber.
 
 <!-- Project-specific handoff conventions. Examples:

@@ -110,6 +110,9 @@ D080 · Text entry carries its own timeout, sized on the asymmetry rather than o
 D081 · The harness names the renderer and refuses a software one (2026-09-14, s36) → decisions.md:98, body 210w
 D082 · Every live screencap is checked whole before anything uses it (2026-09-14, s36) → decisions.md:99, body 184w
 D083 · A long command says when it is done, and a run that did not boot the emulator says so rather than killing it (2026-09-14, s36) → decisions.md:100, body 182w
+D084 · The main-menu wait skips an unreadable frame, and stops only on three frameless screencaps in a row (2026-09-21, s37) → decisions.md:101, body 189w
+D085 · A render reports what its menu wait saw, even when a later step fails (2026-09-21, s37) → decisions.md:102, body 129w
+D086 · 17(c)'s watchful sleep is not built; it folds into item 3 (2026-09-21, s37) → decisions.md:103, body 87w
 
 ## Observations
 
@@ -127,7 +130,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #12 · **A check can pass while asserting something false — verify the claim, not the check.** **[?revised]** → observations.md:20, body 2228w
 #19 · **A verdict function can assert more than its own design guarantees.** → observations.md:22, body 1369w
 #29 · **On a surface where the deployed field arrives in context, the drift-check has an ordering hazard.** → observations.md:24, body 534w
-#34 · **Asserting a mechanism during live diagnosis is a distinct habit from asserting one in code, and it fires hardest when the evidence is thinnest.** → observations.md:26, body 515w
+#34 · **Asserting a mechanism during live diagnosis is a distinct habit from asserting one in code, and it fires hardest when the evidence is thinnest.** **[?revised]** → observations.md:26, body 611w
 
 ## Candidates
 
@@ -150,7 +153,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #24 · **An artifact that exists only as a conversation delivery is not state, and recording that a commit is owed reads to a check like having discharged it.** → observations.md:48, body 1106w
 #25 · **A silent retry loop hides a missing binary.** → observations.md:50, body 197w
 #26 · **A fixture set that shares a coincidence cannot see the bugs the coincidence masks.** → observations.md:52, body 950w
-#27 · **Output that will be pasted back needs a freshness stamp, or a stale paste is indistinguishable from a fresh one.** → observations.md:54, body 235w
+#27 · **Output that will be pasted back needs a freshness stamp, or a stale paste is indistinguishable from a fresh one.** → observations.md:54, body 276w
 #28 · **A canonical environment note is a measurement with a decay rate, not a constant.** → observations.md:56, body 217w
 #30 · **A generated constant's *order* is part of its content, and a hardcoded index against it is an untested claim.** → observations.md:58, body 193w
 #31 · **Explanation density is the recurring drift, and the note aimed at it names the wrong target.** → observations.md:60, body 435w
@@ -159,7 +162,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #36 · **A model correction is a claim, and running it over the record before writing the patch is the cheap test.** → observations.md:68, body 282w
 #33 · **Offline tests verify the code; only the environment verifies the assumptions the fakes encode — and the environment needs its own committed check.** → observations.md:70, body 660w
 #37 · **The close commits canonical state before anything reads it back, so the only real verification happens after the push.** → observations.md:72, body 159w
-#38 · **In the Cowork VM, any git command that touches the index leaves a stale `.git/index.lock` — the VM forbids deletes, so git cannot remove its own lock.** → observations.md:80, body 147w
+#38 · **In the Cowork VM, any git command that touches the index leaves a stale `.git/index.lock` — the VM forbids deletes, so git cannot remove its own lock.** → observations.md:80, body 230w
 #39 · **A gated walk that shows diffs and triage flags without saying what the change is for and what it costs reads as mechanics, and approval without understanding is not the security control the routine thinks it is.** → observations.md:82, body 68w
 #40 · **A verdict recorded under an earlier version of its own classifier is not a second confirmation.** **[?revised]** → observations.md:84, body 184w
 #41 · **A decision made on a declared figure should name the measurement that would overturn it, and then that measurement gets taken.** → observations.md:86, body 174w
@@ -175,3 +178,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #51 · **Logs name the command that failed; only the screen says what the device was doing.** → observations.md:106, body 100w
 #52 · **A command that reads the clipboard cannot be delivered through the clipboard.** → observations.md:108, body 116w
 #53 · **A retry is a second sample rather than a p-hack when the failure is named, lies off the measured path, and the outcomes are declared before it runs.** → observations.md:110, body 131w
+#54 · **A rule stored where it is read after the first command cannot guard the first command.** → observations.md:112, body 91w

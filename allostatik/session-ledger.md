@@ -52,3 +52,5 @@ TASK-CLOSED s38-t4 DONE
 TASK-OPEN s38-t5 base=e803ffe scope=
 TASK-CLOSED s38-t5 STOPPED
 CLOSED s38
+OPENED s39 2026-09-22
+TASK-OPEN s39-t1 base=d996cd0 scope=scripts/render_door.py,tests/test_render_door.py

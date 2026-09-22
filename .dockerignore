@@ -1,0 +1,14 @@
+# traxgen/.dockerignore
+# The build needs none of this, and .venv in particular is a macOS virtualenv
+# that would be copied into a Linux image and silently shadow the real one.
+.venv/
+.git/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+screenshots/
+outputs/
+.DS_Store

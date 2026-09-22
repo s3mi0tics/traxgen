@@ -1,0 +1,20 @@
+{
+  "name": "traxgen",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/traxgen",
+  "mounts": [
+    "source=${localEnv:HOME}/traxgen-door,target=/traxgen-door,type=bind,consistency=cached",
+    "source=traxgen-claude-config,target=/home/vscode/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "TRAXGEN_DOOR_DROP": "/traxgen-door"
+  },
+  "postCreateCommand": "uv sync && uv run pytest -q",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  }
+}

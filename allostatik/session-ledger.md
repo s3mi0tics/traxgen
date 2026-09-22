@@ -57,3 +57,4 @@ TASK-OPEN s39-t1 base=d996cd0 scope=scripts/render_door.py,tests/test_render_doo
 TASK-CLOSED s39-t1 STOPPED
 TASK-OPEN s39-t2 base=6cc6b3d scope=.devcontainer/,.claude/,.dockerignore
 TASK-CLOSED s39-t2 STOPPED
+TASK-OPEN s39-t3 base=a53b2da scope=.devcontainer/

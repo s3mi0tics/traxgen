@@ -35,6 +35,18 @@ looked at the diff.
     uv run python -m scripts.render_door watch \
         --drop ~/traxgen-door --checkout ~/Claude/Projects/traxgen-render
 
+**To build and check the image** (about 5 minutes the first time, seconds
+after that -- Docker caches the layers):
+
+    cd ~/Claude/Projects/traxgen
+    docker build -f .devcontainer/Dockerfile -t traxgen-dev .
+
+The build prints `node`, `npm`, `python3.12` and `uv` version lines and the path
+`claude` resolves to. Those lines are the check: a build that does not print
+them has not made a working image, whatever its exit code says. Opening the
+folder in VS Code or Cursor and choosing *Reopen in Container* uses the same
+`Dockerfile` and adds the mounts from `devcontainer.json`.
+
 **In the container**, a render is one command:
 
     uv run python -m scripts.render_door request KN6F459ZR3

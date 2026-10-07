@@ -35,3 +35,28 @@ STEP upgrade 5/5 verified
 STEP-DONE upgrade
 CLOSED s34
 OPENED s35 2026-09-12
+CLOSED s35
+OPENED s36 2026-09-14
+CLOSED s36
+OPENED s37 2026-09-21
+CLOSED s37
+OPENED s38 2026-09-21
+TASK-OPEN s38-t1 base=453197d scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py
+TASK-CLOSED s38-t1 DONE
+TASK-OPEN s38-t2 base=91828b6 scope=scripts/emulator.py,scripts/render_course.py,tests/test_emulator_session.py
+TASK-CLOSED s38-t2 STOPPED
+TASK-OPEN s38-t3 base=ca2841b scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py
+TASK-CLOSED s38-t3 DONE
+TASK-OPEN s38-t4 base=11ce663 scope=allostatik/workflow.md,scripts/task_check.py,tests/test_task_check.py,scripts/emulator.py,tests/test_emulator_session.py
+TASK-CLOSED s38-t4 DONE
+TASK-OPEN s38-t5 base=e803ffe scope=
+TASK-CLOSED s38-t5 STOPPED
+CLOSED s38
+OPENED s39 2026-09-22
+TASK-OPEN s39-t1 base=d996cd0 scope=scripts/render_door.py,tests/test_render_door.py
+TASK-CLOSED s39-t1 STOPPED
+TASK-OPEN s39-t2 base=6cc6b3d scope=.devcontainer/,.claude/,.dockerignore
+TASK-CLOSED s39-t2 STOPPED
+TASK-OPEN s39-t3 base=a53b2da scope=.devcontainer/
+TASK-CLOSED s39-t3 STOPPED
+CLOSED s39

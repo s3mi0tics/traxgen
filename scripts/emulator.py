@@ -52,8 +52,11 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import BinaryIO
 
+from scripts.chime import chime
 from scripts.preflight import (
     DEFAULT_EMULATOR_LOG,
     Check,
@@ -61,18 +64,28 @@ from scripts.preflight import (
     check_boot_complete,
     check_device_attached,
     check_graphics_errors,
+    check_renderer,
 )
 from traxgen.android import (
     DEFAULT_ANDROID_HOME,
     DEFAULT_PACKAGE,
+    DEFAULT_SCREENSHOT_DIR,
     AdbCommandFailedError,
     AdbContext,
     AdbNotFoundError,
     _run_adb,
+    _run_adb_binary,
     resolve_context,
 )
 
 DEFAULT_AVD = "traxgen_m6c"
+
+# What `-gpu` is passed as. Until s36 no `-gpu` flag was passed at all, so the
+# renderer came from the AVD's `config.ini` -- an environment term every
+# campaign silently inherited and no file recorded, and the one that turned out
+# to be software (plan #19). Named here so a boot's renderer is a property of
+# this file rather than of a config nobody reads.
+DEFAULT_GPU_MODE = "host"
 
 # What `pgrep -f` is matched against. The emulator process is `qemu-system-aarch64`
 # on this Mac; the prefix is used so an SDK update that renames the suffix does not
@@ -83,6 +96,25 @@ BOOT_TIMEOUT = 300.0
 BOOT_POLL_INTERVAL = 2.0
 KILL_TIMEOUT = 60.0
 KILL_POLL_INTERVAL = 1.0
+
+# Where a failed run leaves the phone's own account of the failure (plan #20).
+# Under the gitignored `screenshots/`, not in `/tmp` beside the emulator's log:
+# #20's next step after a failure is a Mac restart, and a restart empties `/tmp`.
+DEFAULT_EVIDENCE_DIR = DEFAULT_SCREENSHOT_DIR / "device_evidence"
+
+# What a failed run saves, in this order. The wait comes first because one of
+# s37's three failures was the adb connection resetting (`device still
+# authorizing`), and a phone asked at that moment refuses both reads. Memory
+# comes before the log because memory is the reading that keeps moving.
+# `logcat -d` dumps and exits -- without `-d` it streams until the timeout and
+# saves nothing -- and `-b all` takes in the `events` buffer, where the system
+# writes `am_kill` and `am_proc_died` when it kills an app.
+EVIDENCE_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("wait-for-device",),
+    ("shell", "dumpsys", "meminfo"),
+    ("logcat", "-d", "-b", "all"),
+)
+EVIDENCE_TIMEOUT = 30.0
 
 
 class EmulatorLifecycleError(Exception):
@@ -101,11 +133,6 @@ class AlreadyRunningError(EmulatorLifecycleError):
     """An emulator is already up, and a cold boot means nothing is."""
 
 
-# Passed explicitly because the AVD's `hw.gpu.mode=auto` boots SwiftShader, a
-# software renderer: p7's first campaign ran on it, the host load went from 7 to
-# 18 on 10 cores, and three of four renders failed at `adb input text`. traxgen
-# found and fixed the same thing at s36 on main.
-GPU_MODE = "host"
 
 
 def resolve_emulator_binary(android_home: Path | None = None) -> Path:
@@ -140,6 +167,7 @@ def spawn_emulator(
     avd: str,
     log_path: Path,
     *,
+    gpu_mode: str = DEFAULT_GPU_MODE,
     popen: Callable[..., object] = subprocess.Popen,
 ) -> object:
     """Launch the AVD cold and detached, with its log truncated.
@@ -155,7 +183,7 @@ def spawn_emulator(
     """
     with log_path.open("wb") as log:
         return popen(
-            [str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", GPU_MODE],
+            [str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", gpu_mode],
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -347,6 +375,7 @@ def boot(
     package: str = DEFAULT_PACKAGE,
     timeout: float = BOOT_TIMEOUT,
     interval: float = BOOT_POLL_INTERVAL,
+    gpu_mode: str = DEFAULT_GPU_MODE,
     ctx: AdbContext | None = None,
     out: Callable[[str], None] = print,
     popen: Callable[..., object] = subprocess.Popen,
@@ -373,8 +402,8 @@ def boot(
             "nothing is. Run `kill` first, or leave the existing one if it is this session's."
         )
 
-    out(f"booting {avd} cold; log -> {log_path}")
-    spawn_emulator(binary, avd, log_path, popen=popen)
+    out(f"booting {avd} cold with -gpu {gpu_mode}; log -> {log_path}")
+    spawn_emulator(binary, avd, log_path, gpu_mode=gpu_mode, popen=popen)
 
     def teardown() -> None:
         out("interrupted before boot completed -- tearing down what was launched")
@@ -388,6 +417,9 @@ def boot(
     checks = [
         check_device_attached(ctx),
         check_boot_complete(ctx),
+        # The one that would have stopped s35 on its first attempt instead of
+        # its fifth: a software renderer is a dead session, not a slow one.
+        check_renderer(ctx),
         check_graphics_errors(log_path),
         # Device-level like the three above -- `dumpsys package` answers with
         # the launcher in front -- and the one that turns a silent Play Store
@@ -405,6 +437,52 @@ def boot(
     return checks
 
 
+def _new_evidence_file(directory: Path, stem: str) -> tuple[Path, BinaryIO]:
+    """Create `stem.txt`, or `stem-2.txt` and on: two failures in one second keep both (s38-t4)."""
+    attempt = 1
+    while True:
+        path = directory / (f"{stem}.txt" if attempt == 1 else f"{stem}-{attempt}.txt")
+        try:
+            return path, path.open("xb")
+        except FileExistsError:
+            attempt += 1
+
+
+def save_device_evidence(
+    ctx: AdbContext,
+    directory: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    reason: str,
+    now: Callable[[], datetime] = datetime.now,
+    timeout: float = EVIDENCE_TIMEOUT,
+) -> Path:
+    """Write the phone's memory report and log to one file, before a teardown wipes both.
+
+    A command that fails is written into its own section and the next one still
+    runs: a phone that cannot fork a shell, or an adb connection still resetting,
+    is part of the answer #20 is asking for, not a reason to keep nothing. The
+    file is written section by section, so a capture cut short keeps what it had
+    already read. Bytes throughout, because a phone's log is not promised to be
+    valid UTF-8.
+    """
+    stamp = now()
+    directory.mkdir(parents=True, exist_ok=True)
+    path, file = _new_evidence_file(directory, f"{stamp:%Y%m%d-%H%M%S}")
+    with file:
+        file.write(f"device evidence, {stamp:%Y-%m-%d %H:%M:%S}\nwhy: {reason}\n".encode())
+        for args in EVIDENCE_COMMANDS:
+            try:
+                body = _run_adb_binary(ctx, *args, timeout=timeout) or b"(no output)\n"
+            except (AdbCommandFailedError, OSError) as exc:
+                # OSError is the Mac's side: starting `adb` at all can fail on a
+                # host this short of memory (s37 measured ~60 MB free).
+                body = f"FAILED: {exc}\n".encode()
+            file.write(f"\n===== adb {' '.join(args)} =====\n".encode())
+            file.write(body)
+            file.flush()
+    return path
+
+
 @contextmanager
 def session(
     *,
@@ -416,6 +494,8 @@ def session(
     out: Callable[[str], None] = print,
     boot_fn: Callable[..., list[Check]] = boot,
     kill_fn: Callable[..., KillOutcome] = kill_emulator,
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    evidence_fn: Callable[..., Path] = save_device_evidence,
 ) -> Iterator[AdbContext]:
     """A cold emulator for exactly the duration of the block.
 
@@ -433,6 +513,16 @@ def session(
       a half-dead emulator is the thing every guard in `android.py` exists to
       catch after the fact, and this catches it before.
 
+    And a failure leaves the phone's own account behind. When the device checks
+    fail or the body raises, `evidence_fn` saves the phone's memory report and
+    log to `evidence_dir` *before* the teardown kill, because the kill wipes
+    both. s37's three failed renders each left one line of text, and nothing
+    could say whether the phone ran out of memory, killed the app or reset adb
+    (plan #20). A clean run saves nothing, and neither does a Ctrl-C, which is
+    someone stopping the run rather than a failure to explain. A capture that
+    fails is reported, and never stands between the run and its teardown or
+    its own error.
+
     The unit is the *run* -- one CLI render, one campaign -- not the arm.
     Cold boot plus app launch is ~75s against a ~25s render, so per-arm cycling
     would quadruple a campaign; per run it is the ~4% `decisions.md` measured.
@@ -440,6 +530,17 @@ def session(
     harness extraction rather than by a fourth copy of the loop.
     """
     ctx = ctx or resolve_context(android_home=android_home, package=package)
+
+    def keep_evidence(reason: str) -> None:
+        # Broad on purpose: whatever goes wrong in here, the kill still runs and
+        # the caller still sees the run's own error rather than this one.
+        try:
+            path = evidence_fn(ctx, evidence_dir, reason=reason)
+        except Exception as exc:
+            out(f"device evidence NOT saved: {type(exc).__name__}: {exc}")
+        else:
+            out(f"device evidence saved: {path}")
+
     before = kill_fn(ctx)
     out(before.line())
     if not before.died:
@@ -452,11 +553,18 @@ def session(
     )
     failed = [check.name for check in checks if not check.ok]
     if failed:
+        lines = [check.line() for check in checks if not check.ok]
+        keep_evidence("\n  ".join([f"device checks failed after cold boot: {failed}", *lines]))
         after = kill_fn(ctx)
         out(after.line())
         raise EmulatorLifecycleError(f"device checks failed after cold boot: {failed}")
     try:
         yield ctx
+    except Exception as exc:
+        # `Exception`, not `BaseException`: a Ctrl-C goes straight to the kill.
+        notes = getattr(exc, "__notes__", ())
+        keep_evidence("\n  ".join([f"{type(exc).__name__}: {exc}", *notes]))
+        raise
     finally:
         after = kill_fn(ctx)
         out(after.line())
@@ -464,7 +572,7 @@ def session(
             out(f"WARNING: emulator survived teardown: {after.detail}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, chime_fn: Callable[..., str] = chime) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -473,16 +581,39 @@ def main(argv: list[str] | None = None) -> int:
     boot_parser.add_argument("--log", type=Path, default=DEFAULT_EMULATOR_LOG)
     boot_parser.add_argument("--package", default=DEFAULT_PACKAGE)
     boot_parser.add_argument("--timeout", type=float, default=BOOT_TIMEOUT)
+    boot_parser.add_argument(
+        "--gpu",
+        default=DEFAULT_GPU_MODE,
+        help="emulator -gpu mode (host, swiftshader_indirect, angle_indirect, auto...)",
+    )
 
     kill_parser = sub.add_parser("kill", help="ask the AVD to quit and confirm the process died")
     kill_parser.add_argument("--package", default=DEFAULT_PACKAGE)
     kill_parser.add_argument("--timeout", type=float, default=KILL_TIMEOUT)
 
+    for subparser in (boot_parser, kill_parser):
+        subparser.add_argument(
+            "--no-sound",
+            action="store_true",
+            help="suppress the completion chime (for queues and unattended runs)",
+        )
+
     args = parser.parse_args(argv)
+    status = _dispatch(args)
+    chime_fn(status == 0, enabled=not args.no_sound)
+    return status
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    """Run the chosen subcommand. Returns a process exit code."""
     try:
         if args.command == "boot":
             checks = boot(
-                avd=args.avd, log_path=args.log, package=args.package, timeout=args.timeout
+                avd=args.avd,
+                log_path=args.log,
+                package=args.package,
+                timeout=args.timeout,
+                gpu_mode=args.gpu,
             )
             return 0 if all(check.ok for check in checks) else 1
         outcome = kill_emulator(resolve_context(package=args.package), timeout=args.timeout)

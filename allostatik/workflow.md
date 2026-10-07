@@ -260,6 +260,51 @@ The universal close (Part 1) runs the standard steps — from the reflective pas
 <!-- Project-only close steps — each with a one-line cheap test (how you confirm it ran), per the test-per-routine pattern. -->
 <!-- Example: **Refresh the published docs** — after the commit lands, run the site build and commit the output. Test (state): the build succeeds and the generated files show as committed. -->
 
+## Task routine
+
+*Added 2026-09-21 (s38). Project-specific: Part 1 is unchanged.*
+
+**What it is for.** A session's approved goal gets cut into tasks that run without Colby between his gates. Each task leaves a report he can read later and records that a check can re-derive. So he can let the work run and still see what happened, and a short list of reasons brings the question to him when one fires.
+
+**A task** is one step of the approved goal, small enough to end in one commit. Tasks are numbered in the order they open: `s38-t1`, `s38-t2`, and so on.
+
+**Open, before the first edit.** Reading to work out the scope comes first. Nothing is edited until the `TASK-OPEN` line is in the ledger. A task runs inside a session that is already open, so it doesn't run the session open again.
+
+1. Append a `TASK-OPEN` line to `session-ledger.md`: the task id, then `base=` with the commit HEAD points at, then `scope=` with a comma-separated list of every file the task may change. An entry ending in `/` covers a folder. The ledger and `allostatik/knowledge/task_reports/` are always in scope and need no entry. The session-close files named below are never in scope, whether declared or not. Example, from s38: `TASK-OPEN s38-t2 base=91828b6 scope=scripts/emulator.py,scripts/render_course.py,tests/test_emulator_session.py`, where 91828b6 was HEAD when that task opened.
+2. Write the open half of the task's report from the template in `allostatik/knowledge/task_reports/README.md`: the goal in one sentence, the done check in the five-slot form, the budget, and, for any live run, the outcomes declared before it runs (#53).
+3. Commit those two files and nothing else. This *open commit* is the clock the ledger lacks: git's history then shows the declaration came before the first edit, and `task_check` refuses a task without one. (Required from s38-t4. s38-t1 to t3 predate the rule, so `task_check` reports them out of order.)
+
+**Work.** Decisions inside the task are the task's to make. Each one goes into the report as one sentence (*decide inside an approved plan*).
+
+**Stop and ask Colby** when the first of these fires, and only then:
+
+1. The next step needs his hands: a Mac restart, a sign-in, an app update, a push, or code that has to run on the Mac outside the agent's box.
+2. A result would change the shape of the session's goal, or overturn a locked decision.
+3. Every way forward is hard to undo.
+4. Stuck: the same step failed twice for a reason the report cannot name, or the budget is spent.
+
+To stop: put the question in the report's status line, then close the task as `STOPPED` using the close steps below, commit included. Only then play the failure chime (`uv run python -c "from scripts.chime import chime; chime(False)"`), so the sound means everything is saved and it is Colby's turn. `STOPPED` ends the task, not the session. The question goes to Colby straight away. Tasks that don't depend on the stopped one may go on, and any that do wait for his answer, which starts a new task naming the stopped one. A done check that can only pass on the Mac stops the task, with the command to run there as the question.
+
+**Close.**
+
+1. Run `uv run python -m scripts.task_check` followed by the task id. It prints one line: in scope, or the files outside it. Outside the scope is a failed close. Revert the stray change, or open a new task that declares it. Never widen a `TASK-OPEN` line after the work.
+2. Finish the report: the status (`DONE`, `STOPPED` with the question, or `FAILED` with why), what happened, what changed, the evidence (a passing check is one line), the decisions made, what the record should say, and the next task.
+3. Append `TASK-CLOSED`, the task id and its status to the ledger, and commit the task's files together, the report with them.
+
+`task_check` runs git, so it runs where git is allowed: Claude Code, a container, or a clone. It never runs from the Cowork bridge VM (D058).
+
+**Who writes the shared record.** Only the session close writes `plan.md`, `log.md`, `decisions.md`, `observations.md`, the record index, `knowledge/environment.md` and `knowledge/resources.md`. `task_check` fails a task that changes any of them, declared or not. It folds the session's task reports in ledger order, and the session's log entry lists the reports instead of retelling them. A task never edits those files. It writes what they should say in its report's *For the record* section. The close folds every item in every report's *For the record*, or says in the log why one was left out. Having one writer for shared files is what will later let tasks run side by side, each in its own worktree with scopes that don't overlap, without overwriting each other. For now tasks run one at a time.
+
+**Continuity.** A `TASK-OPEN` with no `TASK-CLOSED` after it is a task that died mid-flight. `uv run python -m scripts.task_check --unclosed` lists them from the ledger. The session open runs it, and resuming or closing any it names is that session's first job. The session close runs it too, before `CLOSED`. This is the same rule as a `STEP` with no `STEP-DONE`.
+
+**The scope check, in five slots.**
+
+1. *Step:* a task's work.
+2. *True after:* every file the task changed is inside the scope it declared at open.
+3. *Miss cases:* the task changed a file it did not declare, and the work still looks finished; or it changed a session-close file, even one it declared; or there is no `TASK-OPEN` line, so there is no declared scope to hold it to; or the line was written after the work, declaring whatever the work happened to touch.
+4. *Reads:* the task's `TASK-OPEN` line; the open commit that added it, whose parent must be the line's `base` and which may change only the ledger and task reports; and git's list of files changed since the open commit, untracked files included. It never reads the report, which is the checked party's own account.
+5. *Check:* `task_check` says no when the line is missing, when it is in no commit, or when its commit sits on another base or also carried work. Otherwise it lists every changed file that the scope does not cover, plus every session-close file that changed, and says no if that list is not empty. It reports how many files changed and names the open commit.
+
 ## Handoff conventions
 
 The *Writing the handoff* routine (Part 1) holds the universal shape — next-session goals, required reading, a pointer to the close routine, blocking carries up top, and sizing the handoff to how mature your layers are. Add here any conventions specific to *this* project's handoffs.
@@ -269,6 +314,8 @@ The *Writing the handoff* routine (Part 1) holds the universal shape — next-se
 **Deliver the handoff as a file, not as inline prose.** Write it to an outputs folder and hand the file over. In a chat transcript the start and end of a handoff are ambiguous — it runs into the surrounding conversation, and finding it again means scrolling. A file has unambiguous boundaries, survives scrollback, and can be opened alongside the next session instead of re-read in place. *Test (output):* the next session's opening message is a file, not a wall of text. (Raised 2026-08-07 after several handoffs delivered inline.)
 
 **Handoff files stay local.** They are artifacts, not canonical state — nothing in a handoff is the source of truth for anything, so a committed handoff goes stale the moment `plan.md` moves. Don't commit them.
+
+**A handoff that may be read on Cowork names D058 above its required reading: no `git` from the bridge VM, reads included.** s28 and s37 both broke it with `git status`, because the note that forbids it sits in `environment.md`, read fifth (#54). (Added 2026-09-21, s37.)
 
 **Observation numbering runs cumulatively across sessions.** `observations.md` numbers are stable references; a handoff citing "#12" must mean the same thing next session. Never renumber.
 

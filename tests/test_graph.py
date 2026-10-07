@@ -35,13 +35,13 @@ from traxgen.domain import (
     RailConstructionData,
     RailConstructionExitIdentifier,
 )
-from traxgen.generator import generate_minimal
+from traxgen.generator import generate_minimal, generate_multi_plate
 from traxgen.graph import (
     ALL_DIRECTIONS,
     GOAL_KINDS,
     MEASURED_LIVE_DIRECTIONS,
     MEASURED_RUNS,
-    STANDARD_SQUARE_FROM_STARTER_PLATE,
+    STANDARD_SQUARE_FROM_ORIGIN_PLATE,
     STARTER_INTRINSIC_PORTS,
     STARTER_KINDS,
     STARTER_PLATE_ONLY,
@@ -946,14 +946,14 @@ def test_plate_membership_is_local_even_when_the_layer_sits_off_origin() -> None
 
 def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> None:
     """`MEASURED_RUNS` claims three layouts: the starter's plate alone, that
-    plate plus the completer the #17 2x2 added, and the four-plate standard
-    square the 2026-10-07 generated-placement campaign ran on.
+    plate plus the completer the #17 2x2 added, and the four-plate square the
+    generator's first certified course stood on (s36).
 
     All three claims are graded here against a builder rather than against
-    themselves: `build_variant`, the 2x2 probe's `build_arm_course` and the
-    generated-placement probe's `build_arm_course` are called for real, their
-    plates are read back off the built courses through the production path,
-    and the recorded rows must agree. A test that compared
+    themselves: `build_variant`, the 2x2 probe's `build_arm_course` and
+    `generate_multi_plate` are called for real, their plates are read back off
+    the built courses through the production path, and the recorded rows must
+    agree. A test that compared
     `STARTER_PLATE_ONLY` to the rows would be comparing two copies of one
     sentence (observations #12).
 
@@ -978,16 +978,14 @@ def test_the_record_records_the_plate_layout_the_builder_actually_produced() -> 
     (starter_two,) = [t for t in placed_tiles(two_plate) if t.kind in STARTER_KINDS]
     built_two = plate_offsets_from(course_plate_positions(two_plate), starter_two)
 
-    four_plate = probe_generated_placement.build_arm_course(
-        probe_generated_placement.Role.GENERATED, probe_generated_placement.derive_geometry()
-    )
-    (starter_four,) = [t for t in placed_tiles(four_plate) if t.kind in STARTER_KINDS]
-    built_four = plate_offsets_from(course_plate_positions(four_plate), starter_four)
+    square = generate_multi_plate()
+    (starter_square,) = [t for t in placed_tiles(square) if t.kind in STARTER_KINDS]
+    built_square = plate_offsets_from(course_plate_positions(square), starter_square)
 
     assert built == STARTER_PLATE_ONLY
     assert built_two == STARTER_PLATE_PLUS_COMPLETER
-    assert built_four == STANDARD_SQUARE_FROM_STARTER_PLATE
-    assert {run.plate_offsets for run in MEASURED_RUNS} == {built, built_two, built_four}
+    assert built_square == STANDARD_SQUARE_FROM_ORIGIN_PLATE
+    assert {run.plate_offsets for run in MEASURED_RUNS} == {built, built_two, built_square}
 
 
 SIDECAR_2X2 = Path(__file__).parent / "fixtures" / "plate_boundary_results_2026-08-25.json"
@@ -1036,15 +1034,16 @@ SIDECAR_GENERATED = (
 
 
 def test_the_generated_placement_rows_are_the_run_the_sidecar_recorded() -> None:
-    """Both 2026-10-07 rows, graded against the run rather than against this file.
+    """The 2026-10-07 campaign, graded against the run rather than against this file.
 
     Same instrument as the 2x2 test above. The probe's own builder
     (`scripts.probe_generated_placement.build_arm_course`) rebuilds every arm
     from `derive_geometry()`, each rebuilt course must hash to the
     `payload_sha256` the run uploaded, and the record's answer for it must be
     the verdict the sidecar recorded. The two certified brackets classify from
-    the corner sweeps; the local control and the generated arm classify from
-    the two new rows, so a wrong direction, offset or layout in either fails here.
+    the corner sweeps; the local control classifies from its new row and the
+    generated arm from the s36 row it re-certified, so a wrong direction, offset
+    or layout in either fails here.
     """
     sidecar = json.loads(SIDECAR_GENERATED.read_text())
     assert sidecar["verdict"] == "CONNECTED"
@@ -1066,7 +1065,7 @@ def test_the_generated_placement_rows_are_the_run_the_sidecar_recorded() -> None
 
 # The multi-plate rows, each a probe run that rendered every probed direction
 # once, at its connecting rotation.
-MULTI_PLATE_LAYOUTS = (STARTER_PLATE_PLUS_COMPLETER, STANDARD_SQUARE_FROM_STARTER_PLATE)
+MULTI_PLATE_LAYOUTS = (STARTER_PLATE_PLUS_COMPLETER, STANDARD_SQUARE_FROM_ORIGIN_PLATE)
 
 
 def test_the_multi_plate_rows_claim_nothing_at_rotations_they_never_rendered() -> None:

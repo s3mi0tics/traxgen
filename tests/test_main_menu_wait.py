@@ -29,6 +29,7 @@ from tests.test_android_foreground import LAUNCHER_DUMP, FakeAdb, FakeClock
 from traxgen.android import (
     KNOWN_SCREEN_DISTANCE,
     AdbContext,
+    FrameUnreadableError,
     MenuArrival,
     UiConditionTimeout,
     WrongForegroundAppError,
@@ -44,6 +45,8 @@ MENU_T120 = (FRAMES / "main_menu_t120.png").read_bytes()
 SPLASH = (FRAMES / "splash.png").read_bytes()
 BLANK_WHITE = (FRAMES / "blank_white.png").read_bytes()
 LOAD_TRACK_DIALOG = (FRAMES / "load_track_dialog.png").read_bytes()
+# A menu frame cut off before its IEND chunk -- the shape s36 lost at poll 8.
+TRUNCATED_MENU = MENU_T120[:-12]
 BUILD_TUTORIAL = (
     Path(__file__).parent.parent / "traxgen" / "data" / "refused_screens" / "build_tutorial.png"
 ).read_bytes()
@@ -105,6 +108,21 @@ def test_wait_names_a_relaunch_that_did_not_take() -> None:
         wait_for_main_menu(ctx_on_clock(fake, clock), timeout=0.0, clock=clock)
 
 
+def test_an_app_that_left_the_front_keeps_what_the_wait_saw() -> None:
+    """Launcher in front at the ceiling is `WrongForegroundAppError`, as before, now
+    with the wait's polls and skipped frames as a note (s37: a live run ended with
+    the launcher in front and nothing said what the wait had seen)."""
+    fake = FakeAdb(
+        screencap_pngs=[SPLASH, TRUNCATED_MENU, SPLASH], foreground_dump=LAUNCHER_DUMP
+    )
+    clock = FakeClock()
+    with pytest.raises(WrongForegroundAppError) as exc:
+        wait_for_main_menu(ctx_on_clock(fake, clock), timeout=10.0, interval=2.0, clock=clock)
+    [note] = exc.value.__notes__
+    assert "(6 polls)" in note
+    assert "1 of 6 frames unreadable" in note
+
+
 def test_reset_to_main_menu_stops_launches_then_polls() -> None:
     fake = FakeAdb(screencap_pngs=[SPLASH, MENU_T120])
     clock = FakeClock()
@@ -123,3 +141,93 @@ def test_default_ctx_sleep_paces_the_polls() -> None:
     ctx = AdbContext(adb_path=Path("/nonexistent/adb"), runner=fake, sleep=slept.append)
     wait_for_main_menu(ctx, interval=2.0, clock=FakeClock())
     assert slept == [2.0, 2.0]
+
+
+# --- An unreadable frame is a missed look (s37, plan item 17(d)) -------------
+
+
+def test_a_lost_frame_is_skipped_counted_and_reported() -> None:
+    """s36's failure replayed: splash, a truncated frame, splash, menu. The wait
+    keeps going past the lost frame and says which poll it lost and how."""
+    fake = FakeAdb(screencap_pngs=[SPLASH, TRUNCATED_MENU, SPLASH, MENU_T120])
+    clock = FakeClock()
+    arrival = wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert arrival.polls == 4
+    assert len(arrival.unreadable) == 1
+    assert "main-menu poll 2" in arrival.unreadable[0]
+    assert "no IEND chunk" in arrival.unreadable[0]
+    assert "unreadable frames skipped: 1 (main-menu poll 2" in arrival.line()
+
+
+def test_a_clean_wait_reports_zero_skipped() -> None:
+    """Zero is reported, not omitted: plan #20 needs the boots that lost nothing."""
+    fake = FakeAdb(screencap_pngs=[SPLASH, MENU_T120])
+    clock = FakeClock()
+    arrival = wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert arrival.unreadable == ()
+    assert arrival.line().endswith("unreadable frames skipped: 0")
+
+
+def test_a_device_that_stopped_answering_is_named_not_waited_out() -> None:
+    """Three screencaps in a row with no frame in them -- empty, or bytes that are
+    not a PNG -- raise on the third, 6s in rather than at the 90s ceiling, and
+    the error carries all three."""
+    fake = FakeAdb(screencap_pngs=[SPLASH, b"", b"error: device offline\n", b""])
+    clock = FakeClock()
+    with pytest.raises(FrameUnreadableError, match="came back with no frame") as exc:
+        wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert fake.screencaps_served == 4
+    assert clock.now == pytest.approx(6.0)
+    message = str(exc.value)
+    assert message.startswith("3 screencaps in a row")
+    assert message.count("returned 0 bytes") == 2
+    assert "not a PNG" in message
+
+
+def test_a_readable_frame_resets_the_run() -> None:
+    """Two lost, a splash, two lost, the menu: never three in a row, so it arrives."""
+    fake = FakeAdb(screencap_pngs=[b"", b"", SPLASH, b"", b"", MENU_T120])
+    clock = FakeClock()
+    arrival = wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert arrival.polls == 6
+    assert len(arrival.unreadable) == 4
+
+
+def test_truncated_frames_in_a_row_are_skipped_not_fatal() -> None:
+    """s37's live failure: polls 5-7 all truncated, each carrying most of an image.
+    A frame that started arriving is a device that answered, so the wait skips
+    all three and arrives instead of calling the device dead."""
+    fake = FakeAdb(screencap_pngs=[SPLASH] * 4 + [TRUNCATED_MENU] * 3 + [SPLASH, MENU_T120])
+    clock = FakeClock()
+    arrival = wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert arrival.polls == 9
+    assert [m.split(":")[0] for m in arrival.unreadable] == [
+        "main-menu poll 5",
+        "main-menu poll 6",
+        "main-menu poll 7",
+    ]
+
+
+def test_a_truncated_frame_breaks_a_run_of_frameless_ones() -> None:
+    """Empty, empty, truncated, empty, empty, menu: the truncated frame shows the
+    device answering, so the run restarts and the wait arrives."""
+    fake = FakeAdb(screencap_pngs=[b"", b"", TRUNCATED_MENU, b"", b"", MENU_T120])
+    clock = FakeClock()
+    arrival = wait_for_main_menu(ctx_on_clock(fake, clock), interval=2.0, clock=clock)
+    assert (arrival.polls, len(arrival.unreadable)) == (6, 5)
+
+
+def test_a_timeout_counts_the_frames_it_skipped() -> None:
+    fake = FakeAdb(screencap_pngs=[SPLASH, TRUNCATED_MENU, SPLASH])
+    clock = FakeClock()
+    with pytest.raises(UiConditionTimeout, match="1 of 6 frames unreadable"):
+        wait_for_main_menu(ctx_on_clock(fake, clock), timeout=10.0, interval=2.0, clock=clock)
+
+
+def test_a_timeout_with_no_readable_frame_claims_no_distance() -> None:
+    """Fewer polls than the run limit, all lost: there is no last distance, and
+    the message must not format one (it would have crashed on None before s37)."""
+    fake = FakeAdb(screencap_pngs=[b""])
+    clock = FakeClock()
+    with pytest.raises(UiConditionTimeout, match="no frame was readable; 1 of 1"):
+        wait_for_main_menu(ctx_on_clock(fake, clock), timeout=0.0, clock=clock)

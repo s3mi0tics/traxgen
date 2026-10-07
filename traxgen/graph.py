@@ -300,14 +300,16 @@ STARTER_PLATE_ONLY: tuple[tuple[int, int], ...] = ((0, 0),)
 STARTER_PLATE_PLUS_COMPLETER: tuple[tuple[int, int], ...] = ((0, 0), (5, 0))
 
 
-# The four-plate standard square (`plates.STANDARD_SQUARE`) read from its
-# corner plate, which is where `generator.generate_multi_plate` puts the
-# starter. The 2026-10-07 generated-placement campaign ran on it. Equal to
-# `STANDARD_SQUARE` only because that plate sits at the origin, so it is typed
-# here as offsets rather than imported, and pinned the same way as the two
-# layouts above: a test builds the campaign's generated arm and reads its
-# layout back through `plate_offsets_from`.
-STANDARD_SQUARE_FROM_STARTER_PLATE: tuple[tuple[int, int], ...] = (
+# The four-plate square, seen from a starter on its origin plate: the layout
+# the first *generated* multi-plate course had when a render certified it
+# (2026-09-14, s36). Spelled out rather than imported from
+# `plates.STANDARD_SQUARE`, for the reason the two constants above are: a row
+# is a frozen quotation of what one render measured (D042), and plan item 7
+# proposes moving that constant -- a row that pointed at it would change
+# meaning when it moved. Pinned the same way as the other two: a test builds
+# the generator's own course and reads its layout back through
+# `plate_offsets_from`.
+STANDARD_SQUARE_FROM_ORIGIN_PLATE: tuple[tuple[int, int], ...] = (
     (0, 0),
     (3, -6),
     (5, 0),
@@ -531,15 +533,49 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "retries, no refused screens; ADDRESSING_MATTERS"
         ),
     ),
-    # The generated-placement campaign (2026-10-07, p7): the first render of
-    # what `python -m traxgen generate --board standard-square` emits, and the
-    # first campaign on four plates. Recorded like the #17 2x2, as two rows
-    # for one starter placement, because the record keys on where the goal
-    # stood: the local control put it on the starter's own plate, the
-    # generated arm on the plate at (3, -6). Built by
+    # Plan item 14 (2026-09-14, s36): the first multi-plate course the
+    # *generator* emitted that a render then certified. Nothing here was
+    # designed as an experiment -- `generate --board standard-square` chose the
+    # placement from `predict_connection`, labelled it UNMEASURED, and the
+    # render answered. So this is the model's first cross-plate prediction
+    # confirmed with nothing in the record fitted to it beforehand (D032).
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(-4, 0),
+        starter_rot=0,
+        starter_kind=TileKind.STARTER,
+        live_directions=frozenset({4}),  # SW -- across the boundary onto plate (3,-6)
+        directions_probed=frozenset({4}),
+        goal_rotations_swept=False,
+        plate_offsets=STANDARD_SQUARE_FROM_ORIGIN_PLATE,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=(3, -6),  # the goal stood on the plate that owns its cell
+        goal_kind=TileKind.GOAL_RAIL,
+        provenance=(
+            "2026-09-14 s36, plan item 14 -- `generate --set vertical-starter "
+            "--board standard-square` (253 bytes, sha256 13a04d760311cf35; the "
+            "share code went unrecorded, and the bytes identify the course "
+            "better than a server-side handle) rendered active: goal (-6,5) "
+            "rot 5 on plate (3,-6), one direction at one rotation. Predicted "
+            "live by `predict_connection` and certified with nothing fitted to "
+            "it. Bracketed by KN6F459ZR3 active before and after; the first "
+            "closing attempt died on a truncated screencap during the "
+            "cold-boot menu wait, named by the s36 capture guard, and the "
+            "retry passed. Hardware renderer (Metal) throughout. Re-certified "
+            "2026-10-07 (p7 generated-placement campaign): the same bytes rendered "
+            "active again on `-gpu host`, local control and both certified brackets "
+            "active, verdict CONNECTED; sidecar "
+            "tests/fixtures/generated_placement_results_2026-10-07.json"
+        ),
+    ),
+    # The generated-placement campaign (2026-10-07, p7): the first campaign on
+    # four plates with a local control. Its generated arm re-certified the s36
+    # row above (same bytes, same key -- one row per lookup key, so it is
+    # recorded there as provenance). What is new is the local control: the
+    # goal on the starter's own plate, which no row had covered. Built by
     # `scripts.probe_generated_placement.build_arm_course`; every arm's bytes
     # hash to the sidecar's `payload_sha256`, and `tests/test_graph.py` grades
-    # both rows against that sidecar.
+    # the row and the re-certification against that sidecar.
     MeasuredRun(
         layer_kind=LayerKind.BASE_LAYER_PIECE,
         starter_local_pos=(-4, 0),
@@ -548,7 +584,7 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
         live_directions=frozenset({0}),  # E: the local control
         directions_probed=frozenset({0}),
         goal_rotations_swept=False,
-        plate_offsets=STANDARD_SQUARE_FROM_STARTER_PLATE,
+        plate_offsets=STANDARD_SQUARE_FROM_ORIGIN_PLATE,
         goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
         goal_plate_offset=None,  # the goal stood on the starter's own layer
         goal_kind=TileKind.GOAL_RAIL,
@@ -562,28 +598,6 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "day on SwiftShader was void, HARNESS_SUSPECT: two arms died at "
             "`adb input text` and the generated arm landed on a 'Track not "
             "found' dialog the oracle read as inactive"
-        ),
-    ),
-    MeasuredRun(
-        layer_kind=LayerKind.BASE_LAYER_PIECE,
-        starter_local_pos=(-4, 0),
-        starter_rot=0,
-        starter_kind=TileKind.STARTER,
-        live_directions=frozenset({4}),  # SW, across the boundary
-        directions_probed=frozenset({4}),
-        goal_rotations_swept=False,
-        plate_offsets=STANDARD_SQUARE_FROM_STARTER_PLATE,
-        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
-        goal_plate_offset=(3, -6),  # the goal stood on the plate at (3, -6)
-        goal_kind=TileKind.GOAL_RAIL,
-        provenance=(
-            "2026-10-07 p7 generated-placement campaign, generated arm -- "
-            "`generate_multi_plate()` with its defaults, SW onto (-6,5) rot 5 "
-            "on the plate at (3,-6), rendered active (H4OI26V7Q7, sha256 "
-            "13a04d760311) as `predict_connection` declared. Local control "
-            "active, both certified brackets active, `-gpu host`; verdict "
-            "CONNECTED. The same day's SwiftShader attempt was void "
-            "(HARNESS_SUSPECT, see the local-control row)"
         ),
     ),
 )

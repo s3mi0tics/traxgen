@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_generator import record_without_the_s36_row
+from traxgen import graph
 from traxgen.__main__ import BOARDS, SETS, main
 from traxgen.domain import Course
 from traxgen.generator import generate_minimal, generate_multi_plate
@@ -119,11 +121,14 @@ def test_boards_offered_are_the_two_the_library_builds() -> None:
     assert set(BOARDS) == {"single-plate", "standard-square"}
 
 
-def test_multi_plate_board_writes_the_rendered_course_and_claims_it(tmp_path: Path) -> None:
-    """The DoD command on the four-plate board, end to end, after the 2026-10-07 render.
+def test_multi_plate_board_writes_the_certified_course_labelled_connected(
+    tmp_path: Path,
+) -> None:
+    """The s35 ruling, end to end, one render later: the label moved and the bytes did not.
 
-    That campaign rendered this exact course active, so the record covers it
-    and the command says CONNECTED. Before the run it printed UNMEASURED.
+    s35 wrote this course labelled UNMEASURED -- a course the command did not
+    claim the app accepts. s36 rendered it, the record gained a row, and the
+    same command now says CONNECTED about the same 253 bytes.
     """
     out = tmp_path / "square.course"
     stdout = io.StringIO()
@@ -136,22 +141,19 @@ def test_multi_plate_board_writes_the_rendered_course_and_claims_it(tmp_path: Pa
     assert out.read_bytes() == serialize_course(
         generate_multi_plate(PRO_VERTICAL_STARTER_SET)
     )
-    assert stdout.getvalue().splitlines()[-1] == CERTIFIED_CLAIM_LINE
+    assert "claim: CONNECTED" in stdout.getvalue()
+    assert "UNMEASURED" not in stdout.getvalue()
 
 
-def test_an_unrendered_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -> None:
-    """The s35 ruling: a predicted course is written AND labelled.
-
-    The label is the whole reason this passes rather than being a problem --
-    the command hands over a course it does not claim the app accepts. Driven
-    through the `generate=` seam because both offered boards' defaults are now
-    rendered; the two-plate board here is one no campaign covered.
-    """
-    out = tmp_path / "two.course"
+def test_multi_plate_board_is_labelled_unmeasured_without_its_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The label is the record's, not the command's: remove the render and it says UNMEASURED."""
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
     stdout = io.StringIO()
     code = main(
-        ["generate", "--set", "vertical-starter", "--out", str(out)],
-        generate=partial(generate_multi_plate, plate_offsets=UNRENDERED_TWO_PLATE),
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--out", str(tmp_path / "square.course")],
         stdout=stdout,
     )
     assert code == 0
@@ -159,10 +161,8 @@ def test_an_unrendered_board_writes_a_course_labelled_unmeasured(tmp_path: Path)
     assert "CONNECTED" not in stdout.getvalue()
 
 
-def test_measured_only_on_the_standard_square_writes_the_rendered_course(
-    tmp_path: Path,
-) -> None:
-    """`--measured-only` stopped refusing on this board once a render covered its placement."""
+def test_measured_only_writes_the_certified_course(tmp_path: Path) -> None:
+    """The conservative switch emits now -- and emits exactly the rendered course."""
     out = tmp_path / "measured.course"
     stdout = io.StringIO()
     code = main(
@@ -174,7 +174,24 @@ def test_measured_only_on_the_standard_square_writes_the_rendered_course(
     assert out.read_bytes() == serialize_course(
         generate_multi_plate(PRO_VERTICAL_STARTER_SET)
     )
-    assert stdout.getvalue().splitlines()[-1] == CERTIFIED_CLAIM_LINE
+    assert "claim: CONNECTED" in stdout.getvalue()
+
+
+def test_measured_only_refuses_and_writes_nothing_where_nothing_is_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exit 3, not 1: there is no course, so nothing was invalid. The path survives the row."""
+    monkeypatch.setattr(graph, "MEASURED_RUNS", record_without_the_s36_row())
+    out = tmp_path / "nope.course"
+    stderr = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--board", "standard-square",
+         "--measured-only", "--out", str(out)],
+        stderr=stderr,
+    )
+    assert code == 3
+    assert not out.exists()
+    assert "CONNECTED in the rendered record" in stderr.getvalue()
 
 
 def test_measured_only_refuses_and_writes_nothing(tmp_path: Path) -> None:

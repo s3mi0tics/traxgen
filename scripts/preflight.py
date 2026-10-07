@@ -1,10 +1,10 @@
 # scripts/preflight.py
-"""Six checks before a render campaign spends anything -- each has broken one.
+"""Seven checks before a render campaign spends anything -- each has broken one.
 
     uv run python -m scripts.preflight            # from the repo root
     uv run python -m scripts.preflight --log /tmp/emulator.log --package com.ravensburger.gravitrax
 
-Exit 0 only when all six pass. Every line prints what was **measured** and
+Exit 0 only when all seven pass. Every line prints what was **measured** and
 nothing else; the trailing "->" on a failure points at the recorded prior
 instance of that signature, which is a place to look, not a diagnosis of this
 one (observations #34: measured and inferred in separate sentences, and only
@@ -12,26 +12,33 @@ the measured one in a file).
 
 The first five, in the order they were hand-written during the 2026-08-25
 evening that lost two campaigns to the environment
-(`docs/refs/testing-against-a-live-app.md`), with the sixth slotted where it
-belongs among them:
+(`docs/refs/testing-against-a-live-app.md`), with the sixth and seventh slotted
+where they belong among them:
 
 1. **device attached** -- `adb devices` lists an `emulator-*` in state `device`.
 2. **boot complete** -- `getprop sys.boot_completed` is `1`.
-3. **zero graphics errors since boot** -- `bad color buffer` does not occur in
+3. **the renderer is not a software rasteriser** -- `dumpsys SurfaceFlinger`'s
+   `GLES:` line does not name SwiftShader or another CPU renderer. A deny-list,
+   not an allow-list: this machine has no recorded healthy boot to allow-list
+   against (s36). Failing it does not look like a black screen -- the emulator
+   draws a Unity game either way, just on the processor, and the app freezes
+   instead. That cost five render attempts and zero renders on 2026-09-12/14,
+   with the cause found only on the fifth.
+4. **zero graphics errors since boot** -- `bad color buffer` does not occur in
    the emulator log. This is the one line that would have caught the second
    2026-08-25 failure before seven uploads. "Since boot" holds only when the
    emulator was launched with `environment.md`'s command, which truncates the
    log; a missing log is a failure here, not a pass, because a check that
    cannot measure must not report clean.
-4. **app version is the measured one** -- `dumpsys package` reports
+5. **app version is the measured one** -- `dumpsys package` reports
    `versionName` equal to `android.MEASURED_APP_VERSION` (s33, plan item 13).
    The AVD is a Play Store image with auto-update on; the s32 splash timing
    differed from s23's and nothing had recorded which version either was
    measured on. Device-level -- it reads with the launcher in front -- so
    `scripts/emulator.py` grades it at boot too.
-5. **app in foreground** -- `dumpsys window` names `ctx.package`. The
+6. **app in foreground** -- `dumpsys window` names `ctx.package`. The
    2026-08-21 launcher failure, as a pre-flight rather than a mid-run raise.
-6. **screencap geometry equals the tap space** -- a capture is `2400x1080`,
+7. **screencap geometry equals the tap space** -- a capture is `2400x1080`,
    the space every `android.COORDS` entry is written in (pinned by a test).
    Checked *after* the foreground check on purpose: the phone launcher is
    portrait-locked, so a reading taken with it in front measures the launcher.
@@ -41,7 +48,7 @@ reset it, or repair anything -- a pre-flight that silently fixes what it finds
 makes the precondition invisible again, which is how the launcher failure was
 lost the first time (`decisions.md`, s23). And it is a signature check like
 every guard in `android.py`: it knows six ways the environment has broken and
-is blind to the seventh.
+is blind to the eighth.
 
 `run_all` takes an `AdbContext`, so the offline tests drive every check through
 the same `FakeAdb` the foreground guard's tests use -- the adb calls are real
@@ -69,6 +76,7 @@ from traxgen.android import (
     _run_adb_binary,
     read_app_version,
     read_foreground_package,
+    read_gles_renderer,
     resolve_context,
 )
 
@@ -79,6 +87,13 @@ from traxgen.android import (
 TAP_SPACE: tuple[int, int] = (2400, 1080)
 DEFAULT_EMULATOR_LOG = Path("/tmp/emulator.log")
 GRAPHICS_ERROR_SIGNATURE = "bad color buffer"
+
+# Renderer names that mean the CPU is drawing every frame. A deny-list rather
+# than an allow-list, deliberately: this project has at most one recorded
+# healthy boot, and an allow-list of one refuses every legitimate GPU stack
+# that is not it. The cost of the two directions is asymmetric -- a wrongly
+# refused boot costs one message, a wrongly accepted one costs a campaign.
+SOFTWARE_RENDERER_SIGNATURES = ("swiftshader", "llvmpipe", "softpipe")
 
 WEDGE_HINT = (
     "an adb shell timeout with `adb devices` still healthy was the 2026-08-25 signature of "
@@ -160,6 +175,33 @@ def check_graphics_errors(log_path: Path) -> Check:
     )
 
 
+def check_renderer(ctx: AdbContext) -> Check:
+    try:
+        found = read_gles_renderer(ctx)
+    except AdbCommandFailedError as exc:
+        return _adb_failure("renderer", exc)
+    if found is None:
+        return Check(
+            "renderer",
+            False,
+            "dumpsys SurfaceFlinger carried no GLES: line",
+            "the renderer is unknown, not fine; a check that cannot measure does not pass",
+        )
+    software = [sig for sig in SOFTWARE_RENDERER_SIGNATURES if sig in found.lower()]
+    return Check(
+        "renderer",
+        not software,
+        f"GLES: {found}",
+        (
+            f"{software[0]} draws every frame on the processor, and a Unity game does not "
+            "hold still on that -- five render attempts, zero renders (plan #19). "
+            "Boot with an explicit -gpu mode."
+        )
+        if software
+        else "",
+    )
+
+
 def check_app_version(ctx: AdbContext, expected: str = MEASURED_APP_VERSION) -> Check:
     try:
         found = read_app_version(ctx)
@@ -214,12 +256,13 @@ def check_screencap_geometry(ctx: AdbContext) -> Check:
 
 
 def run_all(ctx: AdbContext, log_path: Path = DEFAULT_EMULATOR_LOG) -> list[Check]:
-    """All six, always, in the documented order. Nothing is skipped on failure:
+    """All seven, always, in the documented order. Nothing is skipped on failure:
     a wedged device costs one adb timeout per check and prints the signature
     each time, which is the measurement worth having."""
     return [
         check_device_attached(ctx),
         check_boot_complete(ctx),
+        check_renderer(ctx),
         check_graphics_errors(log_path),
         check_app_version(ctx),
         check_app_in_foreground(ctx),
@@ -232,7 +275,7 @@ def report(checks: list[Check], out: Callable[[str], None] = print) -> bool:
     for check in checks:
         out(check.line())
     failed = [c.name for c in checks if not c.ok]
-    out("preflight: " + ("all six passed" if not failed else f"FAILED {failed}"))
+    out("preflight: " + ("all seven passed" if not failed else f"FAILED {failed}"))
     return not failed
 
 

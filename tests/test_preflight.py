@@ -4,7 +4,7 @@
 Every check is driven through `FakeAdb` from `tests/test_android_foreground.py`
 -- the same fake the foreground guard is graded with -- so the argv each check
 builds is real and recorded, and only the device's answers are scripted. What
-this proves is that each of the five checks *reads its evidence correctly*:
+this proves is that each of the seven checks *reads its evidence correctly*:
 given `adb` saying X, preflight reports X and passes or fails on it. What it
 cannot prove is that a live emulator says X in that shape; the two `dumpsys`
 fixtures are real captures, and the `adb devices` / `getprop` shapes are the
@@ -34,6 +34,7 @@ from scripts.preflight import (
     check_boot_complete,
     check_device_attached,
     check_graphics_errors,
+    check_renderer,
     check_screencap_geometry,
     report,
     run_all,
@@ -42,6 +43,7 @@ from tests.test_android_foreground import (
     LAUNCHER_DUMP,
     LAUNCHER_PKG,
     PACKAGE_DUMP,
+    SURFACEFLINGER_GLES_SOFTWARE,
     FakeAdb,
     ctx_with,
 )
@@ -67,12 +69,13 @@ def clean_log(tmp_path: Path, *lines: str) -> Path:
 # -- the healthy path ------------------------------------------------------------
 
 
-def test_all_six_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
+def test_all_seven_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
     fake = FakeAdb(screencap_png=LANDSCAPE)
     checks = run_all(ctx_with(fake), clean_log(tmp_path))
     assert [c.name for c in checks] == [
         "device_attached",
         "boot_complete",
+        "renderer",
         "graphics_errors",
         "app_version",
         "app_in_foreground",
@@ -82,7 +85,7 @@ def test_all_six_pass_on_a_healthy_emulator(tmp_path: Path) -> None:
     lines: list[str] = []
     assert report(checks, lines.append) is True
     assert lines[0].startswith("preflight 20") and lines[0].endswith("Z")
-    assert lines[-1] == "preflight: all six passed"
+    assert lines[-1] == "preflight: all seven passed"
 
 
 def test_the_measured_text_says_what_was_read_not_what_it_means(tmp_path: Path) -> None:
@@ -91,6 +94,7 @@ def test_the_measured_text_says_what_was_read_not_what_it_means(tmp_path: Path) 
     by_name = {c.name: c for c in run_all(ctx_with(fake), clean_log(tmp_path))}
     assert by_name["device_attached"].measured == "emulator-5554 device"
     assert by_name["boot_complete"].measured == "sys.boot_completed='1'"
+    assert by_name["renderer"].measured.startswith("GLES: Google (Apple), Android Emulator")
     assert by_name["graphics_errors"].measured.startswith("0 x 'bad color buffer' in ")
     assert by_name["app_version"].measured == f"versionName={MEASURED_APP_VERSION}"
     assert by_name["app_in_foreground"].measured == f"foreground package: {DEFAULT_PACKAGE}"
@@ -98,6 +102,28 @@ def test_the_measured_text_says_what_was_read_not_what_it_means(tmp_path: Path) 
 
 
 # -- each check's failure, one at a time ----------------------------------------
+
+
+def test_a_software_renderer_fails_the_boot_rather_than_merely_slowing_it() -> None:
+    """The s35 environment, as a check. Nothing downstream could see this."""
+    check = check_renderer(ctx_with(FakeAdb(surfaceflinger_dump=SURFACEFLINGER_GLES_SOFTWARE)))
+    assert not check.ok
+    assert "SwiftShader" in check.measured
+    assert "processor" in check.on_fail
+
+
+def test_a_hardware_renderer_passes_and_carries_the_line_it_read() -> None:
+    check = check_renderer(ctx_with(FakeAdb()))
+    assert check.ok
+    assert check.measured.startswith("GLES: ")
+    assert check.on_fail == ""
+
+
+def test_a_dump_with_no_gles_line_fails_rather_than_passing_unmeasured() -> None:
+    """Same rule as the missing emulator log: unknown is not fine."""
+    check = check_renderer(ctx_with(FakeAdb(surfaceflinger_dump="\n")))
+    assert not check.ok
+    assert "no GLES: line" in check.measured
 
 
 @pytest.mark.parametrize(
@@ -212,13 +238,14 @@ class HangingShell(FakeAdb):
         return super().__call__(cmd, **kwargs)
 
 
-def test_a_wedged_device_fails_five_checks_and_names_the_signature(tmp_path: Path) -> None:
+def test_a_wedged_device_fails_six_checks_and_names_the_signature(tmp_path: Path) -> None:
     fake = HangingShell()
     checks = run_all(ctx_with(fake), clean_log(tmp_path))
     outcomes = {c.name: c.ok for c in checks}
     assert outcomes == {
         "device_attached": True,
         "boot_complete": False,
+        "renderer": False,
         "graphics_errors": True,
         "app_version": False,
         "app_in_foreground": False,
@@ -228,7 +255,7 @@ def test_a_wedged_device_fails_five_checks_and_names_the_signature(tmp_path: Pat
     assert all(c.measured.startswith("adb command failed (timeout:") for c in timed_out)
     assert all("2026-08-25 signature" in c.on_fail for c in timed_out)
     # Nothing was skipped: every adb-backed check ran and recorded its own timeout.
-    assert len(fake.calls) == 5
+    assert len(fake.calls) == 6
 
 
 # -- report and the tap-space pin ------------------------------------------------

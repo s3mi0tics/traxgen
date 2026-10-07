@@ -56,6 +56,7 @@ from traxgen.android import (
     DEFAULT_PACKAGE,
     AdbContext,
     ForegroundUnreadableError,
+    MenuArrival,
     WrongForegroundAppError,
     assert_app_in_foreground,
     parse_app_version,
@@ -63,6 +64,8 @@ from traxgen.android import (
     read_app_version,
     read_foreground_package,
     render_course,
+    tap,
+    type_text,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -83,6 +86,24 @@ LAUNCHER_PKG = "com.google.android.apps.nexuslauncher"
 # and the only property they need from the frame is that it is not one of the
 # refused screens. A test that cares about pixel content must build its own
 # (see tests/test_refused_screens.py, and observations #26 on solid fills).
+# `dumpsys SurfaceFlinger | grep GLES:` -- the line naming the GL stack in use.
+#
+# The healthy one is REAL: captured 2026-09-14 (s36) off `traxgen_m6c` booted
+# with `-gpu host`, the first hardware-rendered boot this project has recorded.
+# The software one is SYNTHESISED -- s35 measured SwiftShader from the emulator
+# log, and that log was gone before its exact `GLES:` wording could be captured.
+# So the deny-list is graded against a plausible spelling of the name, not a
+# measured line; if a future boot ever falls back to software, capture it and
+# replace this (observations #24 -- say which half is evidence).
+SURFACEFLINGER_GLES = (
+    "  GLES: Google (Apple), Android Emulator OpenGL ES Translator (Apple M1 Pro), "
+    "OpenGL ES 3.0 (4.1 Metal - 90.5)\n"
+)
+SURFACEFLINGER_GLES_SOFTWARE = (
+    "  GLES: Google (Android), Google SwiftShader, OpenGL ES 3.2 SwiftShader 4.0.0.1\n"
+)
+
+
 def _solid_png(width: int, height: int, colour: tuple[int, int, int]) -> bytes:
     from PIL import Image
 
@@ -135,9 +156,11 @@ class FakeAdb:
         screencap_png: bytes = PNG_FRAME,
         screencap_pngs: Sequence[bytes] | None = None,
         package_dump: str = PACKAGE_DUMP,
+        surfaceflinger_dump: str = SURFACEFLINGER_GLES,
     ) -> None:
         self.foreground_dump = foreground_dump
         self.package_dump = package_dump
+        self.surfaceflinger_dump = surfaceflinger_dump
         self.devices = devices
         self.boot_completed = boot_completed
         self.screencap_png = screencap_png
@@ -148,12 +171,14 @@ class FakeAdb:
         self.screencap_pngs = tuple(screencap_pngs) if screencap_pngs is not None else None
         self.screencaps_served = 0
         self.calls: list[list[str]] = []
+        self.timeouts: list[object] = []
 
     def __call__(
         self, cmd: Sequence[str], **kwargs: object
     ) -> subprocess.CompletedProcess:
         argv = [str(part) for part in cmd]
         self.calls.append(argv)
+        self.timeouts.append(kwargs.get("timeout"))
         joined = " ".join(argv)
 
         if "screencap" in joined:
@@ -170,6 +195,8 @@ class FakeAdb:
             out = self.boot_completed + "\n"
         elif "dumpsys window" in joined:
             out = self.foreground_dump
+        elif "SurfaceFlinger" in joined:
+            out = self.surfaceflinger_dump
         elif "dumpsys package" in joined:
             out = self.package_dump
         else:
@@ -236,6 +263,29 @@ IS_LAUNCH = lambda c: "monkey" in c  # noqa: E731
 
 
 # --- The parser, against real captured text --------------------------------
+
+
+def test_text_entry_gets_a_longer_bound_than_the_cheap_commands() -> None:
+    """Text entry must not share `input tap`'s timeout (2026-09-14).
+
+    Three render runs died at the blanket 10 seconds. The screenshot showed
+    nine of the share code's ten characters already typed, so injection was
+    working and slow, not stuck -- a bound sized for a one-shot tap cannot fit
+    a command that types a character at a time.
+
+    Asserts the *relationship*, not the constant: what would regress is someone
+    dropping the explicit argument and silently inheriting the default again.
+    """
+    fake = FakeAdb()
+    ctx = ctx_with(fake)
+    tap(ctx, "code_input_field")
+    type_text(ctx, "H4OI26V7Q7")
+
+    tap_timeout = fake.timeouts[fake.index_of(IS_TAP)]
+    text_timeout = fake.timeouts[fake.index_of(lambda c: "input text" in c)]
+    assert isinstance(tap_timeout, float) and isinstance(text_timeout, float)
+    assert text_timeout > tap_timeout
+    assert text_timeout >= 30.0, "a ten-character code at ~1 char/s needs real headroom"
 
 
 def test_parses_the_launcher_capture_that_fooled_s21() -> None:
@@ -431,6 +481,32 @@ def test_reset_first_establishes_state_then_verifies_it(tmp_path: Path) -> None:
     menu_poll = fake.index_of(IS_SCREENCAP)
     check = fake.index_of(IS_FOREGROUND_CHECK)
     assert stop < launch < menu_poll < check < fake.index_of(IS_TAP)
+
+
+def test_reset_first_reports_the_menu_arrival_before_the_first_tap(tmp_path: Path) -> None:
+    """`on_menu` hears the arrival before any tap lands (s37), so a render that fails
+    later still leaves it behind. Without a reset there is no wait to report."""
+    fake = FakeAdb(screencap_png=MAIN_MENU_PNG)
+    heard: list[tuple[MenuArrival, int]] = []
+    render_course(
+        "ABC1234567",
+        ctx=ctx_with(fake),
+        screenshot_dir=tmp_path,
+        cleanup=False,
+        reset_first=True,
+        on_menu=lambda arrival: heard.append((arrival, len(fake.calls))),
+    )
+    [(arrival, calls_then)] = heard
+    assert (arrival.polls, arrival.unreadable) == (1, ())
+    assert calls_then <= fake.index_of(IS_TAP)
+    render_course(
+        "ABC1234567",
+        ctx=ctx_with(FakeAdb(screencap_png=MAIN_MENU_PNG)),
+        screenshot_dir=tmp_path,
+        cleanup=False,
+        on_menu=lambda arrival: heard.append((arrival, 0)),
+    )
+    assert len(heard) == 1
 
 
 def test_reset_first_reports_a_relaunch_that_did_not_take(tmp_path: Path) -> None:

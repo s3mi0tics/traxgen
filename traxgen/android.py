@@ -78,6 +78,16 @@ WAITS = {
     "after_delete": 1.5,
 }
 
+# How long `input text` gets. The blanket 10s default cost three render runs in
+# a row. The screenshot from 2026-09-14 settled why: nine of the share code's
+# ten characters were already in the field when the command was killed, so
+# injection was running at roughly a character a second and had simply not
+# finished. That rate is a property of a slow device -- this AVD renders in
+# software -- not of anything here, so the bound is set generously rather than
+# tuned to the measurement. The asymmetry is the argument: overshooting costs a
+# slower failure, undershooting costs the entire run, which it did three times.
+TEXT_ENTRY_TIMEOUT = 60.0
+
 # How long the Unity app needs after a force-stop-and-relaunch before it will
 # drive. Measured during the 2026-08-10 queue work; a cold splash needs real
 # time and 8s was demonstrably not enough (2026-08-07).
@@ -104,6 +114,15 @@ SETTLE_SECONDS = 35.0
 # arrival measured (50s, cold boot, app 2.8); 2s polls cost one screencap each.
 MENU_WAIT_TIMEOUT = 90.0
 MENU_WAIT_INTERVAL = 2.0
+
+# How many screencaps in a row with no frame in them -- zero bytes, or bytes
+# that are not a PNG -- `wait_for_main_menu` takes before it calls the device
+# dead. Declared, not measured (s37, plan item 17(d)). The first version
+# counted every unreadable frame, and its first live run refuted it: three
+# truncated frames in a row (polls 5-7, 336-1,116 KB each), which is a device
+# sending most of an image, not one that stopped answering. Truncated frames
+# are skipped and counted with no run limit; the wait's own ceiling bounds them.
+MENU_WAIT_MAX_NO_FRAME_RUN = 3
 
 
 # --- Exceptions ------------------------------------------------------------
@@ -141,7 +160,16 @@ class OracleFrameError(AndroidAutomationError):
 
 
 class FrameUnreadableError(AndroidAutomationError):
-    """A frame sample came back empty during a pixel-stability wait.
+    """A screencap did not come back as a whole PNG.
+
+    Three shapes: zero bytes, bytes that are not a PNG at all, and a PNG cut
+    off before its IEND chunk. `adb exec-out screencap` exits 0 in all three,
+    so without this guard the first thing to notice is Pillow, thirty lines
+    into a decode (s35, twice). Until s37 they were read as one finding, the
+    device stopped answering. The first two still mean no frame arrived; the
+    third does not -- s37 caught three in a row carrying 336-1,116 KB each,
+    a frame that started and was cut off. `truncated` keeps that difference
+    readable by code, not only in the message.
 
     Deliberately NOT the frame equivalent of `dump_ui` returning None.
     `uiautomator dump` fails *while a view animates*, which is exactly when a
@@ -150,7 +178,18 @@ class FrameUnreadableError(AndroidAutomationError):
     than useless, because `wait_until` skips the predicate on a None sample --
     so the frame before the gap and the frame after it would count as
     consecutive, stitching a quiet streak across an interval nobody observed.
+
+    That argument binds waits whose predicate compares *successive* frames.
+    `wait_for_main_menu` asks a per-frame question -- is this the menu? -- and
+    a frame that never arrived cannot answer yes, so it catches this error and
+    counts the poll as a missed look (s37, plan item 17(d)), stopping only on
+    `MENU_WAIT_MAX_NO_FRAME_RUN` screencaps in a row with no frame in them.
+    Everything else still raises it at once.
     """
+
+    def __init__(self, message: str, *, truncated: bool) -> None:
+        super().__init__(message)
+        self.truncated = truncated  # a PNG began arriving and was cut off
 
 
 class WrongForegroundAppError(AndroidAutomationError):
@@ -334,17 +373,66 @@ def tap(ctx: AdbContext, coord_name_or_xy: str | tuple[int, int]) -> None:
     ctx.sleep(WAITS["after_tap"])
 
 
-def type_text(ctx: AdbContext, text: str) -> None:
-    """Inject text via the native IME."""
-    _run_adb(ctx, "shell", "input", "text", text)
+def type_text(
+    ctx: AdbContext, text: str, *, timeout: float = TEXT_ENTRY_TIMEOUT
+) -> None:
+    """Inject text via the native IME.
+
+    Carries its own timeout rather than the module-wide default for cheap
+    commands: injection happens a character at a time and is visibly slow on
+    this device, so a bound that fits `input tap` does not fit this. See
+    `TEXT_ENTRY_TIMEOUT` for what was measured.
+    """
+    _run_adb(ctx, "shell", "input", "text", text, timeout=timeout)
     ctx.sleep(WAITS["after_text"])
+
+
+# A PNG opens with this signature and closes with an IEND chunk. Both ends are
+# checked because the capture has broken at both: `adb exec-out screencap` exits
+# 0 with an empty buffer on a dying device, and it also returns a PNG cut off
+# mid-stream, whose header Pillow accepts before raising `image file is
+# truncated` well below this layer (s35). A header check alone misses the second.
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+PNG_TRAILER = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+
+
+def _require_png(raw: bytes | None, *, what: str) -> bytes:
+    """Return `raw` unchanged if it is a whole PNG; otherwise raise.
+
+    The message carries what was measured -- how many bytes arrived and which
+    end failed -- so a reader can tell "the device answered with nothing" from
+    "the device stopped answering part-way through".
+    """
+    if not raw:
+        raise FrameUnreadableError(f"{what}: screencap returned 0 bytes", truncated=False)
+    if not raw.startswith(PNG_MAGIC):
+        raise FrameUnreadableError(
+            f"{what}: screencap returned {len(raw)} bytes that are not a PNG "
+            f"(first 8 bytes: {raw[:8]!r})",
+            truncated=False,
+        )
+    if not raw.endswith(PNG_TRAILER):
+        raise FrameUnreadableError(
+            f"{what}: screencap returned a truncated PNG -- {len(raw)} bytes, no IEND chunk",
+            truncated=True,
+        )
+    return raw
+
+
+def capture_png(ctx: AdbContext, *, what: str = "screencap") -> bytes:
+    """One screencap, verified whole before it is returned.
+
+    Every live capture in this module goes through here. Injected `sample_fn`
+    seams deliberately do not: a fake's bytes are the test's business, a real
+    device's bytes are this guard's.
+    """
+    return _require_png(_run_adb_binary(ctx, "exec-out", "screencap", "-p"), what=what)
 
 
 def screencap(ctx: AdbContext, dest: Path) -> Path:
     """Capture a screenshot to dest."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    png_bytes = _run_adb_binary(ctx, "exec-out", "screencap", "-p")
-    dest.write_bytes(png_bytes)
+    dest.write_bytes(capture_png(ctx, what=f"screencap -> {dest}"))
     return dest
 
 
@@ -434,6 +522,40 @@ def read_app_version(ctx: AdbContext) -> str | None:
     than the campaign-time ones (`scripts/emulator.py`).
     """
     return parse_app_version(_run_adb(ctx, "shell", "dumpsys", "package", ctx.package))
+
+
+# `dumpsys SurfaceFlinger` prints one line naming the GL stack the compositor
+# is actually using -- vendor, renderer, version. It answers with the launcher
+# in front, so it is a device-level reading like the version check above.
+_GLES_LINE = re.compile(r"^\s*GLES:\s*(.+)$", re.MULTILINE)
+
+
+def parse_gles_renderer(dumpsys_surfaceflinger_output: str) -> str | None:
+    """The `GLES:` line's value from a `dumpsys SurfaceFlinger` dump, or None.
+
+    None means the dump did not carry one -- adb answered with something else --
+    and is deliberately distinct from a renderer this project refuses. A reading
+    that never happened must not be reported as a healthy one.
+    """
+    match = _GLES_LINE.search(dumpsys_surfaceflinger_output)
+    return match.group(1).strip() if match else None
+
+
+def read_gles_renderer(ctx: AdbContext) -> str | None:
+    """Ask the device which GL stack is drawing. None if the dump didn't say.
+
+    Filtered on-device like `_dump_foreground`: the unfiltered SurfaceFlinger
+    dump is thousands of lines and one of them is wanted.
+
+    The device is asked rather than the emulator log, which is where s35 read
+    this. A log is not a reliable instrument for it: `/tmp/emulator.log` is
+    truncated at every boot and gone entirely after a reboot, so the next
+    session could not reproduce s35's own finding (s36). The device answers the
+    same question and is always there.
+    """
+    return parse_gles_renderer(
+        _run_adb(ctx, "shell", "dumpsys SurfaceFlinger | grep -i -m1 'GLES:'")
+    )
 
 
 def _dump_foreground(ctx: AdbContext) -> str:
@@ -808,7 +930,7 @@ def wait_for_stable_frame(
         if ctx is None:
             raise ValueError("wait_for_stable_frame needs an AdbContext or a sample_fn")
         bound_ctx = ctx
-        sample_fn = lambda: _run_adb_binary(bound_ctx, "exec-out", "screencap", "-p")  # noqa: E731
+        sample_fn = lambda: capture_png(bound_ctx, what="stable-frame sample")  # noqa: E731
     grab = sample_fn
     stability = FrameStability(required=required, tolerance=tolerance)
 
@@ -816,7 +938,8 @@ def wait_for_stable_frame(
         raw = grab()
         if not raw:
             raise FrameUnreadableError(
-                "frame sample came back empty; screencap has no 'not readable yet' state"
+                "frame sample came back empty; screencap has no 'not readable yet' state",
+                truncated=False,
             )
         return frame_fingerprint(raw)
 
@@ -1066,6 +1189,21 @@ class MenuArrival(NamedTuple):
     elapsed: float
     polls: int
     distance: float
+    # One message per poll whose frame came back unreadable and was skipped, as
+    # `_require_png` worded it (poll number, byte count, which end failed). The
+    # empty tuple is reported too: plan #20 asks how often a cold boot loses a
+    # frame, and that needs the boots that lost none.
+    unreadable: tuple[str, ...]
+
+    def line(self) -> str:
+        """One log line: when the menu came up, and what the wait had to skip."""
+        skipped = f"unreadable frames skipped: {len(self.unreadable)}"
+        if self.unreadable:
+            skipped += f" ({'; '.join(self.unreadable)})"
+        return (
+            f"main menu after {self.elapsed:.1f}s ({self.polls} polls, "
+            f"distance {self.distance:.3f}); {skipped}"
+        )
 
 
 def wait_for_main_menu(
@@ -1075,6 +1213,7 @@ def wait_for_main_menu(
     threshold: float = KNOWN_SCREEN_DISTANCE,
     timeout: float = MENU_WAIT_TIMEOUT,
     interval: float = MENU_WAIT_INTERVAL,
+    max_no_frame_run: int = MENU_WAIT_MAX_NO_FRAME_RUN,
     clock: Callable[[], float] | None = None,
 ) -> MenuArrival:
     """Poll screencaps until one matches the main-menu signature.
@@ -1089,17 +1228,41 @@ def wait_for_main_menu(
     app is in front but never matched, that is `UiConditionTimeout` carrying the
     last distance, so a menu that has been redesigned (the fixture is stale) is
     distinguishable from an app that never got past its splash.
+
+    An unreadable frame is a missed look, not a failed run (s37, plan item
+    17(d)): it is skipped and counted into `MenuArrival.unreadable`. A device
+    that has stopped answering is not waited out -- `max_no_frame_run`
+    screencaps in a row with no frame in them (empty, or not a PNG at all)
+    raise `FrameUnreadableError` on the spot, with every one in the message. A
+    truncated frame breaks that run: it is a frame that started arriving.
     """
     reference = reference or main_menu_signature()
     clock = clock or ctx.clock
     start = clock()
     polls = 0
     last: float | None = None
+    unreadable: list[str] = []
+    no_frame_run = 0
 
-    def sample() -> bytes:
-        nonlocal polls
+    def sample() -> bytes | None:
+        nonlocal polls, no_frame_run
         polls += 1
-        return _run_adb_binary(ctx, "exec-out", "screencap", "-p")
+        try:
+            frame = capture_png(ctx, what=f"main-menu poll {polls}")
+        except FrameUnreadableError as exc:
+            unreadable.append(str(exc))
+            # A truncated PNG is a frame that started arriving: the device answered.
+            no_frame_run = 0 if exc.truncated else no_frame_run + 1
+            if no_frame_run >= max_no_frame_run:
+                raise FrameUnreadableError(
+                    f"{no_frame_run} screencaps in a row came back with no frame -- the "
+                    f"device stopped answering during the main-menu wait: "
+                    f"{'; '.join(unreadable[-no_frame_run:])}",
+                    truncated=False,
+                ) from exc
+            return None
+        no_frame_run = 0
+        return frame
 
     def is_menu(frame: bytes) -> bool:
         nonlocal last
@@ -1117,18 +1280,29 @@ def wait_for_main_menu(
             clock=clock,
         )
     except UiConditionTimeout as exc:
+        skipped = f"; {len(unreadable)} of {polls} frames unreadable" if unreadable else ""
         in_front = read_foreground_package(ctx)
         if in_front != ctx.package:
-            raise WrongForegroundAppError(
+            wrong_app = WrongForegroundAppError(
                 expected=ctx.package, found=in_front or "unreadable"
+            )
+            # The class's message is about taps. What this wait saw before the app
+            # left the front is what a reader of the failed run needs (s37).
+            wrong_app.add_note(f"main-menu wait: {exc}{skipped}")
+            raise wrong_app from exc
+        if last is None:
+            raise UiConditionTimeout(
+                f"{exc}; {ctx.package} is in front but no frame was readable{skipped}"
             ) from exc
         raise UiConditionTimeout(
             f"{exc}; {ctx.package} is in front but the last frame was {last:.3f} from "
             f"{reference.name} (threshold {threshold}) -- a splash that never cleared, "
-            "or a menu the fixture no longer describes"
+            f"or a menu the fixture no longer describes{skipped}"
         ) from exc
     assert last is not None
-    return MenuArrival(elapsed=clock() - start, polls=polls, distance=last)
+    return MenuArrival(
+        elapsed=clock() - start, polls=polls, distance=last, unreadable=tuple(unreadable)
+    )
 
 
 # --- High-level flow -------------------------------------------------------
@@ -1151,6 +1325,7 @@ def render_course(
     detect_validity: bool = False,
     reset_first: bool = False,
     menu_timeout: float = MENU_WAIT_TIMEOUT,
+    on_menu: Callable[[MenuArrival], None] | None = None,
     refused_screens: Sequence[RefusedScreen] | None = None,
     refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
 ) -> RenderResult:
@@ -1177,7 +1352,9 @@ def render_course(
     (`wait_for_main_menu`, bounded by `menu_timeout`) rather than sleeping a
     fixed settle -- the fixed settle is what put renders on the build tutorial
     (2026-08-25, 2026-09-06). Opt-in, so existing callers keep their current
-    cost; `run_sweep_queue.py` already resets before every sweep.
+    cost; `run_sweep_queue.py` already resets before every sweep. What the wait
+    measured goes to `on_menu` the moment it is known (s37), so a caller can log
+    it even when a later step fails -- which is when it matters most.
 
     The captured frame is then checked against the refused-screen set and
     `RefusedScreenError` is raised if it matches one -- after cleanup, so the
@@ -1190,7 +1367,9 @@ def render_course(
     assert_emulator_ready(ctx)
 
     if reset_first:
-        reset_to_main_menu(ctx, timeout=menu_timeout)
+        arrival = reset_to_main_menu(ctx, timeout=menu_timeout)
+        if on_menu is not None:
+            on_menu(arrival)
 
     # Before the first tap. After it, the tap has already landed on whatever
     # was in front, and the run is spending renders on the wrong surface.

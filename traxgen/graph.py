@@ -108,10 +108,11 @@ class MeasuredRun:
     record rather than in a guard.
 
     Note the fixture hazard this created (observations #26): until the 2x2
-    every row carried the identical value, and even now only two rows probe
-    fewer than six. `tests/test_graph.py` therefore builds a partial-coverage
-    run of its own rather than relying on these rows, and the gate in
-    `connection_status` is mutation-checked against it.
+    every row carried the identical value, and even now only four rows probe
+    fewer than six (the 2x2's two and the 2026-10-07 campaign's two).
+    `tests/test_graph.py` therefore builds a partial-coverage run of its own
+    rather than relying on these rows, and the gate in `connection_status` is
+    mutation-checked against it.
 
     `goal_layer_kind` and `goal_plate_offset` say **where the goal stood**, and
     they are two terms rather than one for a reason worth stating. Together they
@@ -299,11 +300,27 @@ STARTER_PLATE_ONLY: tuple[tuple[int, int], ...] = ((0, 0),)
 STARTER_PLATE_PLUS_COMPLETER: tuple[tuple[int, int], ...] = ((0, 0), (5, 0))
 
 
+# The four-plate standard square (`plates.STANDARD_SQUARE`) read from its
+# corner plate, which is where `generator.generate_multi_plate` puts the
+# starter. The 2026-10-07 generated-placement campaign ran on it. Equal to
+# `STANDARD_SQUARE` only because that plate sits at the origin, so it is typed
+# here as offsets rather than imported, and pinned the same way as the two
+# layouts above: a test builds the campaign's generated arm and reads its
+# layout back through `plate_offsets_from`.
+STANDARD_SQUARE_FROM_STARTER_PLATE: tuple[tuple[int, int], ...] = (
+    (0, 0),
+    (3, -6),
+    (5, 0),
+    (8, -6),
+)
+
+
 # What every campaign before the #17 2x2 probed: all six directions. Named
 # once rather than repeated across the rows below, and derived from the
 # direction space rather than typed as `{0,1,2,3,4,5}`, so it cannot drift from
-# `HEX_DIRECTIONS` if the hex model ever gains or loses a direction. The 2x2's
-# two rows are the only ones that probe fewer, and they spell their sets out.
+# `HEX_DIRECTIONS` if the hex model ever gains or loses a direction. The rows
+# that probe fewer (the 2x2's two and the generated-placement campaign's two)
+# spell their sets out.
 ALL_DIRECTIONS: frozenset[int] = frozenset(range(len(HEX_DIRECTIONS)))
 
 
@@ -512,6 +529,61 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
             "arms rendered, 5 of 7 predicted (both arm 1s wrong -- that is the "
             "refutation); both certified controls active (KN6F459ZR3), no "
             "retries, no refused screens; ADDRESSING_MATTERS"
+        ),
+    ),
+    # The generated-placement campaign (2026-10-07, p7): the first render of
+    # what `python -m traxgen generate --board standard-square` emits, and the
+    # first campaign on four plates. Recorded like the #17 2x2, as two rows
+    # for one starter placement, because the record keys on where the goal
+    # stood: the local control put it on the starter's own plate, the
+    # generated arm on the plate at (3, -6). Built by
+    # `scripts.probe_generated_placement.build_arm_course`; every arm's bytes
+    # hash to the sidecar's `payload_sha256`, and `tests/test_graph.py` grades
+    # both rows against that sidecar.
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(-4, 0),
+        starter_rot=0,
+        starter_kind=TileKind.STARTER,
+        live_directions=frozenset({0}),  # E: the local control
+        directions_probed=frozenset({0}),
+        goal_rotations_swept=False,
+        plate_offsets=STANDARD_SQUARE_FROM_STARTER_PLATE,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=None,  # the goal stood on the starter's own layer
+        goal_kind=TileKind.GOAL_RAIL,
+        provenance=(
+            "2026-10-07 p7 generated-placement campaign, local control -- E "
+            "(-4,1) rot 1 on the starter's own plate rendered active "
+            "(UZ8ESIEQSD, sha256 b6e2492e6c72): the four-plate family renders. "
+            "Bracketed by certified controls KN6F459ZR3 active at both ends, "
+            "one cold-boot emulator session on the hardware renderer "
+            "(`-gpu host`), app 2.8, head cfdf520. A first attempt the same "
+            "day on SwiftShader was void, HARNESS_SUSPECT: two arms died at "
+            "`adb input text` and the generated arm landed on a 'Track not "
+            "found' dialog the oracle read as inactive"
+        ),
+    ),
+    MeasuredRun(
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        starter_local_pos=(-4, 0),
+        starter_rot=0,
+        starter_kind=TileKind.STARTER,
+        live_directions=frozenset({4}),  # SW, across the boundary
+        directions_probed=frozenset({4}),
+        goal_rotations_swept=False,
+        plate_offsets=STANDARD_SQUARE_FROM_STARTER_PLATE,
+        goal_layer_kind=LayerKind.BASE_LAYER_PIECE,
+        goal_plate_offset=(3, -6),  # the goal stood on the plate at (3, -6)
+        goal_kind=TileKind.GOAL_RAIL,
+        provenance=(
+            "2026-10-07 p7 generated-placement campaign, generated arm -- "
+            "`generate_multi_plate()` with its defaults, SW onto (-6,5) rot 5 "
+            "on the plate at (3,-6), rendered active (H4OI26V7Q7, sha256 "
+            "13a04d760311) as `predict_connection` declared. Local control "
+            "active, both certified brackets active, `-gpu host`; verdict "
+            "CONNECTED. The same day's SwiftShader attempt was void "
+            "(HARNESS_SUSPECT, see the local-control row)"
         ),
     ),
 )

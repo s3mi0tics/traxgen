@@ -24,6 +24,7 @@ import dataclasses
 import io
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -38,12 +39,16 @@ from traxgen.types import TileKind
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-# The claim the command prints for the certified single-plate course. Spelled
-# out rather than computed from `start_goal_status`, so the assertion is a
+# The claim the command prints for a course the record covers. Spelled out
+# rather than computed from `start_goal_status`, so the assertion is a
 # statement about what the record says and not a restatement of the code under
-# test: the FLW4TMLP5V geometry is covered by a MeasuredRun, so it is the one
-# course this command can honestly call CONNECTED.
+# test. Two offered courses earn it: the single-plate FLW4TMLP5V geometry and,
+# since the 2026-10-07 campaign, the standard-square default.
 CERTIFIED_CLAIM_LINE = "claim: CONNECTED (this placement is in the rendered record)"
+
+# A two-plate board no campaign has rendered, for the paths that need the record
+# to be silent. Same fixture as `tests/test_generator.py`.
+UNRENDERED_TWO_PLATE = ((0, 0), (3, -6))
 
 
 def goalless(inventory: Inventory) -> Course:
@@ -114,11 +119,11 @@ def test_boards_offered_are_the_two_the_library_builds() -> None:
     assert set(BOARDS) == {"single-plate", "standard-square"}
 
 
-def test_multi_plate_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -> None:
-    """The s35 ruling, end to end: a predicted course is written AND labelled.
+def test_multi_plate_board_writes_the_rendered_course_and_claims_it(tmp_path: Path) -> None:
+    """The DoD command on the four-plate board, end to end, after the 2026-10-07 render.
 
-    The label is the whole reason this passes rather than being a problem --
-    the command hands over a course it does not claim the app accepts.
+    That campaign rendered this exact course active, so the record covers it
+    and the command says CONNECTED. Before the run it printed UNMEASURED.
     """
     out = tmp_path / "square.course"
     stdout = io.StringIO()
@@ -131,17 +136,60 @@ def test_multi_plate_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -
     assert out.read_bytes() == serialize_course(
         generate_multi_plate(PRO_VERTICAL_STARTER_SET)
     )
+    assert stdout.getvalue().splitlines()[-1] == CERTIFIED_CLAIM_LINE
+
+
+def test_an_unrendered_board_writes_a_course_labelled_unmeasured(tmp_path: Path) -> None:
+    """The s35 ruling: a predicted course is written AND labelled.
+
+    The label is the whole reason this passes rather than being a problem --
+    the command hands over a course it does not claim the app accepts. Driven
+    through the `generate=` seam because both offered boards' defaults are now
+    rendered; the two-plate board here is one no campaign covered.
+    """
+    out = tmp_path / "two.course"
+    stdout = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--out", str(out)],
+        generate=partial(generate_multi_plate, plate_offsets=UNRENDERED_TWO_PLATE),
+        stdout=stdout,
+    )
+    assert code == 0
     assert "claim: UNMEASURED" in stdout.getvalue()
     assert "CONNECTED" not in stdout.getvalue()
 
 
-def test_measured_only_refuses_and_writes_nothing(tmp_path: Path) -> None:
-    """Exit 3, not 1: there is no course, so nothing was invalid."""
-    out = tmp_path / "nope.course"
-    stderr = io.StringIO()
+def test_measured_only_on_the_standard_square_writes_the_rendered_course(
+    tmp_path: Path,
+) -> None:
+    """`--measured-only` stopped refusing on this board once a render covered its placement."""
+    out = tmp_path / "measured.course"
+    stdout = io.StringIO()
     code = main(
         ["generate", "--set", "vertical-starter", "--board", "standard-square",
          "--measured-only", "--out", str(out)],
+        stdout=stdout,
+    )
+    assert code == 0
+    assert out.read_bytes() == serialize_course(
+        generate_multi_plate(PRO_VERTICAL_STARTER_SET)
+    )
+    assert stdout.getvalue().splitlines()[-1] == CERTIFIED_CLAIM_LINE
+
+
+def test_measured_only_refuses_and_writes_nothing(tmp_path: Path) -> None:
+    """Exit 3, not 1: there is no course, so nothing was invalid.
+
+    Neither offered board refuses any more, so the refusal is driven through
+    the `generate=` seam on a board no render has covered.
+    """
+    out = tmp_path / "nope.course"
+    stderr = io.StringIO()
+    code = main(
+        ["generate", "--set", "vertical-starter", "--measured-only", "--out", str(out)],
+        generate=partial(
+            generate_multi_plate, plate_offsets=UNRENDERED_TWO_PLATE, measured_only=True
+        ),
         stderr=stderr,
     )
     assert code == 3

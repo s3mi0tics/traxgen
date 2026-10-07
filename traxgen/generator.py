@@ -289,10 +289,10 @@ def generate_multi_plate(
 
     The first placement `_cross_plate_placements` yields, built through
     `layout.build_course`. With `measured_only=True` the search additionally
-    requires `graph.connection_status` to answer CONNECTED, which today no
-    multi-plate configuration does -- so that mode raises
-    `NoBuildablePlacementError` until a render puts a row in the record. That
-    is the mode working, not failing.
+    requires `graph.connection_status` to answer CONNECTED. On
+    `STANDARD_SQUARE` that is the default placement itself, rendered by the
+    2026-10-07 campaign; on a board no render has covered the mode raises
+    `NoBuildablePlacementError`, which is the mode working, not failing.
 
     Raises `UnmodelledGoalKindError` for any goal but `GOAL_RAIL`: the model
     covers that pairing alone, so predicting for a basin would be inventing a

@@ -1,0 +1,126 @@
+{
+  "timestamp": "2026-10-07T19:29:47.692628+00:00",
+  "elapsed_seconds": 260.5,
+  "head": "cfdf520",
+  "app_version": "2.8",
+  "geometry": {
+    "plate_offsets": [
+      [
+        0,
+        0
+      ],
+      [
+        3,
+        -6
+      ],
+      [
+        5,
+        0
+      ],
+      [
+        8,
+        -6
+      ]
+    ],
+    "starter_local": [
+      -4,
+      0
+    ],
+    "starter_rot": 0,
+    "generated": {
+      "direction": 4,
+      "goal_plate_index": 1,
+      "goal_local": [
+        -6,
+        5
+      ],
+      "goal_rot": 5,
+      "goal_plate_offset": [
+        3,
+        -6
+      ]
+    },
+    "local_control": {
+      "direction": 0,
+      "goal_plate_index": 0,
+      "goal_local": [
+        -4,
+        1
+      ],
+      "goal_rot": 1,
+      "goal_plate_offset": null
+    }
+  },
+  "verdict": "CONNECTED",
+  "reason": "the generated placement rendered active inside active brackets with an active local control",
+  "arms": [
+    {
+      "role": "certified_control",
+      "label": "certified_open",
+      "predicted": "active",
+      "why": "generate_minimal() (KN6F459ZR3): proves the harness worked at render 1",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen-pstack/screenshots/generated_placement/certified_open_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "local_control",
+      "label": "local_control",
+      "predicted": "active",
+      "why": "E on the starter's own plate, live under the port model and the conjunction alike: proves the four-plate family renders at all",
+      "payload_sha256": "b6e2492e6c72fec2de87d99f912b22f85abf0e17d08711975fd077de19766028",
+      "payload_bytes": 253,
+      "validator": "ok",
+      "code": "UZ8ESIEQSD",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen-pstack/screenshots/generated_placement/local_control_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "generated",
+      "label": "generated",
+      "predicted": "active",
+      "why": "generate_multi_plate(): SW onto plate (3, -6), live by predict_connection",
+      "payload_sha256": "13a04d760311cf353a947912624adbc0e0324f6b862009a4871e4e0431afb172",
+      "payload_bytes": 253,
+      "validator": "ok",
+      "code": "H4OI26V7Q7",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen-pstack/screenshots/generated_placement/generated_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "certified_control",
+      "label": "certified_close",
+      "predicted": "active",
+      "why": "the closing bracket: proves the harness still worked at the last render",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/traxgen-pstack/screenshots/generated_placement/certified_close_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    }
+  ]
+}

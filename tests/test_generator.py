@@ -168,15 +168,27 @@ def test_multi_plate_placement_is_one_the_model_predicts() -> None:
     )
 
 
-def test_multi_plate_is_labelled_unmeasured_not_valid() -> None:
+# A two-plate board no campaign has rendered: the starter's plate and its
+# (3, -6) neighbour alone. The generator still finds a predicted placement on
+# it, which is what makes it the fixture for "predicted is not measured" now
+# that the standard square's default placement is in the record.
+UNRENDERED_TWO_PLATE = ((0, 0), (3, -6))
+
+
+def test_multi_plate_is_labelled_unmeasured_on_a_board_no_render_covered() -> None:
     """The honesty assertion: a predicted course is UNMEASURED until a render says otherwise.
 
     `start_goal_status` is the claim surface. It must not return CONNECTED
-    here -- no `MeasuredRun` covers any multi-plate layout, and claiming one
-    would be the severity violation the 2026-08-10 lock forbids.
+    for a layout no `MeasuredRun` covers; claiming one would be the severity
+    violation the 2026-08-10 lock forbids.
     """
-    status = start_goal_status(generate_multi_plate())
+    status = start_goal_status(generate_multi_plate(plate_offsets=UNRENDERED_TWO_PLATE))
     assert status is ConnectionStatus.UNMEASURED
+
+
+def test_the_default_multi_plate_course_is_the_rendered_one() -> None:
+    """The 2026-10-07 campaign rendered exactly this course active, so the record says so."""
+    assert start_goal_status(generate_multi_plate()) is ConnectionStatus.CONNECTED
 
 
 def test_half_hole_cells_are_the_three_measured_ones() -> None:
@@ -258,14 +270,19 @@ def test_multi_plate_goal_sits_on_a_buildable_square() -> None:
 
 
 def test_measured_only_refuses_rather_than_guessing() -> None:
-    """The conservative mode: no measured multi-plate placement exists today, so it refuses.
-
-    This test is expected to change meaning once a render certifies one --
-    at that point `--measured-only` starts returning a course, and this
-    becomes the test that says so.
-    """
+    """The conservative mode refuses on a board no render has covered."""
     with pytest.raises(NoBuildablePlacementError):
-        generate_multi_plate(measured_only=True)
+        generate_multi_plate(plate_offsets=UNRENDERED_TWO_PLATE, measured_only=True)
+
+
+def test_measured_only_returns_the_rendered_course_on_the_standard_square() -> None:
+    """The change this test used to predict: a render certified one, so the mode returns it.
+
+    It returns the same bytes as the default search, because the first
+    predicted placement is the one the 2026-10-07 campaign rendered.
+    """
+    measured = generate_multi_plate(measured_only=True)
+    assert serialize_course(measured) == serialize_course(generate_multi_plate())
 
 
 def test_unmodelled_goal_kind_is_refused_not_predicted() -> None:

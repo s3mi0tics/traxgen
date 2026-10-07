@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-10-07T17:29:52.592541+00:00",
+  "elapsed_seconds": 399.4,
+  "starter": {
+    "y": -4,
+    "x": 0
+  },
+  "starter_rot": 0,
+  "plate_world_positions": [
+    [
+      0,
+      0
+    ],
+    [
+      3,
+      -6
+    ],
+    [
+      5,
+      0
+    ],
+    [
+      8,
+      -6
+    ]
+  ],
+  "expected_code": "H4OI26V7Q7",
+  "verdict": "HARNESS_SUSPECT",
+  "reason": "a certified control did not render active, so nothing else in this run is a measurement",
+  "arms": [
+    {
+      "role": "certified_control",
+      "label": "certified_open",
+      "plates": 1,
+      "goal_plate_index": null,
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "FLW4TMLP5V's geometry: proves the harness worked at this end of the run",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": null,
+      "render_error": "UiConditionTimeout: timed out after 90.0s (22 polls) waiting for the main_menu screen; com.ravensburger.gravitrax is in front but the last frame was 124.411 from main_menu (threshold 10.0) -- a splash that never cleared, or a menu the fixture no longer describes",
+      "screenshot": null,
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "local_control",
+      "label": "local_control_E",
+      "plates": 4,
+      "goal_plate_index": 0,
+      "goal_local": [
+        -4,
+        1
+      ],
+      "goal_rot": 1,
+      "predicted": "active",
+      "why": "E on the starter's own plate at the generator's starter placement, on the four-plate board: port-only and the conjunction both call it live, so dark means the family does not render here (D039)",
+      "payload_sha256": "f9f1cb19df1a09a923fa4c40894cc7952b4030833f94f6a4f39c03acff175b23",
+      "payload_bytes": 266,
+      "validator": "ok",
+      "code": "M7RIC9EURH",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "inactive",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/allostatik-pstack/control-worktree/screenshots/four_plate_control/local_control_E_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "under_test",
+      "label": "generated_standard_square",
+      "plates": 4,
+      "goal_plate_index": 1,
+      "goal_local": [
+        -6,
+        5
+      ],
+      "goal_rot": 5,
+      "predicted": "active",
+      "why": "generate_multi_plate() byte for byte; p2 rendered it once as H4OI26V7Q7, active",
+      "payload_sha256": "13a04d760311cf353a947912624adbc0e0324f6b862009a4871e4e0431afb172",
+      "payload_bytes": 253,
+      "validator": "ok",
+      "code": "H4OI26V7Q7",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/allostatik-pstack/control-worktree/screenshots/four_plate_control/generated_standard_square_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    },
+    {
+      "role": "certified_control",
+      "label": "certified_close",
+      "plates": 1,
+      "goal_plate_index": null,
+      "goal_local": null,
+      "goal_rot": null,
+      "predicted": "active",
+      "why": "FLW4TMLP5V's geometry: proves the harness worked at this end of the run",
+      "payload_sha256": "1ede9be9e5a843b1f09576837be8e80c4c2f579d5eb1a331aed99cc49ff7db1c",
+      "payload_bytes": 177,
+      "validator": "ok",
+      "code": "KN6F459ZR3",
+      "upload_error": null,
+      "upload_attempts": 1,
+      "validity": "active",
+      "render_error": null,
+      "screenshot": "/Users/colbykauk/Claude/Projects/allostatik-pstack/control-worktree/screenshots/four_plate_control/certified_close_try1.png",
+      "render_attempts": 1,
+      "refused_screens": []
+    }
+  ]
+}

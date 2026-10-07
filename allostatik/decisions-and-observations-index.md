@@ -165,3 +165,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #47 · **A capability ruled out once is inherited as fact by every later session, and the ruling is never re-tested.** → observations.md:98, body 82w
 #48 · **Retiring a plan assumes its finished narrative is unique, and a project that has been double-recording has no correct destination.** → observations.md:100, body 76w
 #49 · **A campaign's preconditions check the device and never the host it runs on.** → observations.md:102, body 93w
+#50 · **The oracle graded a Load-track dialog as a dark play button.** → observations.md:105, body 103w

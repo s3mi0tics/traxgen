@@ -1,10 +1,10 @@
 """Offline tests for `scripts.probe_four_plate_control`.
 
 The campaign has not yet produced a measurement: both 2026-10-06 (c1) runs
-were HARNESS_SUSPECT, and their sidecars are committed so that claim rests on
-files rather than on the session's account. These tests grade the script's
-builders against what the runs uploaded, and its verdict ordering against the
-locked rules (D027 before D039 before the arm under test).
+and the 2026-10-07 (c2) run were HARNESS_SUSPECT, and their sidecars are
+committed so that claim rests on files rather than on the session's account.
+These tests grade the script's builders against what the runs uploaded, and
+its verdict ordering against the locked rules (D027 before D039 before the arm under test).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from traxgen.graph import ConnectionStatus, start_goal_status
 from traxgen.serializer import serialize_course
 
 FIXTURES = Path(__file__).parent / "fixtures"
-VOID_RUNS = sorted(FIXTURES.glob("four_plate_control_void_run*_2026-10-06.json"))
+VOID_RUNS = sorted(FIXTURES.glob("four_plate_control_void_run*_2026-10-*.json"))
 
 
 def test_the_arm_under_test_is_the_generators_course_byte_for_byte() -> None:
@@ -65,8 +65,21 @@ def test_the_void_runs_rendered_these_bytes_and_measured_nothing(sidecar: Path) 
     assert record["verdict"] == "HARNESS_SUSPECT"
 
 
-def test_there_are_two_void_runs() -> None:
-    assert len(VOID_RUNS) == 2
+def test_there_are_three_void_runs() -> None:
+    assert len(VOID_RUNS) == 3
+
+
+def test_c2s_dark_local_control_is_void_not_a_measurement() -> None:
+    """c2's local control reads `inactive`, and that reading is not evidence.
+
+    Its frame (committed downscaled beside the sidecar) is the Load track
+    dialog with `M7RIC9EURH` typed in: the course never loaded, and the oracle
+    graded a dialog. The opening control's timeout already voids the run
+    (D027), so `classify` must say HARNESS_SUSPECT, never SETUP_SUSPECT.
+    """
+    record = json.loads((FIXTURES / "four_plate_control_void_run3_2026-10-07.json").read_text())
+    assert [a["validity"] for a in record["arms"]] == [None, "inactive", "active", "active"]
+    assert record["verdict"] == "HARNESS_SUSPECT"
 
 
 def _arms_with(*validities: str | None, code: str = EXPECTED_CODE):

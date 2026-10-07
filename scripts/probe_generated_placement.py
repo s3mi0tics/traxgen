@@ -336,7 +336,6 @@ def render_arm(ctx: AdbContext, arm: Arm, output_dir: Path) -> None:
                 screenshot_name=f"{arm.label}_try{attempt}",
                 detect_validity=True,
                 reset_first=True,
-                on_menu=lambda arrival: print(f"  {arrival.line()}", file=sys.stderr),
             )
         except RefusedScreenError as exc:
             arm.refused_screens.append(f"{exc.screen}@{exc.distance:.3f}")

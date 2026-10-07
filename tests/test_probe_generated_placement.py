@@ -171,3 +171,26 @@ def test_dry_run_exits_zero_and_uploads_nothing(capsys: pytest.CaptureFixture[st
     out = capsys.readouterr().out
     assert "4 renders; nothing uploaded (--dry-run)." in out
     assert "sha=13a04d760311" in out
+
+
+def test_render_arm_calls_render_course_with_arguments_it_accepts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Every other test stops short of the render, so a keyword `render_course`
+    does not take reached the emulator once, swallowed into `render_error`."""
+    import inspect
+
+    from scripts import probe_generated_placement as probe
+    from traxgen import android
+
+    real = inspect.signature(android.render_course)
+
+    def fake(*args, **kwargs):
+        real.bind(*args, **kwargs)
+        return android.RenderResult(screenshot=tmp_path / "x.png", validity="active")
+
+    monkeypatch.setattr(probe, "render_course", fake)
+    arm = probe.build_arms(probe.derive_geometry())[0]
+    arm.code = "KN6F459ZR3"
+    probe.render_arm(object(), arm, tmp_path)
+    assert (arm.validity, arm.render_error) == ("active", None)

@@ -201,7 +201,9 @@ def test_launch_is_cold_detached_and_truncates_the_log(tmp_path: Path) -> None:
     spawn_emulator(Path("/sdk/emulator/emulator"), DEFAULT_AVD, log, popen=popen)
 
     argv, kwargs = popen.calls[0]
-    assert argv == ["/sdk/emulator/emulator", "-avd", DEFAULT_AVD, "-no-snapshot-load"]
+    assert argv == [
+        "/sdk/emulator/emulator", "-avd", DEFAULT_AVD, "-no-snapshot-load", "-gpu", "host"
+    ]
     assert kwargs["start_new_session"] is True
     # preflight's "zero graphics errors *since boot*" is only honest if the log
     # starts empty; five stale hits would otherwise fail the next boot's check.

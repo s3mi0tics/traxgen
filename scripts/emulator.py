@@ -101,6 +101,13 @@ class AlreadyRunningError(EmulatorLifecycleError):
     """An emulator is already up, and a cold boot means nothing is."""
 
 
+# Passed explicitly because the AVD's `hw.gpu.mode=auto` boots SwiftShader, a
+# software renderer: p7's first campaign ran on it, the host load went from 7 to
+# 18 on 10 cores, and three of four renders failed at `adb input text`. traxgen
+# found and fixed the same thing at s36 on main.
+GPU_MODE = "host"
+
+
 def resolve_emulator_binary(android_home: Path | None = None) -> Path:
     """Locate the emulator binary the way `android.resolve_context` locates adb.
 
@@ -148,7 +155,7 @@ def spawn_emulator(
     """
     with log_path.open("wb") as log:
         return popen(
-            [str(binary), "-avd", avd, "-no-snapshot-load"],
+            [str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", GPU_MODE],
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,

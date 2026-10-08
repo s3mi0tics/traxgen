@@ -2,7 +2,7 @@
 
 Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
-**Last meaningful update:** 2026-09-21 (s36)
+**Last meaningful update:** 2026-10-08 (s40)
 
 ## The user story
 
@@ -15,6 +15,8 @@ Three things this pins that were previously implicit:
 - **The inventory is a build palette, not an ownership manifest.** "Pieces I want to build with" — explicitly not "pieces I own." Ownership is one way to fill the palette; wanting to use only the vortex and four curves is another. The inventory is a per-request input, which makes it the API's primary parameter rather than a configured constant.
 - **The deliverable is the share code**, not the `.course` file. The binary is an intermediate; the thing a human can act on is a code they type into the app. Phase 1's definition of done already measures this — `FLW4TMLP5V` is exactly that artifact — but the story names it as the product.
 - **"One or more."** A request can yield several candidate courses, not one canonical answer. Generation is a search over a space, and surfacing multiple results is closer to how the space actually behaves.
+
+**What "certified valid by the official app" has to mean** (2026-10-08, s40). It has to mean the app's own simulation carries the marble into the goal. The play button's white triangle only says every piece is placed legally: a course whose marble falls off the track stays white. So a course that passes the triangle alone can fail on the table, which is the one place the user story says it has to work.
 
 ## Special cases are dimensions, not a class
 

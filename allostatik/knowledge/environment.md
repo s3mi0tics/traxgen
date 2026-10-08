@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-10-05 (s39)
+**Last updated:** 2026-10-08 (s40)
 
 ## Runtime
 
@@ -47,6 +47,9 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - **The course corpus lives at `~/Claude/Projects/traxgen-corpus/`** — `buildable_courses.json` (820 codes) + `raw/*.course` (808 files), harvested 2026-08-18 from murmelbahn: `POST /api/buildable` with a maximal sets inventory enumerates its cached corpus; `/api/course/{code}/raw` fetches bytes. Outside the repo by locked decision (`decisions.md` 2026-08-18); refetchable; the sandbox egress proxy cannot reach murmelbahn.fly.dev, so harvesting runs from this Mac.
 - **The MCP allowlist is the standing permission grant.** Currently: `Claude/Projects/traxgen`, `Desktop/Hub/Projects/claude-config`, `Desktop/Hub/repos.nosync/mec-safety-program`. Anything an agent can reach on this Mac without a fresh prompt is in that list — it is the one dial worth reviewing deliberately, and keeping it repo-scoped means the blast radius of any agent mistake is a `git restore` away. (Two of those three roots are for other projects; a traxgen-only session does not need them. Pruning is hygiene, not urgency. **2026-08-18:** the `Desktop/Hub/Projects/claude-config` root is confirmed an *empty husk* — canonical claude-config moved to `~/Claude/Projects/claude-config`. Repoint it when next in the MCP settings; until then the L1 drift check needs a folder grant or a paste.)
 
+- **A claude.ai cloud session pushes only when the repo is attached to it** (s40). Its git proxy refused a push with `403 ... not in this session's authorized repository set`; the box itself has network. That corrects s39's "this box cannot push". The same proxy refuses `gravitrax.link.ravensburger.com` and `murmelbahn.fly.dev`, so uploads and course fetches run on the Mac or in the container. Measured 2026-10-05 and 06.
+- **Getting a file onto the Mac with no folder grant** (s40). The session's folder-access request was refused automatically, so the bridge had no folders at all. A file sent into the chat never showed up where expected. What worked: a pasted heredoc that writes the file, then `shasum -a 256 -c` against the hash computed in the cloud, with the run chained after the check so a mangled paste runs nothing.
+
 ## Gotchas (each learned the hard way)
 
 - **`$ANDROID_HOME` is not exported in a default shell.** A boot command written as `$ANDROID_HOME/emulator/emulator ...` expands to `/emulator/emulator`, fails, and — because the command redirects into `/tmp/emulator.log` — fails *silently* while appearing to background successfully. Use `${ANDROID_HOME:-$HOME/Library/Android/sdk}`. The library is unaffected: `android.resolve_context()` already falls back to that path.
@@ -70,3 +73,4 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - Filenames with parens/commas/coordinates (screenshot naming convention) work on the filesystem but break unquoted shell references.
 - The murmelbahn source clone lives at `/tmp/murmelbahn-src` when present; `/tmp` gets wiped — re-clone from github.com/lfrancke/murmelbahn if needed.
 - `ctree` outputs the project structure — ask for it rather than reconstructing the tree.
+- **In the app's editor, a piece sitting directly on a pillar can't be picked up** -- likely, not tested piece by piece (s40). In PROBOOK12 two of the five curves on the clear level sit on pillar tops. The listing predicted those as the stuck ones, and Colby agreed it fits what he saw. Deleting the rails beside a stuck piece did not free it. Plan manual edits around pieces on the base grid.

@@ -186,3 +186,5 @@ kind. Promotion means three or more firings across separate sessions.*
 #54 · **A rule stored where it is read after the first command cannot guard the first command.** → observations.md:112, body 91w
 #55 · **The checked party's own check passes work that an outside read fails -- so anything that must be right is graded by something that did not make it.** **[AMENDED s39]** → observations.md:114, body 349w
 #56 · **A boundary is only as good as its narrowest field, and the author guards the field he is thinking about.** → observations.md:116, body 123w
+#57 · **A reading was named for what we hoped it measured, and for five months the name stood in for a check.** → observations.md:118, body 202w
+#58 · **A change of direction at the goal turn skipped the rest of the open, and nothing noticed for four days.** → observations.md:120, body 107w

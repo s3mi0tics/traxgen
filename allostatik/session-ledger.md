@@ -62,3 +62,5 @@ TASK-CLOSED s39-t3 STOPPED
 CLOSED s39
 OPENED s40 2026-10-05
 CLOSED s40
+OPENED s41 2026-10-08
+TASK-OPEN s41-t1 base=629e1aa scope=scripts/probe_finish_frames.py

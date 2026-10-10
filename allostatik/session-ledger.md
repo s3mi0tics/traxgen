@@ -65,3 +65,4 @@ CLOSED s40
 OPENED s41 2026-10-08
 TASK-OPEN s41-t1 base=629e1aa scope=scripts/probe_finish_frames.py
 TASK-CLOSED s41-t1 STOPPED
+TASK-OPEN s41-t2 base=75c4fd1 scope=.gitignore

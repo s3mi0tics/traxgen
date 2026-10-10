@@ -56,3 +56,6 @@ window_dump_*.xml
 # constrains).
 outputs/
 
+# Cowork and Claude Code write handoffs to "Claude outputs/" (s41-t2): the line
+# above never matched it, so an old handoff there failed every task_check.
+Claude outputs/

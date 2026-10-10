@@ -1,8 +1,8 @@
 # s41-t2 — git ignores `Claude outputs/`
 
-**Status:** OPEN
+**Status:** DONE
 
-**In one paragraph:** _written at close_
+**In one paragraph:** `.gitignore` already had a handoff rule, `outputs/`, added 2026-08-23 as the cheap test for "handoffs stay local". It never matched the folder handoffs actually land in, `Claude outputs/`, so the convention went unenforced and an s37 handoff sat untracked and failed s41-t1's scope check. The real folder name is now ignored, and the file is untouched.
 
 ## Open (written before the work)
 
@@ -18,3 +18,11 @@
 - **Outcomes declared before any live run:** none, because there is no live run.
 
 ## Close
+
+- **What happened:** Added `Claude outputs/` to `.gitignore` under the existing handoff comment.
+- **What changed:** `.gitignore`.
+- **Evidence:** `.gitignore:61:Claude outputs/	Claude outputs/traxgen-handoff-2026-09-21-s37-to-s38.md`; `ls` still lists the file; `s41-t2: in scope -- 1 files changed since open commit 9b6470a, all declared`.
+- **Decisions made inside the task:** Kept the old `outputs/` line, because some surface may still write there.
+- **For the record:** `observations.md`, a firing of "a check that was never shown to fire": the 2026-08-23 ignore line was written as the convention's cheap test and named the wrong folder, so for seven weeks it tested nothing. Nobody had ever run `git check-ignore` against a real handoff path.
+- **Friction:** none.
+- **Next:** s41-t3, upload the two goal variants and capture their frames.

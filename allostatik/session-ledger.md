@@ -71,3 +71,4 @@ TASK-OPEN s41-t3 base=8033b97 scope=scripts/make_goal_variants.py,scripts/probe_
 TASK-CLOSED s41-t3 STOPPED
 TASK-OPEN s41-t4 base=3c2a9ac scope=scripts/probe_share_link.py
 TASK-CLOSED s41-t4 DONE
+TASK-OPEN s41-t5 base=8531ba7 scope=scripts/probe_finish_frames.py

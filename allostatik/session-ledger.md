@@ -69,3 +69,4 @@ TASK-OPEN s41-t2 base=75c4fd1 scope=.gitignore
 TASK-CLOSED s41-t2 DONE
 TASK-OPEN s41-t3 base=8033b97 scope=scripts/make_goal_variants.py,scripts/probe_finish_frames.py
 TASK-CLOSED s41-t3 STOPPED
+TASK-OPEN s41-t4 base=3c2a9ac scope=scripts/probe_share_link.py

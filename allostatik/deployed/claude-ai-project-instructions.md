@@ -52,7 +52,7 @@ Do not reconstruct state from this field alone. If I open with a specific questi
 
 ## Working notes that outlive any one session
 
-- **Trust only harness-verified render results.** Manual share-code checking has a silent clipboard failure mode that already invalidated a session's observations. Validity claims go through `traxgen.android.render_course()` and the play-button oracle.
+- **Trust only harness-verified render results.** Manual share-code checking has a silent clipboard failure mode that already invalidated a session's observations. Validity claims go through `traxgen.android.render_course()` and need two readings: a white play button, which only checks that pieces are placed legally (#57), and a marble trail that ends inside a goal piece, not against it (D092 for the goal rail).
 - **Explain testing concepts rather than assuming them.** I'm new-ish to automation testing — currently finishing a Playwright course. So when a testing idea comes up (fixtures, property-based testing, fakes and injection, synchronization strategy), explain the concept alongside the code rather than treating it as background, and connect it to Playwright where the parallel is real. Don't force Playwright *in* where it doesn't fit, though: this is a Python backend library and pytest + hypothesis are the test story. Its concepts travel; the tool doesn't.
 - **Run scripts as `uv run python -m scripts.foo`**, never `scripts/foo.py` — the latter breaks `sys.path`.
 - **Pipe output I'll paste back**: chain `2>&1 | tee >(pbcopy)`.

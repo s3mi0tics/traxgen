@@ -1454,7 +1454,7 @@ def reset_to_main_menu(
     return wait_for_main_menu(ctx, timeout=timeout, clock=clock)
 
 
-# --- Validity oracle: play-button color sampling ---------------------------
+# --- Placement check (not a finish check): play-button color sampling ------
 
 # Sampling region for the play button's interior triangle. Mapped from the
 # valid/invalid screenshot pair captured 2026-04-25:

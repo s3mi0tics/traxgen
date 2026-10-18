@@ -9,9 +9,10 @@ Procedural generator for [GraviTrax](https://www.ravensburger.us/products/gravit
 
 Phase 1 closed on 2026-09-07: `python -m traxgen generate --set vertical-starter`
 writes a course that the share-code upload endpoint accepts and the
-official app renders as valid, verified through the Android harness
-(`traxgen.android.render_course()` and its play-button oracle) on a
-cold-booted emulator. Parser, serializer, validator, uploader and the
+official app loads with every piece legally placed, verified through the
+Android harness (`traxgen.android.render_course()` and its play-button
+reading) on a cold-booted emulator. Whether the marble then reaches the
+goal was not part of that check (`allostatik/plan.md`, item 19). Parser, serializer, validator, uploader and the
 minimal generator are complete. Connection claims come from a rendered
 record (`traxgen/graph.py`, `MEASURED_RUNS`), keyed on where each piece
 stood, on which plate, and which pieces they were; the model that

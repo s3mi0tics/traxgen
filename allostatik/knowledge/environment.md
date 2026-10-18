@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-10-08 (s40)
+**Last updated:** 2026-10-18 (s41)
 
 ## Runtime
 
@@ -49,6 +49,9 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 - **A claude.ai cloud session pushes only when the repo is attached to it** (s40). Its git proxy refused a push with `403 ... not in this session's authorized repository set`; the box itself has network. That corrects s39's "this box cannot push". The same proxy refuses `gravitrax.link.ravensburger.com` and `murmelbahn.fly.dev`, so uploads and course fetches run on the Mac or in the container. Measured 2026-10-05 and 06.
 - **Getting a file onto the Mac with no folder grant** (s40). The session's folder-access request was refused automatically, so the bridge had no folders at all. A file sent into the chat never showed up where expected. What worked: a pasted heredoc that writes the file, then `shasum -a 256 -c` against the hash computed in the cloud, with the run chained after the check so a mangled paste runs nothing.
+
+- **The app takes share links** (s41-t4). `dumpsys package com.ravensburger.gravitrax` shows an https filter for `gravitrax.link.ravensburger.com`, `PatternMatcher{PREFIX: /code/}`, `AutoVerify=true`; the domain's `/.well-known/apple-app-site-association` lists `/code/*` and `/.well-known/assetlinks.json` names the package. `adb shell am start -W -a android.intent.action.VIEW -d https://gravitrax.link.ravensburger.com/code/<CODE> com.ravensburger.gravitrax` opens a load-confirm dialog whose button sits at `load_track_button`. Name the package, so Android can't hand the link to a browser.
+- **Claude Code on this Mac renders in-session** (s41). Unlike Cowork and the container, it has adb and the emulator, so a render is a background command, not a handoff. `numpy` and `scipy` are not project dependencies; a one-off analysis uses `uv run --with numpy --with scipy`.
 
 ## Gotchas (each learned the hard way)
 

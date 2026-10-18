@@ -118,6 +118,7 @@ D088 · A task commits its declaration before its first edit, and a task left op
 D089 · A failed run keeps the phone's account (2026-09-21, s38) → decisions.md:106, body 122w
 D090 · The container reaches the emulator through a drop folder, and a request's identity is its filename (2026-10-05, s39) → decisions.md:107, body 210w
 D091 · The container's isolation is the security boundary, not its permission rules (2026-10-05, s39) → decisions.md:108, body 136w
+D092 · A finish means the trail runs into the goal rail (2026-10-18, s41) → decisions.md:109, body 146w
 
 ## Observations
 
@@ -188,3 +189,5 @@ kind. Promotion means three or more firings across separate sessions.*
 #56 · **A boundary is only as good as its narrowest field, and the author guards the field he is thinking about.** → observations.md:116, body 123w
 #57 · **A reading was named for what we hoped it measured, and for five months the name stood in for a check.** → observations.md:118, body 202w
 #58 · **A change of direction at the goal turn skipped the rest of the open, and nothing noticed for four days.** → observations.md:120, body 107w
+#59 · **A declared outcome failed, and the close matched the result to another run instead of saying so.** → observations.md:122, body 122w
+#60 · **A convention's cheap test named the wrong thing, and nothing ever ran it against a real case.** → observations.md:124, body 70w

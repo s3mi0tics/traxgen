@@ -7,6 +7,7 @@ Nothing is classified here -- the frames are the raw material the finish check
 is written from.
 
     uv run python -m scripts.probe_finish_frames KN6F459ZR3 THIIEUH35Z W8IEN7MG92
+    uv run python -m scripts.probe_finish_frames --link I4BA3N5V6Y 8I8EVU4NCU   # s41-t5
 
 Output: screenshots/finish_frames/<code>/before.png, after_NN.png, frames.json.
 
@@ -25,10 +26,14 @@ from traxgen.android import (
     PLAY_BUTTON_SAMPLE_CENTER,
     WAITS,
     AdbContext,
+    _run_adb,
+    assert_app_in_foreground,
     capture_png,
+    detect_play_button_state,
     frame_difference,
     frame_fingerprint,
     render_course,
+    reset_to_main_menu,
     tap,
 )
 
@@ -50,6 +55,28 @@ def button_shows_stop(png: bytes) -> bool:
 
     corner = Image.open(io.BytesIO(png)).convert("RGB").crop(STOP_CORNER)
     return ImageStat.Stat(corner).mean[2] > 105  # blue: 161 on the square, 50 off it
+
+
+LINK = "https://gravitrax.link.ravensburger.com/code/{code}"
+
+
+def load_by_link(ctx: AdbContext, code: str, folder: Path) -> str:
+    """Open the course by share link (s41-t4) instead of typing; return the oracle's reading.
+
+    Main menu first, so the first-launch death (#21) happens before the link is spent.
+    """
+    print(reset_to_main_menu(ctx).line(), file=sys.stderr)
+    _run_adb(ctx, "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+             "-d", LINK.format(code=code), ctx.package, timeout=60.0)
+    ctx.sleep(3.0)
+    tap(ctx, "load_track_button")
+    ctx.sleep(WAITS["after_load"])
+    tap(ctx, "loaded_track_hex")
+    ctx.sleep(WAITS["after_render_load"])
+    shot = folder / "rendered.png"
+    shot.write_bytes(capture_png(ctx, what="rendered"))
+    assert_app_in_foreground(ctx)
+    return detect_play_button_state(shot)
 
 
 def watch(ctx: AdbContext, folder: Path) -> dict[str, object]:
@@ -110,12 +137,15 @@ def main(codes: list[str]) -> int:
             for attempt in (1, 2):
                 print(f"{code}: rendering, attempt {attempt}", file=sys.stderr)
                 try:
-                    render = render_course(
-                        code, ctx=ctx, screenshot_dir=folder, screenshot_name="rendered",
-                        cleanup=False, detect_validity=True, reset_first=True,
-                        on_menu=lambda a: print(a.line(), file=sys.stderr),
-                    )
-                    record = {"attempt": attempt, "validity": render.validity,
+                    if BY_LINK:
+                        validity = load_by_link(ctx, code, folder)
+                    else:
+                        validity = render_course(
+                            code, ctx=ctx, screenshot_dir=folder, screenshot_name="rendered",
+                            cleanup=False, detect_validity=True, reset_first=True,
+                            on_menu=lambda a: print(a.line(), file=sys.stderr),
+                        ).validity
+                    record = {"attempt": attempt, "by_link": BY_LINK, "validity": validity,
                               **watch(ctx, folder)}
                     clean_up(ctx)
                     break
@@ -131,5 +161,7 @@ def main(codes: list[str]) -> int:
     return 0 if all("error" not in r for r in results.values()) else 3
 
 
+BY_LINK = "--link" in sys.argv
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main([a for a in sys.argv[1:] if a != "--link"]))

@@ -8,8 +8,11 @@ is written from.
 
     uv run python -m scripts.probe_finish_frames KN6F459ZR3 THIIEUH35Z W8IEN7MG92
     uv run python -m scripts.probe_finish_frames --link I4BA3N5V6Y 8I8EVU4NCU   # s41-t5
+    uv run python -m scripts.probe_finish_frames --link --runs 3 I4BA3N5V6Y 8I8EVU4NCU   # s42-t1
 
 Output: screenshots/finish_frames/<code>/before.png, after_NN.png, frames.json.
+With --runs N, each run goes to <code>/run_<k>/ and the codes alternate round by
+round, so a drift within one boot does not line up with one code (#23).
 
 Path: traxgen/scripts/probe_finish_frames.py
 """
@@ -124,16 +127,17 @@ def clean_up(ctx: AdbContext) -> None:
     ctx.sleep(WAITS["after_delete"])
 
 
-def main(codes: list[str]) -> int:
+def main(codes: list[str], runs: int = 1) -> int:
     from scripts.emulator import session
 
+    plan = [(code, k) for k in range(1, runs + 1) for code in codes]
     results: dict[str, object] = {}
     with session(out=lambda line: print(line, file=sys.stderr)) as ctx:
-        for code in codes:
-            folder = OUT / code
+        for code, k in plan:
+            folder = OUT / code if runs == 1 else OUT / code / f"run_{k}"
             folder.mkdir(parents=True, exist_ok=True)
-            # Two tries in the same boot: the first launch after a cold boot has died
-            # in every s41 session so far, and the next launch in that boot has not (#21).
+            # Two tries in the same boot: the first launch after a cold boot died in 4 of
+            # 7 s41 sessions, and no later launch in the same boot did (#21).
             for attempt in (1, 2):
                 print(f"{code}: rendering, attempt {attempt}", file=sys.stderr)
                 try:
@@ -155,8 +159,9 @@ def main(codes: list[str]) -> int:
                               "notes": notes}
                     print(f"{code}: attempt {attempt} failed: {record}", file=sys.stderr)
             (folder / "frames.json").write_text(json.dumps(record, indent=2))
-            print(f"{code}: {json.dumps(record)}", file=sys.stderr)
-            results[code] = record
+            label = code if runs == 1 else f"{code}/run_{k}"
+            print(f"{label}: {json.dumps(record)}", file=sys.stderr)
+            results[label] = record
     print(json.dumps(results, indent=2))
     return 0 if all("error" not in r for r in results.values()) else 3
 
@@ -164,4 +169,10 @@ def main(codes: list[str]) -> int:
 BY_LINK = "--link" in sys.argv
 
 if __name__ == "__main__":
-    sys.exit(main([a for a in sys.argv[1:] if a != "--link"]))
+    args = [a for a in sys.argv[1:] if a != "--link"]
+    runs = 1
+    if "--runs" in args:
+        i = args.index("--runs")
+        runs = int(args[i + 1])
+        del args[i : i + 2]
+    sys.exit(main(args, runs))

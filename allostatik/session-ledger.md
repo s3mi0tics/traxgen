@@ -76,3 +76,4 @@ TASK-CLOSED s41-t5 DONE
 CLOSED s41
 OPENED s42 2026-10-19
 TASK-OPEN s42-t1 base=89612a0 scope=scripts/probe_finish_frames.py
+TASK-CLOSED s42-t1 STOPPED

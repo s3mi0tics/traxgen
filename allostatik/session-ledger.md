@@ -74,3 +74,5 @@ TASK-CLOSED s41-t4 DONE
 TASK-OPEN s41-t5 base=8531ba7 scope=scripts/probe_finish_frames.py
 TASK-CLOSED s41-t5 DONE
 CLOSED s41
+OPENED s42 2026-10-19
+TASK-OPEN s42-t1 base=89612a0 scope=scripts/probe_finish_frames.py

@@ -86,3 +86,5 @@ TASK-CLOSED s42-t4 DONE
 TASK-OPEN s42-t5 base=3d11a66 scope=traxgen/android.py,tests/test_finish_burst.py,scripts/probe_finish_frames.py
 TASK-CLOSED s42-t5 DONE
 CLOSED s42
+OPENED s43 2026-10-22
+TASK-OPEN s43-t1 base=3c4677d scope=traxgen/android.py,scripts/render_course.py,scripts/probe_finish_frames.py,tests/test_render_finish.py,tests/test_android_foreground.py,tests/test_refused_screens.py,tests/test_render_course_script.py

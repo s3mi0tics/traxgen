@@ -82,3 +82,4 @@ TASK-CLOSED s42-t2 DONE
 TASK-OPEN s42-t3 base=61d0ec3 scope=scripts/probe_finish_frames.py
 TASK-CLOSED s42-t3 DONE
 TASK-OPEN s42-t4 base=e379360 scope=scripts/make_no_goal.py,scripts/probe_finish_frames.py
+TASK-CLOSED s42-t4 DONE

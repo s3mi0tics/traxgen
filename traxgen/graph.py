@@ -564,6 +564,204 @@ MEASURED_RUNS: tuple[MeasuredRun, ...] = (
     ),
 )
 
+
+@dataclass(frozen=True, slots=True)
+class MeasuredFinish:
+    """One live cell of a `MEASURED_RUNS` row, played once with the finish check.
+
+    A row's live directions are placement claims: the play button rendered
+    white, which means every piece was placed legally, not that the marble
+    reaches the goal (#57). This records what happened when play was pressed
+    (D093): `finished` is True when the app showed its finish burst, False when
+    the run ended without one. Cells the check could not judge are left out,
+    not recorded as misses.
+
+    The course is the cell rebuilt by `scripts/finish_record.py` from its row
+    (starter at the row's position and rotation, GOAL_RAIL one step in
+    `direction` at `goal_rotation_for(direction)`), checked CONNECTED in the
+    record before upload. `course_sha256` names those bytes, and a test
+    rebuilds every entry and compares it, so an entry that pointed at the wrong
+    row or direction fails rather than quietly describing another course.
+    """
+
+    run: MeasuredRun
+    direction: int
+    finished: bool
+    peak_new_white: int
+    share_code: str
+    course_sha256: str
+
+
+# The record's live cells, played once each: 2026-10-22, s43-t2, app 2.8, one
+# cold session by share link, bracketed by KN6F459ZR3 active and finished at
+# both ends. 17 of 20 finish. The 3 that do not are the same placement on
+# three starter rotations: the goal on (0, 1), an uncompleted half-hole
+# (`plates.half_hole_cells`). Every goal off a half-hole finished. So the app
+# accepts a piece on an uncompleted half-hole as placed legally, and the marble
+# does not finish there (D066 says such a square is not usable).
+MEASURED_FINISHES: tuple[MeasuredFinish, ...] = (
+    MeasuredFinish(
+        run=MEASURED_RUNS[0],
+        direction=0,
+        finished=False,
+        peak_new_white=10,
+        share_code="6H4ZV593UN",
+        course_sha256="292c236af71afddb27731fdac5f6a4f706aeec39b31942f78328bbac660b4aa6",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[0],
+        direction=2,
+        finished=True,
+        peak_new_white=983,
+        share_code="5HB7V3CILS",
+        course_sha256="ffa5f986600ad520ce5a20f0aa613d1588a278a74a159e244b32ed272b9b2358",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[1],
+        direction=1,
+        finished=True,
+        peak_new_white=894,
+        share_code="JYTJJX5OSL",
+        course_sha256="b9f595d6e17f12f527907bb355d117b76e2d656274c4d14ea6456bd75a2b1a53",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[2],
+        direction=0,
+        finished=False,
+        peak_new_white=7,
+        share_code="43WI7FKFTR",
+        course_sha256="3c962da791cc69b1fbb24b980462209be56efe0b31b28f68eaa1a898580e6a89",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[2],
+        direction=2,
+        finished=True,
+        peak_new_white=1016,
+        share_code="W7E8LQ58J3",
+        course_sha256="cecbf7c66c1c8896500651f7b3658f2f9f589a1f8528d6b214ec8328a399e5f4",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[3],
+        direction=1,
+        finished=True,
+        peak_new_white=1003,
+        share_code="CFBL54HK3H",
+        course_sha256="4be8c42ed71c5248e0846bc4b56cf069c73645921767379b355ba225c6ddb02e",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[4],
+        direction=0,
+        finished=False,
+        peak_new_white=7,
+        share_code="TH3H3TIV5H",
+        course_sha256="35dd9920a028d209df0141fe44cbb845e0e0b74121383f8b55bf518143f64ab9",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[4],
+        direction=2,
+        finished=True,
+        peak_new_white=1087,
+        share_code="VO6VTVFGPJ",
+        course_sha256="2d95694b758ac5216ab351e18f41ccc4550c53e1d6ca83427aa57b414b315488",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[5],
+        direction=1,
+        finished=True,
+        peak_new_white=1431,
+        share_code="9QJBQWI8F2",
+        course_sha256="fc536ef1d1afced48f567ef6b2a0e85397722feefc3c888b17c884ef7bc4c4cd",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[6],
+        direction=2,
+        finished=True,
+        peak_new_white=964,
+        share_code="QFSQOFD5CY",
+        course_sha256="641fd380087f10eaa431ff20e9cab48621a1b02ef0ed6bdfb2e339a45e814e54",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[7],
+        direction=0,
+        finished=True,
+        peak_new_white=983,
+        share_code="7U29ZZK5KK",
+        course_sha256="2bf959c6818bacbaa3fb09784368ea6e5378138ceab75c94a49e92b18b00aff3",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[7],
+        direction=2,
+        finished=True,
+        peak_new_white=1005,
+        share_code="TKIINLHQVY",
+        course_sha256="bf737a0d07dc8d70bd4b919cfc11d29b72676cffd58b4aa77eded0fa97b62cf4",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[7],
+        direction=4,
+        finished=True,
+        peak_new_white=983,
+        share_code="59CYWFBB7Y",
+        course_sha256="59df10cb3ed75974c874cc540fdeae53a59018d2df2a5a0a99cd95e1942747df",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[8],
+        direction=1,
+        finished=True,
+        peak_new_white=1563,
+        share_code="4DNKBPJN7M",
+        course_sha256="466bac0465faa5a9c42929a427f1b78cc911b9509636c156e2a6fd44a69425bc",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[8],
+        direction=3,
+        finished=True,
+        peak_new_white=1746,
+        share_code="TY9NCLMEXO",
+        course_sha256="7242e4e7673140eebc710d13fb039ad36d597de42d1d859b5834974c640aca8a",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[8],
+        direction=5,
+        finished=True,
+        peak_new_white=937,
+        share_code="R9JXBI3MQP",
+        course_sha256="5957fe028ebdbc95831d23dd6bc4947e8fe49242b2ce6c5b3b93b66df9d233f4",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[9],
+        direction=2,
+        finished=True,
+        peak_new_white=1156,
+        share_code="ZSDPBHO2CR",
+        course_sha256="25ebec644b8064e87955d1dc44d5f850a7c29ace1278f8e93006a17cb7ee8cef",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[10],
+        direction=0,
+        finished=True,
+        peak_new_white=993,
+        share_code="S99YI4T66T",
+        course_sha256="75c1ec5cc41841a859f2ff544981bb8bba087eac73b8f08a2261d20cece19bbd",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[10],
+        direction=4,
+        finished=True,
+        peak_new_white=1148,
+        share_code="GA4ORX5ANF",
+        course_sha256="4bb30160a2d492839460d720fdfa9711e66106ab26d00ee75f3f4e9effa12952",
+    ),
+    MeasuredFinish(
+        run=MEASURED_RUNS[11],
+        direction=4,
+        finished=True,
+        peak_new_white=1163,
+        share_code="QBWDCH8ODX",
+        course_sha256="b302d7ae434167c8ddf6a29dc258d3bf3e683aa7687bbea57ad142953751d4d6",
+    ),
+)
+
 # The corner table, derived from the runs above rather than restated. Kept as a
 # named surface because it is the regression fixture the conjunction has to
 # reproduce: parity (even -> {E, NW}, odd -> {NE}) is the shape six exhaustive

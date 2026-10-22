@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from itertools import pairwise
 from pathlib import Path
 
 from traxgen.android import (
@@ -31,33 +32,22 @@ from traxgen.android import (
     AdbContext,
     _run_adb,
     assert_app_in_foreground,
+    button_shows_stop,
     capture_png,
     detect_play_button_state,
     frame_difference,
     frame_fingerprint,
+    judge_finish,
     render_course,
     reset_to_main_menu,
     tap,
 )
 
 OUT = DEFAULT_SCREENSHOT_DIR / "finish_frames"
-INTERVAL = 1.0  # seconds between frames after play
+INTERVAL = 0.0  # seconds slept between frames after play; a capture alone takes ~1 s (s42-t5)
 QUIET_FRAMES = 3  # this many unchanged frames in a row counts as settled
 QUIET_LIMIT = 0.05  # mean channel difference (0-255) below which two frames are "unchanged"
 MAX_SECONDS = 60.0  # bound on the wait; a marble that rolls forever must not hang the probe
-# A corner of the stop square the play triangle does not cover (s41-t1): mean RGB here
-# read [221, 232, 161] while the marble ran and [180, 204, 50] before and after.
-STOP_CORNER = (2200, 964, 2212, 976)
-
-
-def button_shows_stop(png: bytes) -> bool:
-    """True while the play button is the stop square, i.e. the marble is still running."""
-    import io
-
-    from PIL import Image, ImageStat
-
-    corner = Image.open(io.BytesIO(png)).convert("RGB").crop(STOP_CORNER)
-    return ImageStat.Stat(corner).mean[2] > 105  # blue: 161 on the square, 50 off it
 
 
 LINK = "https://gravitrax.link.ravensburger.com/code/{code}"
@@ -84,8 +74,12 @@ def load_by_link(ctx: AdbContext, code: str, folder: Path) -> str:
 
 def watch(ctx: AdbContext, folder: Path) -> dict[str, object]:
     """Tap play, then save frames until the screen settles or the bound runs out."""
+    for old in folder.glob("after_*.png"):  # a longer earlier run must not leave extras (s42-t4)
+        old.unlink()
     before = capture_png(ctx, what="before play")
     (folder / "before.png").write_bytes(before)
+    frames: list[bytes] = []
+    stamps: list[float] = []
     tap(ctx, PLAY_BUTTON_SAMPLE_CENTER)
     start = time.monotonic()
     last = frame_fingerprint(before)
@@ -96,6 +90,8 @@ def watch(ctx: AdbContext, folder: Path) -> dict[str, object]:
     while time.monotonic() - start < MAX_SECONDS:
         time.sleep(INTERVAL)
         png = capture_png(ctx, what=f"after play {n}")
+        stamps.append(time.monotonic())
+        frames.append(png)
         (folder / f"after_{n:02d}.png").write_bytes(png)
         stop.append(button_shows_stop(png))
         fp = frame_fingerprint(png)
@@ -106,7 +102,13 @@ def watch(ctx: AdbContext, folder: Path) -> dict[str, object]:
         quiet = quiet + 1 if d < QUIET_LIMIT else 0
         if quiet >= QUIET_FRAMES and not stop[-1]:  # still AND the run has ended
             break
+    reading = judge_finish(before, frames)
+    gaps = sorted(b - a for a, b in pairwise(stamps))
     return {
+        "finish": reading.status.value,
+        "finish_peak": reading.peak_new_white,
+        "finish_reason": reading.reason,
+        "median_interval": round(gaps[len(gaps) // 2], 2) if gaps else None,
         "settled": quiet >= QUIET_FRAMES and not stop[-1],
         "frames": n,
         "seconds": round(time.monotonic() - start, 1),

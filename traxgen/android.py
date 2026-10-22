@@ -18,6 +18,7 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -1544,3 +1545,86 @@ def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True)
     avg_r, avg_g, avg_b = ImageStat.Stat(box).mean
     min_channel = min(avg_r, avg_g, avg_b)
     return "active" if min_channel >= PLAY_BUTTON_ACTIVE_MIN_CHANNEL else "inactive"
+
+
+# --- Finish check: the app's sparkle burst ---------------------------------
+#
+# The white triangle checks placement, not the finish (#57). When the marble
+# reaches the goal, the app throws a burst of white sparkles for about a second;
+# it is gone by the time the run settles, which is why comparing only the frame
+# before play with the last frame saw nothing (s41-t5). Measured in s42-t4 at
+# one frame every ~2 s, as the most near-white pixels any after-play frame adds
+# over the frame before play (board area only):
+#
+#   finish (goal rail, 4 runs)                     62, 830, 1000, 1176
+#   marble stopped against the rail's outer end    11
+#   miss (8 runs) / no goal piece (2 runs)          <= 11
+#
+# 30 sits ~2.7x above the highest non-finish and ~2x below the lowest finish,
+# and that lowest finish caught only the burst's tail. Measured on the goal rail
+# only: whether the other goal pieces burst too is unmeasured.
+FINISH_BURST_MIN_PIXELS = 30
+FINISH_BURST_BOARD = (200, 0, 2400, 880)  # x0, y0, x1, y1: clear of the back icon and toolbar
+
+# A corner of the stop square that the play triangle does not cover (s41-t1):
+# mean blue here read 161 while the marble ran and 50 before and after.
+STOP_SQUARE_CORNER = (2200, 964, 2212, 976)
+STOP_SQUARE_MIN_BLUE = 105.0
+
+
+def button_shows_stop(png_bytes: bytes) -> bool:
+    """True while the play button is the stop square, i.e. a marble is still running."""
+    from PIL import Image, ImageStat
+
+    corner = Image.open(io.BytesIO(png_bytes)).convert("RGB").crop(STOP_SQUARE_CORNER)
+    return ImageStat.Stat(corner).mean[2] > STOP_SQUARE_MIN_BLUE
+
+
+def _near_white_mask(png_bytes: bytes) -> Any:
+    from PIL import Image, ImageChops
+
+    board = Image.open(io.BytesIO(png_bytes)).convert("RGB").crop(FINISH_BURST_BOARD)
+    red, green, blue = board.split()
+    darkest = ImageChops.darker(ImageChops.darker(red, green), blue)
+    return darkest.point(lambda v: 255 if v > FRAME_WHITE_MIN_CHANNEL else 0)
+
+
+def new_white_pixels(before_png: bytes, frame_png: bytes) -> int:
+    """Board pixels near-white in `frame_png` that were not near-white before play."""
+    from PIL import ImageChops
+
+    added = ImageChops.subtract(_near_white_mask(frame_png), _near_white_mask(before_png))
+    return added.histogram()[255]
+
+
+class FinishStatus(StrEnum):
+    FINISHED = "finished"
+    NOT_FINISHED = "not_finished"
+    UNJUDGED = "unjudged"
+
+
+@dataclass(frozen=True)
+class FinishReading:
+    status: FinishStatus
+    peak_new_white: int
+    frames: int
+    reason: str
+
+
+def judge_finish(before_png: bytes, frames: Sequence[bytes]) -> FinishReading:
+    """Judge one play run from the frame before play and the frames captured after it.
+
+    UNJUDGED, never NOT_FINISHED, when the stop square never showed (play never
+    ran) or still shows on the last frame (the run had not ended): a run that
+    did not happen is not a miss.
+    """
+    stops = [button_shows_stop(f) for f in frames]
+    peak = max((new_white_pixels(before_png, f) for f in frames), default=0)
+    n = len(frames)
+    if not any(stops):
+        return FinishReading(FinishStatus.UNJUDGED, peak, n, "the stop square never showed")
+    if stops[-1]:
+        return FinishReading(FinishStatus.UNJUDGED, peak, n, "the run had not ended")
+    if peak >= FINISH_BURST_MIN_PIXELS:
+        return FinishReading(FinishStatus.FINISHED, peak, n, "sparkle burst")
+    return FinishReading(FinishStatus.NOT_FINISHED, peak, n, "no sparkle burst")

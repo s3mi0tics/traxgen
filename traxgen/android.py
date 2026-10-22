@@ -77,6 +77,8 @@ WAITS = {
     "after_render_load": 5.0,
     "after_back": 1.0,
     "after_delete": 1.5,
+    # From `am start` on a share link to the load-confirm dialog (s41-t4's probe value).
+    "after_link": 3.0,
 }
 
 # How long `input text` gets. The blanket 10s default cost three render runs in
@@ -1309,10 +1311,11 @@ def wait_for_main_menu(
 # --- High-level flow -------------------------------------------------------
 
 class RenderResult(NamedTuple):
-    """Result of a render_course call: screenshot path + optional validity."""
+    """Result of a render_course call: screenshot, placement reading, finish reading."""
 
     screenshot: Path
-    validity: str | None  # 'active' | 'inactive' | None (when not detected)
+    validity: str | None  # placement: 'active' | 'inactive' | None (when not detected)
+    finish: FinishReading | None = None  # None when not detected
 
 
 def render_course(
@@ -1329,23 +1332,49 @@ def render_course(
     on_menu: Callable[[MenuArrival], None] | None = None,
     refused_screens: Sequence[RefusedScreen] | None = None,
     refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
+    by_link: bool = False,
+    detect_finish: bool = False,
 ) -> RenderResult:
-    """Drive the app: main menu -> render share code -> screenshot.
+    """Drive the app: main menu -> render share code -> screenshot [-> play].
 
-    PRECONDITION, now enforced. This function's first action is a blind
-    coordinate tap; it assumes GraviTrax is open and on the main menu. The app
-    half of that is checked twice: before the first tap, and again immediately
+    LOADING. `by_link=True` opens the course from its share link
+    (`open_share_link`, s41-t4), so nothing is typed: the typed route garbled
+    codes in s41-t3. It is opt-in here, so the campaign scripts keep the route
+    their records were measured on until a live sweep has run on links;
+    `scripts/render_course.py` defaults to the link. `expect_disclaimer` only
+    applies to the typed route.
+
+    FINISH. With `detect_finish=True`, after the frame is captured and has
+    passed both the closing foreground check and the refused-screen check, play
+    is pressed and `watch_play_run` captures frames back to back until the run
+    has ended and the screen is still; `judge_finish` reads them (D093). The
+    "before" frame is captured just before play, never reused from the
+    screenshot, so it is the same screen the burst is drawn over. The app is
+    checked again before cleanup, since the play run adds taps and a minute of
+    time after the closing check. If the watch ended with the stop square still
+    up, the stop button is tapped first so cleanup does not start on a running
+    marble. If the watch raises, cleanup still runs and the error is re-raised
+    after it, as with a refused screen. Placement and finish are separate
+    readings: a white triangle never implies a finish (#57), and play is pressed
+    whatever the placement reading says.
+
+    PRECONDITION, now enforced. This function's first action -- a blind
+    coordinate tap on the typed route, `am start` on a share link with
+    `by_link=True` -- assumes GraviTrax is open and on the main menu. The app
+    half of that is checked before that first action, and again immediately
     after the frame is captured. Same reasoning as the both-ends control locked
     2026-08-07 -- an opening check proves the app was in front at tap one and
-    says nothing about 40 seconds later.
+    says nothing about 40 seconds later. With `detect_finish` a third check
+    follows the play run.
 
-    What the second check brackets is the *frame*, not the whole function. On
-    the default `cleanup=True` path four more taps follow it (back, dont-save,
-    trash, delete-confirm) and nothing re-checks after those. They sit directly
-    behind the closing check, so a foreground change would have to land inside
-    that window to matter -- but the guarantee is "checked immediately before
-    cleanup", not "cleanup is guarded". Two of those taps are destructive,
-    which is the reason to state the gap rather than round it off.
+    What the last check brackets is the *frame* (or the play run), not the
+    whole function. On the default `cleanup=True` path four more taps follow
+    it (back, dont-save, trash, delete-confirm) and nothing re-checks after
+    those. They sit directly behind the last check, so a foreground change
+    would have to land inside that window to matter -- but the guarantee is
+    "checked immediately before cleanup", not "cleanup is guarded". Two of
+    those taps are destructive, which is the reason to state the gap rather
+    than round it off.
 
     The menu half cannot be read from `dumpsys window` (splash and main menu
     are byte-identical there), so `reset_first=True` force-stops, relaunches,
@@ -1379,12 +1408,15 @@ def render_course(
     name = screenshot_name or f"rendered_{code}"
     out_path = screenshot_dir / f"{name}.png"
 
-    tap(ctx, "share_code_hex")
-    if expect_disclaimer:
-        tap(ctx, "load_track_now")
-    tap(ctx, "code_input_field")
-    type_text(ctx, code)
-    tap(ctx, "ime_ok")
+    if by_link:
+        open_share_link(ctx, code)
+    else:
+        tap(ctx, "share_code_hex")
+        if expect_disclaimer:
+            tap(ctx, "load_track_now")
+        tap(ctx, "code_input_field")
+        type_text(ctx, code)
+        tap(ctx, "ime_ok")
     tap(ctx, "load_track_button")
     ctx.sleep(WAITS["after_load"])
     tap(ctx, "loaded_track_hex")
@@ -1409,6 +1441,21 @@ def render_course(
 
     validity = detect_play_button_state(out_path) if detect_validity and not refusal else None
 
+    # Play only on a frame that passed both guards: on a refused screen there
+    # is no course to run, and a reading from it would be about nothing.
+    finish = None
+    watch_error: AndroidAutomationError | None = None
+    if detect_finish and not refusal:
+        try:
+            before, frames = watch_play_run(ctx)
+        except AndroidAutomationError as exc:
+            watch_error = exc
+        else:
+            finish = judge_finish(before, frames)
+            if frames and button_shows_stop(frames[-1]):
+                tap(ctx, PLAY_BUTTON_SAMPLE_CENTER)  # stop the marble before cleanup
+        assert_app_in_foreground(ctx)
+
     # Cleanup runs whether or not the frame was refused, and the raise comes
     # after it. Measured rather than assumed: in the 2026-08-25 run the two
     # renders that landed on the build tutorial were followed by three that
@@ -1425,6 +1472,9 @@ def render_course(
         tap(ctx, "delete_confirm")
         ctx.sleep(WAITS["after_delete"])
 
+    if watch_error is not None:
+        raise watch_error
+
     if refusal:
         screen, distance = refusal
         raise RefusedScreenError(
@@ -1434,7 +1484,22 @@ def render_course(
             path=out_path,
         )
 
-    return RenderResult(screenshot=out_path, validity=validity)
+    return RenderResult(screenshot=out_path, validity=validity, finish=finish)
+
+
+SHARE_LINK = "https://gravitrax.link.ravensburger.com/code/{code}"
+
+
+def open_share_link(ctx: AdbContext, code: str) -> None:
+    """Open a course by share link, up to the app's load-confirm dialog (s41-t4).
+
+    The package is named so Android cannot hand the link to a browser.
+    """
+    _run_adb(
+        ctx, "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", SHARE_LINK.format(code=code), ctx.package, timeout=60.0,
+    )
+    ctx.sleep(WAITS["after_link"])
 
 
 def reset_to_main_menu(
@@ -1552,17 +1617,21 @@ def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True)
 # The white triangle checks placement, not the finish (#57). When the marble
 # reaches the goal, the app throws a burst of white sparkles for about a second;
 # it is gone by the time the run settles, which is why comparing only the frame
-# before play with the last frame saw nothing (s41-t5). Measured in s42-t4 at
-# one frame every ~2 s, as the most near-white pixels any after-play frame adds
-# over the frame before play (board area only):
+# before play with the last frame saw nothing (s41-t5). Measured in s42-t4 with a
+# 1 s sleep plus the capture, ~1.5 s a frame on the frames on disk, as the most
+# near-white pixels any after-play frame adds over the frame before play (board
+# area only):
 #
 #   finish (goal rail, 4 runs)                     62, 830, 1000, 1176
 #   marble stopped against the rail's outer end    11
-#   miss (8 runs) / no goal piece (2 runs)          <= 11
+#   miss (8 runs) / no goal piece that played (1)   <= 11
 #
 # 30 sits ~2.7x above the highest non-finish and ~2x below the lowest finish,
-# and that lowest finish caught only the burst's tail. Measured on the goal rail
-# only: whether the other goal pieces burst too is unmeasured.
+# and that lowest finish caught only the burst's tail. Two notes on rerunning
+# this table: s42-t5's probe overwrote THIIEUH35Z's frames with a back-to-back
+# run (peak 581), so the 62 is no longer on disk; and the second no-goal run,
+# 4DLUQKGRKN, never played (UNJUDGED, 0), so it says nothing about the threshold.
+# Measured on the goal rail only: whether the other goal pieces burst too is unmeasured.
 FINISH_BURST_MIN_PIXELS = 30
 FINISH_BURST_BOARD = (200, 0, 2400, 880)  # x0, y0, x1, y1: clear of the back icon and toolbar
 
@@ -1628,3 +1697,57 @@ def judge_finish(before_png: bytes, frames: Sequence[bytes]) -> FinishReading:
     if peak >= FINISH_BURST_MIN_PIXELS:
         return FinishReading(FinishStatus.FINISHED, peak, n, "sparkle burst")
     return FinishReading(FinishStatus.NOT_FINISHED, peak, n, "no sparkle burst")
+
+
+# How the play run is watched. Frames are captured back to back (a capture
+# alone takes ~0.5-1.3 s on this AVD, s42-t5), so the ~1 s burst is caught near
+# its peak rather than by its tail. The run counts as over once the stop square
+# has shown and then PLAY_QUIET_FRAMES frames in a row show no stop square and
+# no change from the frame before. Quiet frames before the square first shows
+# do not count, so a slow start cannot end the watch; a run whose square never
+# shows within PLAY_START_FRAMES frames ends there, and `judge_finish` calls it
+# UNJUDGED. The time bound stops a marble that rolls forever from hanging the
+# harness; a run cut off by it is usually UNJUDGED, since its last frame still
+# shows the stop square, but if the square had cleared it is judged normally.
+# The frame cap is a second bound that does not depend on the clock moving: 60 s
+# at the fastest capture rate seen is ~130 frames.
+PLAY_QUIET_FRAMES = 3
+PLAY_QUIET_LIMIT = 0.05  # mean channel difference (0-255) below which two frames are "unchanged"
+PLAY_MAX_SECONDS = 60.0
+PLAY_MAX_FRAMES = 150
+# Every live run so far showed the square from the first frame (s42-t5).
+PLAY_START_FRAMES = 5
+
+
+def watch_play_run(
+    ctx: AdbContext,
+    *,
+    max_seconds: float = PLAY_MAX_SECONDS,
+    max_frames: int = PLAY_MAX_FRAMES,
+) -> tuple[bytes, list[bytes]]:
+    """Capture the frame before play, press play, and capture until the run is over.
+
+    Returns (before, frames) for `judge_finish`.
+    """
+    before = capture_png(ctx, what="before play")
+    tap(ctx, PLAY_BUTTON_SAMPLE_CENTER)
+    start = ctx.clock()
+    last = frame_fingerprint(before)
+    frames: list[bytes] = []
+    quiet = 0
+    started = False
+    while ctx.clock() - start < max_seconds and len(frames) < max_frames:
+        png = capture_png(ctx, what=f"after play {len(frames)}")
+        frames.append(png)
+        fingerprint = frame_fingerprint(png)
+        stop = button_shows_stop(png)
+        started = started or stop
+        # Counted only once the stop square has shown and cleared: the square
+        # itself is too small a change to break a run of "still" frames, so a
+        # count kept across it would end the watch on the first frame after.
+        still = frame_difference(last, fingerprint) < PLAY_QUIET_LIMIT
+        quiet = quiet + 1 if started and still and not stop else 0
+        last = fingerprint
+        if quiet >= PLAY_QUIET_FRAMES or (not started and len(frames) >= PLAY_START_FRAMES):
+            break
+    return before, frames

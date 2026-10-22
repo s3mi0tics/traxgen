@@ -30,7 +30,6 @@ from traxgen.android import (
     PLAY_BUTTON_SAMPLE_CENTER,
     WAITS,
     AdbContext,
-    _run_adb,
     assert_app_in_foreground,
     button_shows_stop,
     capture_png,
@@ -38,6 +37,7 @@ from traxgen.android import (
     frame_difference,
     frame_fingerprint,
     judge_finish,
+    open_share_link,
     render_course,
     reset_to_main_menu,
     tap,
@@ -50,18 +50,13 @@ QUIET_LIMIT = 0.05  # mean channel difference (0-255) below which two frames are
 MAX_SECONDS = 60.0  # bound on the wait; a marble that rolls forever must not hang the probe
 
 
-LINK = "https://gravitrax.link.ravensburger.com/code/{code}"
-
-
 def load_by_link(ctx: AdbContext, code: str, folder: Path) -> str:
     """Open the course by share link (s41-t4) instead of typing; return the oracle's reading.
 
     Main menu first, so the first-launch death (#21) happens before the link is spent.
     """
     print(reset_to_main_menu(ctx).line(), file=sys.stderr)
-    _run_adb(ctx, "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-             "-d", LINK.format(code=code), ctx.package, timeout=60.0)
-    ctx.sleep(3.0)
+    open_share_link(ctx, code)
     tap(ctx, "load_track_button")
     ctx.sleep(WAITS["after_load"])
     tap(ctx, "loaded_track_hex")
@@ -165,7 +160,7 @@ def main(codes: list[str], runs: int = 1) -> int:
                     else:
                         validity = render_course(
                             code, ctx=ctx, screenshot_dir=folder, screenshot_name="rendered",
-                            cleanup=False, detect_validity=True, reset_first=True,
+                            cleanup=False, detect_validity=True, reset_first=True, by_link=False,
                             on_menu=lambda a: print(a.line(), file=sys.stderr),
                         ).validity
                     record = {"attempt": attempt, "by_link": BY_LINK, "validity": validity,

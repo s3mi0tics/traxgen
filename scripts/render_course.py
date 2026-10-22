@@ -4,8 +4,12 @@ Usage:
 
     uv run python -m scripts.render_course X3WEQ6F296
     uv run python -m scripts.render_course MT756NLLMI --name invalid_disconnected_rail
-    uv run python -m scripts.render_course HKN3ZZYUI7 --no-cleanup --no-disclaimer
+    uv run python -m scripts.render_course HKN3ZZYUI7 --no-cleanup --typed --no-disclaimer
     uv run python -m scripts.render_course KN6F459ZR3 --fresh --detect-validity
+    uv run python -m scripts.render_course KN6F459ZR3 --fresh --detect-validity --detect-finish
+
+The course opens from its share link (s43); `--typed` uses the old route that
+types the code into the app's share-code field.
 
 Preconditions (without --fresh):
     - Android emulator (AVD: traxgen_m6c) is running and booted
@@ -57,8 +61,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="render_course",
         description=(
             "Drive the Android emulator's GraviTrax app to render a share code "
-            "and capture a screenshot. Requires the emulator to be running with "
-            "the app at the main menu."
+            "and capture a screenshot. Without --fresh, requires the emulator to be "
+            "running with the app at the main menu."
         ),
     )
     parser.add_argument(
@@ -84,12 +88,28 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-disclaimer",
         action="store_true",
-        help="Skip the Load tracks disclaimer tap. Use after dismissed in current session.",
+        help=(
+            "Skip the Load tracks disclaimer tap (with --typed only). Use after dismissed "
+            "in current session."
+        ),
     )
     parser.add_argument(
         "--detect-validity",
         action="store_true",
-        help="After capture, classify the play button as active/inactive (validity oracle).",
+        help="After capture, classify the play button as active/inactive (placement check).",
+    )
+    parser.add_argument(
+        "--detect-finish",
+        action="store_true",
+        help=(
+            "After capture, press play and judge whether the marble finished, from the "
+            "app's finish burst (finished / not_finished / unjudged)."
+        ),
+    )
+    parser.add_argument(
+        "--typed",
+        action="store_true",
+        help="Type the code into the share-code field instead of opening its share link.",
     )
     parser.add_argument(
         "--reset-first",
@@ -151,7 +171,8 @@ def _run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    print(f"rendering {code} via emulator...", file=sys.stderr)
+    route = "typed into the share-code field" if args.typed else "opened by share link"
+    print(f"rendering {code} via emulator, {route}...", file=sys.stderr)
 
     def render(ctx: AdbContext) -> RenderResult:
         return render_course(
@@ -162,6 +183,8 @@ def _run(args: argparse.Namespace) -> int:
             cleanup=not args.no_cleanup,
             expect_disclaimer=not args.no_disclaimer,
             detect_validity=args.detect_validity,
+            detect_finish=args.detect_finish,
+            by_link=not args.typed,
             reset_first=args.reset_first or args.fresh,
             # Printed as the menu arrives, not with the result: a render that
             # fails after the wait must not take the wait's numbers with it (s37).
@@ -190,6 +213,12 @@ def _run(args: argparse.Namespace) -> int:
     print(f"screenshot saved: {result.screenshot}", file=sys.stderr)
     if result.validity is not None:
         print(f"play button: {result.validity}", file=sys.stderr)
+    if result.finish is not None:
+        f = result.finish
+        print(
+            f"finish: {f.status.value} (peak {f.peak_new_white}, {f.frames} frames, {f.reason})",
+            file=sys.stderr,
+        )
     print(result.screenshot)
     return 0
 

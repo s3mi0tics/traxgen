@@ -89,3 +89,4 @@ CLOSED s42
 OPENED s43 2026-10-22
 TASK-OPEN s43-t1 base=3c4677d scope=traxgen/android.py,scripts/render_course.py,scripts/probe_finish_frames.py,tests/test_render_finish.py,tests/test_android_foreground.py,tests/test_refused_screens.py,tests/test_render_course_script.py
 TASK-CLOSED s43-t1 DONE
+TASK-OPEN s43-t2 base=4223b5d scope=scripts/finish_record.py,tests/test_finish_record.py,traxgen/graph.py

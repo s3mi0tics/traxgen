@@ -85,3 +85,4 @@ TASK-OPEN s42-t4 base=e379360 scope=scripts/make_no_goal.py,scripts/probe_finish
 TASK-CLOSED s42-t4 DONE
 TASK-OPEN s42-t5 base=3d11a66 scope=traxgen/android.py,tests/test_finish_burst.py,scripts/probe_finish_frames.py
 TASK-CLOSED s42-t5 DONE
+CLOSED s42

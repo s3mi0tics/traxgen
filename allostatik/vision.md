@@ -2,7 +2,7 @@
 
 Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
-**Last meaningful update:** 2026-10-08 (s40)
+**Last meaningful update:** 2026-10-22 (s42)
 
 ## The user story
 
@@ -54,6 +54,20 @@ Raised by Colby 2026-08-24 (s25), mid-session: *think of this as a game with a b
 **Why it matters for direction rather than only for tidiness.** The user story above says the generator takes a build palette and returns courses. A generator is a search, and a search needs a state to move through — so "what is the board, and what are the legal moves" is the same question as "what is the generator searching over", asked earlier. Today it would be searching over byte layouts.
 
 **The nearest concrete instance — and it closed.** s25's panel found that the record could express *the goal was on this square of my own plate* and not *the goal was on the neighbouring plate*. s27 added the field, and the 2x2 immediately measured that configuration **active**: the board's first cross-plate fact. The gap named in s25 is the reason the field existed before the result needed it, which is the compounding this file exists to describe — a board-state gap identified by a review of code became a field, which became the only place a render's answer could be written down. What remains is entering those rows (`plan.md` item 4) and correcting `predict_connection`, which the same run refuted.
+
+## The equation: a course is a graph of ports
+
+Raised by Colby 2026-10-22 (s42): *there has to be a mental model for this -- think of it like a leetcode problem: a grid, each piece has rules for how the marble's energy is directed, and a valid track is one where all pathways bring the ball from the start to the goal.*
+
+There is, and it is a known problem.
+
+- **The graph.** Every opening a marble can pass through (one side of a hex, at one height) is a **port**, a node. Each piece adds arrows inside itself: enter here, leave there. A switch or the vortex leaves by more than one. Two pieces add an arrow between them when one's exit lines up with the other's entrance, same edge and same height, or when a rail spans the gap. A course is then a **directed graph**.
+- **The check.** "Every path from the start reaches a goal" is LeetCode 1059, *All Paths From Source Lead to Destination*. Walk every arrow reachable from the starter. Any reachable port with no way out that isn't a goal is a broken path; a cycle is a marble that never finishes. The work grows with the number of ports, not with the number of possible courses.
+- **Switches.** A switch that remembers its state makes the search run over (port, switch states): the same algorithm on a bigger graph.
+- **Energy.** Each port has a height. A passive piece can't send a marble uphill, so a climbing arrow exists only where a piece adds energy (`EnergyProfile`). That's Phase 2's job, and the data model is already shaped for it.
+- **Generation.** The same graph, searched outward from the starter: place a piece whose entrance matches the open exit, and back up at dead ends. The permutations get pruned, never listed.
+
+**What makes it hard is the rules, not the math.** The search is a page of code. The table of each piece's ports and internal arrows is open unknown #7, and measuring it is what corpus mining, renders and now the finish check are for. A connected graph is also necessary but not sufficient: physics can throw a marble out of a curve the graph calls connected, and the same course ends differently on different runs (#23). So the graph is the model that proposes, and the app's finish burst (D093) is what disposes. The finish check is what lets the unattended loop learn the piece rules as fast as the graph needs them. The graph checker is `plan.md` item 2, with #9 as its representation question.
 
 ## Why it matters
 

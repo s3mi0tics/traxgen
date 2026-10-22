@@ -1,8 +1,8 @@
 # s42-t3 — the probe saves the phone's evidence when an attempt fails
 
-**Status:** OPEN
+**Status:** DONE
 
-**In one paragraph:** _written at close_
+**In one paragraph:** When a probe attempt fails, the probe now saves the phone's memory report and log at once, before the next attempt resets the app. The attempt's record names the file. If the save itself fails, the record says so and the run carries on. Checked offline with fakes in place of the phone; no renders.
 
 ## Open (written before the work)
 
@@ -19,10 +19,13 @@
 
 ## Close
 
-- **What happened:** _plain words_
-- **What changed:** _files_
-- **Evidence:** _task_check line, check output_
-- **Decisions made inside the task:** _one sentence each_
-- **For the record:** _what the close folds in_
-- **Friction:** _quoted, with what the task did_
-- **Next:** _next task_
+- **What happened:** Added `keep_evidence` to the probe, which calls `scripts.emulator.save_device_evidence` and never raises. The per-attempt `except` calls it and stores the path under `evidence`. Colby's note asked for this before the rerun, but it arrived after s42-t2 had already run clean.
+- **What changed:** `scripts/probe_finish_frames.py`.
+- **Evidence:**
+  - `task_check`: in scope (the line is in the commit's terminal output).
+  - `ruff`: all checks passed.
+  - Offline check (scratchpad `t3_check.py`; fakes for `session`, `load_by_link` and `save_device_evidence`): with a saver that works, calls ran `load, save, load, save, load, save, load, save` and each record's `evidence` was the fake's path, exit 3. With a saver that raises, all four loads still ran and each record's `evidence` read `NOT saved: OSError: no fork`. Done check met.
+- **Decisions made inside the task:** No unit test added. The probe is a one-off script with no test file, and the check above is recorded here instead.
+- **For the record:** The probe's `frames.json` keeps only the last attempt's record, so a first attempt's evidence path appears only in the terminal. It was already like that; noted, not fixed.
+- **Friction:** none.
+- **Next:** t4, the finish detector, once Colby picks how to find the goal on screen.

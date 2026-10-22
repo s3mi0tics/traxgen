@@ -127,6 +127,23 @@ def clean_up(ctx: AdbContext) -> None:
     ctx.sleep(WAITS["after_delete"])
 
 
+def keep_evidence(ctx: AdbContext, reason: str) -> str:
+    """Save the phone's memory report and log now, before the next attempt resets the app.
+
+    The session only saves evidence when the whole body raises, and this loop
+    catches per attempt, so without this a failed attempt kept nothing (s41-t3,
+    s42-t1). A failed save is reported in the record, never raised.
+    """
+    from scripts.emulator import save_device_evidence
+
+    try:
+        path = str(save_device_evidence(ctx, reason=reason))
+    except Exception as exc:
+        path = f"NOT saved: {type(exc).__name__}: {exc}"
+    print(f"device evidence: {path}", file=sys.stderr)
+    return path
+
+
 def main(codes: list[str], runs: int = 1) -> int:
     from scripts.emulator import session
 
@@ -155,8 +172,9 @@ def main(codes: list[str], runs: int = 1) -> int:
                     break
                 except Exception as exc:  # one bad course must not cost the others' frames
                     notes = " | ".join(getattr(exc, "__notes__", ()))
-                    record = {"attempt": attempt, "error": f"{type(exc).__name__}: {exc}",
-                              "notes": notes}
+                    error = f"{type(exc).__name__}: {exc}"
+                    record = {"attempt": attempt, "error": error, "notes": notes,
+                              "evidence": keep_evidence(ctx, f"{code} attempt {attempt}: {error}")}
                     print(f"{code}: attempt {attempt} failed: {record}", file=sys.stderr)
             (folder / "frames.json").write_text(json.dumps(record, indent=2))
             label = code if runs == 1 else f"{code}/run_{k}"

@@ -8,7 +8,7 @@ has been retired, moved or demoted.
 
 `body NNNw` is the length of what this line is not showing. A **[AMENDED]** or
 **[SUPERSEDED]** flag means the body changes or reverses what the title says —
-**those are never safe to act on from this file.** 9 of these decision titles carry one.
+**those are never safe to act on from this file.** 10 of these decision titles carry one.
 
 Look one up by the line address on its own line — exact, and unaffected by any
 punctuation in a title that a literal `grep` would trip over:
@@ -119,7 +119,9 @@ D089 · A failed run keeps the phone's account (2026-09-21, s38) → decisions.m
 D090 · The container reaches the emulator through a drop folder, and a request's identity is its filename (2026-10-05, s39) → decisions.md:107, body 210w
 D091 · The container's isolation is the security boundary, not its permission rules (2026-10-05, s39) → decisions.md:108, body 136w
 D092 · A finish means the trail runs into the goal rail (2026-10-18, s41) **[SUPERSEDED 2026-10-22]** → decisions.md:109, body 165w
-D093 · A finish is the app's finish burst, for every goal piece (2026-10-22, s42) → decisions.md:110, body 259w
+D093 · A finish is the app's finish burst, for every goal piece (2026-10-22, s42) **[AMENDED 2026-10-23]** → decisions.md:110, body 303w
+D094 · `render_course` loads by link only when asked; the render command defaults to the link (2026-10-22, s43) → decisions.md:111, body 156w
+D095 · Finishes are recorded per cell, beside the placement record (2026-10-22, s43) → decisions.md:112, body 127w
 
 ## Observations
 
@@ -135,7 +137,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #7 · **Tooling-first is the working style — flag automation before the third repetition.** → observations.md:18, body 105w
 #8 · **Multi-edit patch scripts with exact-match validation are the default for doc edits.** → observations.md:19, body 97w
 #12 · **A check can pass while asserting something false — verify the claim, not the check.** **[?revised]** → observations.md:20, body 2228w
-#19 · **A verdict function can assert more than its own design guarantees.** → observations.md:22, body 1369w
+#19 · **A verdict function can assert more than its own design guarantees.** → observations.md:22, body 1483w
 #29 · **On a surface where the deployed field arrives in context, the drift-check has an ordering hazard.** → observations.md:24, body 534w
 #34 · **Asserting a mechanism during live diagnosis is a distinct habit from asserting one in code, and it fires hardest when the evidence is thinnest.** **[?revised]** → observations.md:26, body 611w
 
@@ -194,3 +196,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #60 · **A convention's cheap test named the wrong thing, and nothing ever ran it against a real case.** → observations.md:124, body 70w
 #61 · **A brief signal was ruled out by comparing only the first and last frames.** → observations.md:126, body 98w
 #62 · **An option's cost was judged per check, not per loop.** → observations.md:128, body 71w
+#63 · **A done check named an output the code never prints.** → observations.md:130, body 65w

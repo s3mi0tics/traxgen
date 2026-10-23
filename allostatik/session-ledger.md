@@ -91,3 +91,4 @@ TASK-OPEN s43-t1 base=3c4677d scope=traxgen/android.py,scripts/render_course.py,
 TASK-CLOSED s43-t1 DONE
 TASK-OPEN s43-t2 base=4223b5d scope=scripts/finish_record.py,tests/test_finish_record.py,traxgen/graph.py
 TASK-CLOSED s43-t2 DONE
+CLOSED s43

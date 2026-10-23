@@ -2,7 +2,7 @@
 
 Directional state — where this project is going at the longer horizon, and why it matters. This is distinct from its `allostatik/` siblings — `plan.md` holds operational state (what's in flight, in what order); this file holds direction (where it's all headed).
 
-**Last meaningful update:** 2026-10-22 (s42)
+**Last meaningful update:** 2026-10-23 (s44)
 
 ## The user story
 
@@ -63,7 +63,7 @@ There is, and it is a known problem.
 
 - **The graph.** Every opening a marble can pass through (one side of a hex, at one height) is a **port**, a node. Each piece adds arrows inside itself: enter here, leave there. A switch or the vortex leaves by more than one. Two pieces add an arrow between them when one's exit lines up with the other's entrance, same edge and same height, or when a rail spans the gap. A course is then a **directed graph**.
 - **The check.** "Every path from the start reaches a goal" is LeetCode 1059, *All Paths From Source Lead to Destination*. Walk every arrow reachable from the starter. Any reachable port with no way out that isn't a goal is a broken path; a cycle is a marble that never finishes. The work grows with the number of ports, not with the number of possible courses.
-- **Switches.** A switch that remembers its state makes the search run over (port, switch states): the same algorithm on a bigger graph.
+- **Switches.** A switch that remembers its state makes the search run over (port, switch states): the same algorithm on a bigger graph. *Sharpened by Colby, s44:* routes don't only cross, they interact. A switch flips as a marble passes, so the next marble may go the other way. The switches' starting directions are an input to the check, and with several marbles their order matters, each running on the states the last one left. The first build (`traxgen/track_graph.py`) has no switches; when they arrive, its memory of finished doorways must key on switch state too.
 - **Energy.** Each port has a height. A passive piece can't send a marble uphill, so a climbing arrow exists only where a piece adds energy (`EnergyProfile`). That's Phase 2's job, and the data model is already shaped for it.
 - **Generation.** The same graph, searched outward from the starter: place a piece whose entrance matches the open exit, and back up at dead ends. The permutations get pruned, never listed.
 

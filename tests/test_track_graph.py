@@ -131,14 +131,30 @@ def test_a_piece_with_no_rule_makes_the_course_unmeasured() -> None:
     assert "CURVE" in verdict.reason
 
 
-def test_two_valid_connections_on_the_starter_are_unmeasured() -> None:
-    """A marble loads on each valid connection; where they go with two is unmeasured (s44)."""
+def test_two_valid_connections_are_two_routes_both_caught() -> None:
+    """Each valid connection on the starter is a route of its own (Colby, s44)."""
     course = course_of(
         (TileKind.STARTER, (-3, 2), 0),
         (TileKind.GOAL_RAIL, (-3, 3), goal_rotation_for(0)),
         (TileKind.GOAL_RAIL, (-4, 2), goal_rotation_for(2)),
     )
-    assert check_course(course).status is TrackStatus.UNMEASURED
+    assert check_course(course).status is TrackStatus.VALID
+
+
+def test_a_second_route_that_dead_ends_fails_the_course() -> None:
+    """Side 0 reaches a goal and is walked first; side 2 runs off the plate and fails it."""
+    course = course_of(
+        (TileKind.STARTER, (-3, 2), 0),
+        (TileKind.GOAL_RAIL, (-3, 3), goal_rotation_for(0)),
+        (TileKind.CURVE, (-4, 2), 0),
+    )
+    rules = {
+        **PIECE_RULES,
+        TileKind.CURVE: lambda tile, entered, board: Through(exits=frozenset({2})),
+    }
+    verdict = check_course(course, rules=rules)
+    assert verdict.status is TrackStatus.INVALID
+    assert verdict.at == Doorway(cell=HexVector(y=-5, x=2), side=5)
 
 
 def test_a_goal_on_a_completed_half_hole_is_caught() -> None:

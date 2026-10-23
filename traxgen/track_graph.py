@@ -87,8 +87,8 @@ class Through:
     connection** -- a neighbour that accepts the marble from that side -- not
     merely a piece beside it, and not only on a valid track (Colby, s44, by
     eye in the app). So the starter's routes are its accepting neighbours.
-    With none, no marble loads. With more than one, where the marbles go is
-    unmeasured and the answer is UNMEASURED.
+    With none, no marble loads. With several, each is a route of its own and
+    each has to end in a goal (Colby, s44).
     """
 
     exits: frozenset[int] = frozenset()
@@ -142,9 +142,11 @@ PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
 def check_course(course: Course, rules: Mapping[TileKind, PieceRule] = PIECE_RULES) -> TrackVerdict:
     """Walk every route from the starter; VALID only if each one ends caught by a goal.
 
-    INVALID beats UNMEASURED: one measured dead end or loop fails the course
-    whatever the unmeasured routes do. `rules` is injectable so tests can
-    supply pieces the record has not measured, to exercise loops.
+    UNMEASURED is decided before the walk: a course holding anything without a
+    rule reads UNMEASURED even if a measured route in it dead-ends. Walking the
+    measured routes first, so a known dead end could fail such a course, is
+    left until a course needs it. `rules` is injectable so tests can supply
+    pieces the record has not measured, to exercise loops.
     """
     refusal = _unmodelled(course)
     if refusal is not None:
@@ -210,15 +212,12 @@ class _Walk:
         self.board = board
         self.on_route: set[Doorway] = set()
         self.done: set[Doorway] = set()
-        self.unmeasured: TrackVerdict | None = None
 
     def launch(self, starter: PlacedTile) -> TrackVerdict:
         through = self.rules[starter.kind](starter, None, self.board)
         verdict = self._leave(starter, through, at=None)
         if verdict is not None:
             return verdict
-        if self.unmeasured is not None:
-            return self.unmeasured
         return TrackVerdict(TrackStatus.VALID, "every route ends in a goal")
 
     def _leave(self, tile: PlacedTile, through: Through, at: Doorway | None) -> TrackVerdict | None:
@@ -232,14 +231,6 @@ class _Walk:
                 return TrackVerdict(
                     TrackStatus.INVALID, "no valid connection to the starter: no marble loads", at
                 )
-            if len(exits) > 1:
-                self.unmeasured = self.unmeasured or TrackVerdict(
-                    TrackStatus.UNMEASURED,
-                    "starter has more than one valid connection; where its marbles go "
-                    "is unmeasured",
-                    at,
-                )
-                return None
         if not exits:
             return TrackVerdict(
                 TrackStatus.INVALID, f"dead end: {tile.kind.name} has no way on", at

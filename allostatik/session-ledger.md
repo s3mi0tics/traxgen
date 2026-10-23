@@ -92,3 +92,5 @@ TASK-CLOSED s43-t1 DONE
 TASK-OPEN s43-t2 base=4223b5d scope=scripts/finish_record.py,tests/test_finish_record.py,traxgen/graph.py
 TASK-CLOSED s43-t2 DONE
 CLOSED s43
+OPENED s44 2026-10-23
+TASK-OPEN s44-t1 base=da539cb scope=

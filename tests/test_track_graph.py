@@ -98,19 +98,19 @@ def course_of(*tiles: tuple[TileKind, tuple[int, int], int]) -> Course:
     )
 
 
-def test_a_starter_alone_is_a_dead_end() -> None:
+def test_a_starter_alone_loads_no_marble() -> None:
     verdict = check_course(course_of((TileKind.STARTER, (-3, 2), 0)))
     assert verdict.status is TrackStatus.INVALID
-    assert "dead end" in verdict.reason
+    assert "no marble loads" in verdict.reason
 
 
-def test_a_goal_turned_away_is_a_dead_end_at_its_doorway() -> None:
+def test_a_goal_turned_away_is_no_connection() -> None:
     """Phase 1's geometry with the goal one rotation off: the marble reaches it, is not caught."""
     verdict = check_course(
         course_of((TileKind.STARTER, (0, 0), 0), (TileKind.GOAL_RAIL, (-1, 0), 4))
     )
     assert verdict.status is TrackStatus.INVALID
-    assert verdict.at == Doorway(cell=HexVector(y=-1, x=0), side=5)
+    assert verdict.reason == "no valid connection to the starter: no marble loads"
 
 
 def test_the_phase_1_course_is_valid() -> None:
@@ -131,8 +131,8 @@ def test_a_piece_with_no_rule_makes_the_course_unmeasured() -> None:
     assert "CURVE" in verdict.reason
 
 
-def test_two_pieces_on_the_starter_are_unmeasured() -> None:
-    """Which way the marbles leave depends on where they sit in the starter (Colby, s44)."""
+def test_two_valid_connections_on_the_starter_are_unmeasured() -> None:
+    """A marble loads on each valid connection; where they go with two is unmeasured (s44)."""
     course = course_of(
         (TileKind.STARTER, (-3, 2), 0),
         (TileKind.GOAL_RAIL, (-3, 3), goal_rotation_for(0)),
@@ -207,3 +207,43 @@ def test_a_starter_with_nothing_attached_is_invalid_at_every_rotation(rotation: 
     assert (
         check_course(course_of((TileKind.STARTER, (-3, 2), rotation))).status is TrackStatus.INVALID
     )
+
+
+def test_a_valid_connection_beside_a_wrong_way_goal_is_valid() -> None:
+    """The marble loads on the valid connection only (Colby, s44): the wrong-way goal is not one."""
+    course = course_of(
+        (TileKind.STARTER, (-3, 2), 0),
+        (TileKind.GOAL_RAIL, (-3, 3), goal_rotation_for(0)),
+        (TileKind.GOAL_RAIL, (-4, 2), (goal_rotation_for(2) + 1) % 6),
+    )
+    assert check_course(course).status is TrackStatus.VALID
+
+
+def test_the_half_hole_misses_are_dead_ends_at_the_goal_not_no_connection() -> None:
+    """A goal on an uncompleted half-hole is a connection: the marble rolls in and is not caught."""
+    misses = [e for e in MEASURED_FINISHES if not e.finished]
+    assert len(misses) == 3
+    for entry in misses:
+        verdict = check_course(
+            cell_course(entry.run, entry.direction, goal_rotation_for(entry.direction))
+        )
+        assert verdict.reason.startswith("dead end"), verdict.reason
+        assert verdict.at == Doorway(cell=HexVector(y=0, x=1), side=3)
+
+
+def straight_east_rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
+    """Test piece: whatever it was entered by, it leaves by side 0 (E)."""
+    return Through(exits=frozenset({0}))
+
+
+def test_a_route_into_a_wrong_way_goal_names_the_goal() -> None:
+    """Mid-route, a goal turned away is a dead end at its own doorway, said as 'no way in'."""
+    course = course_of(
+        (TileKind.STARTER, (-3, 2), 0),
+        (TileKind.CURVE, (-3, 3), 0),
+        (TileKind.GOAL_RAIL, (-3, 4), (goal_rotation_for(0) + 1) % 6),
+    )
+    verdict = check_course(course, rules={**PIECE_RULES, TileKind.CURVE: straight_east_rule})
+    assert verdict.status is TrackStatus.INVALID
+    assert verdict.reason == "dead end: GOAL_RAIL has no way in here"
+    assert verdict.at == Doorway(cell=HexVector(y=-3, x=4), side=3)

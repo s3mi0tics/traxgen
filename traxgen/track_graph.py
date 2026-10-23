@@ -78,18 +78,23 @@ class Through:
     `exits` are world sides the marble may leave by. `caught` means the piece
     is a goal that holds it. `only_where_joined` is the starter's rule: its
     sides with nothing behind them are not routes (every recorded course has
-    two such sides and still finishes).
+    two such sides and still finishes). `accepts` is False when the piece has
+    no way in by that side at all -- a goal turned away -- as distinct from a
+    piece that takes the marble in and has no way on, which is a dead end.
 
     Which side a starter's marble leaves by depends on where the marbles sit in
-    it (Colby, s44). The course format as parsed carries no marble placement,
-    and every recorded course has exactly one piece attached, so "toward the
-    attached piece" is what the record supports; with more than one attached
-    the answer is UNMEASURED until placement is understood.
+    it, and the app loads a marble only where the starter has a **valid
+    connection** -- a neighbour that accepts the marble from that side -- not
+    merely a piece beside it, and not only on a valid track (Colby, s44, by
+    eye in the app). So the starter's routes are its accepting neighbours.
+    With none, no marble loads. With more than one, where the marbles go is
+    unmeasured and the answer is UNMEASURED.
     """
 
     exits: frozenset[int] = frozenset()
     caught: bool = False
     only_where_joined: bool = False
+    accepts: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +111,7 @@ PieceRule = Callable[[PlacedTile, int | None, Board], Through]
 def starter_rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
     """STARTER: launched from START, it may leave by sides (0, 2, 4) turned by its rotation."""
     if entered is not None:
-        return Through()
+        return Through(accepts=False)
     return Through(
         exits=frozenset((p + tile.hex_rotation) % 6 for p in STARTER_INTRINSIC_PORTS),
         only_where_joined=True,
@@ -122,7 +127,7 @@ def goal_rail_rule(tile: PlacedTile, entered: int | None, board: Board) -> Throu
     half-hole finished (r06).
     """
     if entered != (GOAL_RAIL_ENTRANCE + tile.hex_rotation) % 6:
-        return Through()
+        return Through(accepts=False)
     return Through(caught=not _on_uncompleted_half_hole(tile, board))
 
 
@@ -222,12 +227,16 @@ class _Walk:
             return None
         exits = sorted(through.exits)
         if through.only_where_joined:
-            exits = [e for e in exits if self._tile_behind(tile, e) is not None]
+            exits = [e for e in exits if self._accepts(tile, e)]
+            if not exits:
+                return TrackVerdict(
+                    TrackStatus.INVALID, "no valid connection to the starter: no marble loads", at
+                )
             if len(exits) > 1:
                 self.unmeasured = self.unmeasured or TrackVerdict(
                     TrackStatus.UNMEASURED,
-                    "starter has more than one piece attached; which way its marbles leave "
-                    "depends on where they sit, which is unmeasured",
+                    "starter has more than one valid connection; where its marbles go "
+                    "is unmeasured",
                     at,
                 )
                 return None
@@ -262,10 +271,22 @@ class _Walk:
             )
         self.on_route.add(door)
         through = self.rules[behind.kind](behind, door.side, self.board)
+        if not through.accepts:
+            self.on_route.discard(door)
+            return TrackVerdict(
+                TrackStatus.INVALID, f"dead end: {behind.kind.name} has no way in here", door
+            )
         verdict = self._leave(behind, through, at=door)
         self.on_route.discard(door)
         self.done.add(door)
         return verdict
+
+    def _accepts(self, tile: PlacedTile, side: int) -> bool:
+        """Whether the neighbour across `side` is on its plate and takes the marble in there."""
+        behind = self._tile_behind(tile, side)
+        if behind is None or not is_on_plate(behind.layer_kind, behind.local_pos):
+            return False
+        return self.rules[behind.kind](behind, (side + 3) % 6, self.board).accepts
 
     def _tile_behind(self, tile: PlacedTile, side: int) -> PlacedTile | None:
         nxt = tile.world_pos.neighbor(side)

@@ -98,3 +98,4 @@ TASK-CLOSED s44-t1 DONE
 TASK-OPEN s44-t2 base=194de4c scope=traxgen/track_graph.py,tests/test_track_graph.py
 TASK-CLOSED s44-t2 DONE
 TASK-OPEN s44-t3 base=55c170e scope=traxgen/track_graph.py,tests/test_track_graph.py
+TASK-CLOSED s44-t3 DONE

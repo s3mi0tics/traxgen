@@ -199,4 +199,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #62 · **An option's cost was judged per check, not per loop.** → observations.md:128, body 71w
 #63 · **A done check named an output the code never prints.** → observations.md:130, body 110w
 #64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 72w
-#65 · **A piece rule written from the record alone got corrected twice by someone who has used the piece.** → observations.md:134, body 72w
+#65 · **A piece rule written from the record alone got corrected twice by someone who has used the piece.** → observations.md:134, body 112w

@@ -32,7 +32,11 @@ Phase 2, first item done; item 2's graph checker has a first build (s44): `traxg
 
 First traxgen-generated course certified valid by the app: share code `FLW4TMLP5V` (no-rail STARTER + GOAL_RAIL adjacency shape). The validated geometry: STARTER@(0,0) rot 0 + GOAL_RAIL@(-1,0) rot 3, `rail_count = 0`.
 
-**What is true now.** Findings the next session still needs, s44's first:
+**What is true now.** Findings the next session still needs, s45's first:
+
+- **The curve has two tracks, read from Colby's own course, not yet by the harness.** `7UNB5OAAOT` (Colby, on his phone, 2026-10-27; SkyTrax format, read from murmelbahn's dump): six launch pads at rotation 0, each with a CURVE one step NW, curve rotations 0, 5, 0, 3, 2, 1. In the curve's own frame (side entered = (5 - rotation) % 6): a gentle 60-degree track joins sides 0 and 2, a sharp 120-degree track joins sides 3 and 4, and side 5 takes no marble (twice). Side 1 (rotation 4) was never tested; predicted closed. All four trails match those exits under one screen mapping, and a second run agreed. The corpus only half agrees (rail ends on the odd sides 1, 3, 5 at the same low rate), possibly height. Not yet in `track_graph.PIECE_RULES`. (2026-10-27, s45.)
+- **One board can hold many tests.** The app plays a course with several launch pads and curves, each launch pad loading a marble only where it has a valid connection, each trail its own colour (colours change run to run). Colby's design: pairs that don't touch, more plates when room runs out. s45's proposal, not built: a ring per test, launch pad on one side and a goal on each of the other five, read by the finish burst located per goal through s42's with/without-goal diff. (2026-10-27, s45.)
+- **Colby's multi-launch-pad boards played with no goal piece on them.** s42-t4 saw a pale button and a dead play on a no-goal course on the emulator. One record is incomplete (#28). (2026-10-27, s45.)
 
 - **The graph checker exists, and gets the record right.** `traxgen/track_graph.check_course` treats a course as doorways: a node is the marble crossing into a cell by one side. It walks every route from the starter and answers VALID, INVALID (naming the dead end or loop) or UNMEASURED (anything without a rule: any piece but STARTER and GOAL_RAIL, rails, stacking, pillars, balconies). Against `MEASURED_FINISHES` it gets 17 VALID and 3 INVALID, matching, and all 220 placement-dark cells read INVALID (D096). But all 20 are connected cells, so that trace tested only the half-hole term (#64). (2026-10-23, s44.)
 - **A marble loads only where the starter has a valid connection, and each one is a route** (Colby, s44, from the app). A valid connection is a neighbour that takes the marble in from that side, not just a piece beside it. With none, no marble loads; with several, every route must end in a goal. (2026-10-23, s44.)
@@ -85,6 +89,8 @@ Artifact status: nothing was lost with the deleted `~/Desktop/Hub` checkout — 
 **s40 (2026-10-08): clause (4) was never measured.** It was read from the play button's triangle, which checks placement, not the path (*What is true now*). The closure stands until item 19's finish check runs on `KN6F459ZR3`; a reading that was never about the path is not grounds to reopen it either.
 
 ## Sequenced work in flight
+
+**Order as of s45: (1) the curve rule into `PIECE_RULES` from `7UNB5OAAOT`, plus rotation 4; (2) a test-board generator (rings, a goal on every other side), first played on the curve on the emulator, read per goal -- gated on #29; (3) a starter -> curve -> goal route the checker passes, seen to finish; then s44's (2) onward.** No goal was approved in s45: the session became Colby measuring on his phone, and closed before the open's goal step.
 
 **Order as of s44: (1) item 2 continues -- the next piece rule the checker needs is the curve's, and it has to come from measurement (#7, item 1), so the first job is the cheapest curve measurement; (2) the two cheap tests in #26 and #27's first half; (3) the first finishing run on each other goal piece; then 18, 20, 21, and 3 -> 8 -> 1 -> 7 -> 10 -> 9.** s43's step (1) has its first build (s44-t2 to t4).
 
@@ -172,6 +178,10 @@ Still-open v1-scope unknowns, numbering preserved from the original PLAN.md for 
 - **#25 Which screen does `render_course`'s cleanup end on?** -- new 2026-10-22 (s43). After two play runs it measured 24.9 from the main-menu signature (threshold 10), yet a link load from there worked. Typed campaigns have rendered after cleanup without a reset for months, so it is probably not new, but nobody has looked. It matters for the typed route, whose first tap assumes the main menu. *Cheap test:* save the frame after cleanup once, with and without a play run.
 
 - **#26 Are the 3 half-hole misses about the half-hole, or about that one placement?** -- new 2026-10-23 (s44). All three are starter (0,0), goal East on (0,1), at rotations 0, 2, 4, so the two readings can't be told apart. `track_graph`'s goal rule uses the half-hole reading, labelled fitted. *Cheap test:* goal rails on the other two half-holes of a lone plate, (-1,3) and (-2,5), reached from a side other than West; a handful of renders. Colby: queue it (s44).
+
+- **#28 Does a course with no goal piece play?** -- new 2026-10-27 (s45). Colby's multi-launch-pad boards played with none on his phone; s42-t4's single no-goal course on the emulator showed a pale button. *Cheap test:* `7UNB5OAAOT` by link on the emulator.
+
+- **#29 How many finish lines will the app play on one board?** -- new 2026-10-27 (s45). The test-board design needs up to five per test. *Cheap test:* Colby, on his phone: a ring of five finish lines around one curve, play pressed.
 
 - **#27 How do switches, and more than one marble, enter the check?** -- new 2026-10-23 (s44). Colby: routes can cross and also interact; a switch flips as a marble passes, so a route depends on the switch's starting direction and on marble order. The search state becomes (doorway, every switch's position), with starting directions as an input. First half, cheap: with two valid connections on the starter, how many marbles load and in what order? One course, one watched run. *Trigger for the rest:* the first switch rule.
 

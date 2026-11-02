@@ -132,3 +132,4 @@ TASK-CLOSED s48-t1 FAILED
 TASK-OPEN s48-t2 base=a953d71 scope=tests/test_android_foreground.py
 TASK-CLOSED s48-t2 DONE
 TASK-OPEN s48-t3 base=f969254 scope=
+TASK-CLOSED s48-t3 DONE

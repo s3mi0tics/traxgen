@@ -122,3 +122,4 @@ TASK-CLOSED s47-t2 DONE
 TASK-OPEN s47-t3 base=0a473cf scope=traxgen/ring_board.py,tests/test_ring_board.py,scripts/probe_finish_frames.py,tests/test_probe_finish_frames.py
 TASK-CLOSED s47-t3 DONE
 TASK-OPEN s47-t4 base=9cca419 scope=
+TASK-CLOSED s47-t4 DONE

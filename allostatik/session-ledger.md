@@ -114,3 +114,5 @@ TASK-CLOSED s46-t3 DONE
 TASK-OPEN s46-t4 base=91edfe0 scope=
 TASK-CLOSED s46-t4 DONE
 CLOSED s46
+OPENED s47 2026-11-02
+TASK-OPEN s47-t1 base=f822de8 scope=traxgen/android.py,scripts/emulator.py,scripts/preflight.py,tests/test_android_foreground.py,tests/test_emulator.py,tests/test_emulator_session.py,tests/test_preflight.py,tests/test_adb_serial.py

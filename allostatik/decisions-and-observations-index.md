@@ -123,6 +123,8 @@ D093 · A finish is the app's finish burst, for every goal piece (2026-10-22, s4
 D094 · `render_course` loads by link only when asked; the render command defaults to the link (2026-10-22, s43) → decisions.md:111, body 156w
 D095 · Finishes are recorded per cell, beside the placement record (2026-10-22, s43) → decisions.md:112, body 127w
 D096 · The graph checker walks doorways; every route from the starter must end in a goal (2026-10-23, s44) → decisions.md:113, body 217w
+D097 · The curve joins sides 0-2 (gentle) and 3-4 (sharp); 1 and 5 take no marble (2026-11-01, s46) → decisions.md:114, body 120w
+D098 · A piece is measured on a ring board, read from trails (2026-11-01, s46) → decisions.md:115, body 158w
 
 ## Observations
 
@@ -197,6 +199,8 @@ kind. Promotion means three or more firings across separate sessions.*
 #60 · **A convention's cheap test named the wrong thing, and nothing ever ran it against a real case.** → observations.md:124, body 70w
 #61 · **A brief signal was ruled out by comparing only the first and last frames.** → observations.md:126, body 98w
 #62 · **An option's cost was judged per check, not per loop.** → observations.md:128, body 71w
-#63 · **A done check named an output the code never prints.** → observations.md:130, body 110w
-#64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 72w
+#63 · **A done check named an output the code never prints.** → observations.md:130, body 154w
+#64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 105w
 #65 · **A piece rule written from the record alone got corrected twice by someone who has used the piece.** → observations.md:134, body 112w
+#66 · **A signal assumed local because every course so far had one goal.** → observations.md:136, body 106w
+#67 · **The harness talks to whatever Android device is attached.** → observations.md:138, body 65w

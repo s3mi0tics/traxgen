@@ -134,3 +134,4 @@ TASK-CLOSED s48-t2 DONE
 TASK-OPEN s48-t3 base=f969254 scope=
 TASK-CLOSED s48-t3 DONE
 TASK-OPEN s48-t4 base=d1e4737 scope=scripts/probe_switch_flip.py
+TASK-CLOSED s48-t4 DONE

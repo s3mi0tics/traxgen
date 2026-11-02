@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-11-02 (s47)
+**Last updated:** 2026-11-02 (s48)
 
 ## Runtime
 
@@ -56,7 +56,10 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - **The finish check is `traxgen.android.judge_finish`** (s42, D093). It reads the app's finish burst from frames captured back to back after play. `scripts/probe_finish_frames.py --link CODE ...` runs it live and writes `finish`, `finish_peak` and `median_interval` into each `frames.json`; `--runs N` repeats each code. A failed attempt saves the phone's evidence (s42-t3).
 - **Claude Code on this Mac renders in-session** (s41). Unlike Cowork and the container, it has adb and the emulator, so a render is a background command, not a handoff. `numpy` and `scipy` are not project dependencies; a one-off analysis uses `uv run --with numpy --with scipy`.
 
-- **A piece's ring test board** (s46, D098; s47, D100): `uv run python -m scripts.ring_board KIND --no-goals` uploads the goal-less board, `uv run python -m scripts.probe_finish_frames --link <code>` plays it (frames go to a fresh `run_<n>` if the code already has some), and the exits come from its trails through `ring_board.STANDARD_SQUARE_SCREEN` (s47-t4's reading, in its report). `read_ring_board KIND` still needs the goal board too. Look at `before.png` first: the probe can record the build tutorial as a result (#68).
+- **A piece's ring test board** (s46, D098; s47, D100): `uv run python -m scripts.ring_board KIND --no-goals` uploads the goal-less board, `uv run python -m scripts.probe_finish_frames --link <code>` plays it (frames go to a fresh `run_<n>` if the code already has some), and the exits come from its trails through `ring_board.STANDARD_SQUARE_SCREEN` (s47-t4's reading, in its report). `read_ring_board KIND` still needs the goal board too. Since s48 the probe's load refuses the build tutorial, a loading screen and the launcher (D102), so a failed attempt says why; `before.png` is still worth a look for screens no check knows.
+
+- **Two marbles at one switch** (s48-t4): `uv run python -m scripts.probe_switch_flip --pairs-only --run 3` uploads a goal-less board with each switch fed by a near launch pad and a far one behind a straight run of X-intersections. Three gives the order cleanly; six loses the far marble.
+- **Finish readings on a course with a switch are not evidence** (s48, item 23): the lever's swing reads as a burst.
 
 ## Gotchas (each learned the hard way)
 

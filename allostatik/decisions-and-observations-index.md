@@ -128,6 +128,9 @@ D098 · A piece is measured on a ring board, read from trails (2026-11-01, s46) 
 D099 · The X-intersection is two straight tracks, 1-4 and 2-5; 0 and 3 take no marble (2026-11-02, s47) → decisions.md:116, body 123w
 D100 · On the standard square, a ring board needs only its goal-less twin, read through the screen map (2026-11-02, s47) → decisions.md:117, body 138w
 D101 · Every adb call names the emulator; a phone serial cannot make a context (2026-11-02, s47) → decisions.md:118, body 103w
+D102 · Every path that opens a course goes through `load_course`, which refuses a courseless screen (2026-11-02, s48) → decisions.md:119, body 145w
+D103 · The switch is a three-sided piece whose kind is its lever's starting position (2026-11-02, s48) → decisions.md:120, body 157w
+D104 · The checker holds the switch for one marble per switch, and says UNMEASURED where a second marble could reach one (2026-11-02, s48) → decisions.md:121, body 108w
 
 ## Observations
 
@@ -202,9 +205,10 @@ kind. Promotion means three or more firings across separate sessions.*
 #60 · **A convention's cheap test named the wrong thing, and nothing ever ran it against a real case.** → observations.md:124, body 70w
 #61 · **A brief signal was ruled out by comparing only the first and last frames.** → observations.md:126, body 98w
 #62 · **An option's cost was judged per check, not per loop.** → observations.md:128, body 71w
-#63 · **A done check named an output the code never prints.** → observations.md:130, body 245w
+#63 · **A done check named an output the code never prints.** → observations.md:130, body 302w
 #64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 105w
 #65 · **A piece rule written from the record alone got corrected twice by someone who has used the piece.** → observations.md:134, body 112w
-#66 · **A signal assumed local because every course so far had one goal.** → observations.md:136, body 106w
+#66 · **A signal assumed local because every course so far had one goal.** → observations.md:136, body 165w
 #67 · **The harness talks to whatever Android device is attached.** → observations.md:138, body 89w
-#68 · **A harness reported a screen it never rendered as a result, again, on a path built after the guard.** → observations.md:140, body 91w
+#68 · **A harness reported a screen it never rendered as a result, again, on a path built after the guard.** → observations.md:140, body 110w
+#69 · **A task's scope missed a test that feeds the code it changed.** → observations.md:142, body 86w

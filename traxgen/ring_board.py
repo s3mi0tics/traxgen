@@ -115,13 +115,19 @@ def place_rings(plates: Sequence[HexVector], rotations: Iterable[int]) -> tuple[
     return tuple(rings)
 
 
-def ring_tiles(kind: TileKind, plates: Sequence[HexVector], ring: Ring) -> list[TilePlacement]:
-    """The ring's seven tiles, each addressed on the plate that owns its cell."""
+def ring_tiles(
+    kind: TileKind, plates: Sequence[HexVector], ring: Ring, *, goals: bool = True
+) -> list[TilePlacement]:
+    """The ring's tiles, each addressed on the plate that owns its cell; `goals=False` drops the
+    five goals, for the reference frame a per-goal reader subtracts."""
     placed = [
         (kind, ring.centre, ring.rotation),
         (TileKind.STARTER, ring.starter, STARTER_ROTATION),
     ]
-    placed += [(TileKind.GOAL_RAIL, cell, goal_rotation_for(d)) for d, cell in ring.goals.items()]
+    if goals:
+        placed += [
+            (TileKind.GOAL_RAIL, cell, goal_rotation_for(d)) for d, cell in ring.goals.items()
+        ]
     tiles = []
     for tile_kind, cell, rotation in placed:
         owner = owning_plate(plates, cell)
@@ -135,13 +141,17 @@ def ring_board(
     kind: TileKind,
     rotations: Iterable[int] = range(6),
     plate_positions: Sequence[tuple[int, int]] = STANDARD_SQUARE,
+    *,
+    goals: bool = True,
 ) -> RingBoard:
-    """A course with one ring of `kind` per rotation."""
+    """A course with one ring of `kind` per rotation; without its goals when `goals=False`."""
     plates = tuple(HexVector(y=y, x=x) for y, x in plate_positions)
     rings = place_rings(plates, rotations)
-    tiles = [t for ring in rings for t in ring_tiles(kind, plates, ring)]
+    tiles = [t for ring in rings for t in ring_tiles(kind, plates, ring, goals=goals)]
     course = build_course(
-        plate_world_positions=plates, tiles=tiles, title=f"traxgen-rings-{kind.name.lower()}"
+        plate_world_positions=plates,
+        tiles=tiles,
+        title=f"traxgen-rings-{kind.name.lower()}{'' if goals else '-nogoals'}",
     )
     return RingBoard(kind=kind, course=course, plates=plates, rings=rings)
 

@@ -102,3 +102,18 @@ def test_a_half_hole_is_buildable_only_with_its_completing_plate() -> None:
     for y, x in half_holes:
         assert not is_buildable(lone, HexVector(y=y, x=x))
         assert is_buildable(completed, HexVector(y=y, x=x))
+
+
+def test_the_goalless_board_is_the_same_board_minus_its_goals(curve_board: RingBoard) -> None:
+    """Same rings, same pieces and pads, no GOAL_RAIL: the reference frame for the reader."""
+    bare = ring_board(TileKind.CURVE, goals=False)
+    assert bare.rings == curve_board.rings
+    full = {
+        (t.world_pos.y, t.world_pos.x, t.kind, t.hex_rotation)
+        for t in placed_tiles(curve_board.course)
+    }
+    rest = {
+        (t.world_pos.y, t.world_pos.x, t.kind, t.hex_rotation) for t in placed_tiles(bare.course)
+    }
+    assert rest == {t for t in full if t[2] is not TileKind.GOAL_RAIL}
+    assert len(full) - len(rest) == 6 * 5

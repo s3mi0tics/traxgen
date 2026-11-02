@@ -29,6 +29,7 @@ import pytest
 from PIL import Image
 
 from traxgen.android import (
+    EMULATOR_SERIAL,
     AdbContext,
     FrameUnreadableError,
     capture_png,
@@ -79,7 +80,7 @@ def test_the_truncated_fixture_is_the_case_a_header_check_would_miss() -> None:
 def test_a_whole_frame_passes_through_byte_for_byte() -> None:
     ctx, fake = _ctx(WHOLE_PNG)
     assert capture_png(ctx) == WHOLE_PNG
-    assert fake.calls == [[str(ADB), "exec-out", "screencap", "-p"]]
+    assert fake.calls == [[str(ADB), "-s", EMULATOR_SERIAL, "exec-out", "screencap", "-p"]]
 
 
 def test_an_empty_capture_is_named_rather_than_decoded() -> None:

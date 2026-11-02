@@ -15,7 +15,8 @@ evening that lost two campaigns to the environment
 (`docs/refs/testing-against-a-live-app.md`), with the sixth and seventh slotted
 where they belong among them:
 
-1. **device attached** -- `adb devices` lists an `emulator-*` in state `device`.
+1. **device attached** -- `adb devices` lists the context's pinned serial in
+   state `device` (any other attached device is named, never driven; #67).
 2. **boot complete** -- `getprop sys.boot_completed` is `1`.
 3. **the renderer is not a software rasteriser** -- `dumpsys SurfaceFlinger`'s
    `GLES:` line does not name SwiftShader or another CPU renderer. A deny-list,
@@ -74,6 +75,7 @@ from traxgen.android import (
     AdbNotFoundError,
     _run_adb,
     _run_adb_binary,
+    device_state,
     read_app_version,
     read_foreground_package,
     read_gles_renderer,
@@ -131,13 +133,18 @@ def check_device_attached(ctx: AdbContext) -> Check:
         out = _run_adb(ctx, "devices")
     except AdbCommandFailedError as exc:
         return _adb_failure("device_attached", exc)
-    rows = [line.split("\t") for line in out.splitlines() if "\t" in line]
-    emulators = [(serial, state) for serial, state in rows if serial.startswith("emulator-")]
-    ready = [serial for serial, state in emulators if state == "device"]
-    measured = ", ".join(f"{s} {st}" for s, st in emulators) or "no emulator listed"
+    state = device_state(out, ctx.serial)
+    measured = f"{ctx.serial} {state or 'not listed'}"
+    others = [
+        line.split("\t")[0]
+        for line in out.splitlines()
+        if "\t" in line and line.split("\t")[0] != ctx.serial
+    ]
+    if others:
+        measured += f"; also attached, never driven: {', '.join(others)}"
     return Check(
         "device_attached",
-        bool(ready),
+        state == "device",
         measured,
         "boot the AVD with environment.md's command; an `offline` state is not attached",
     )

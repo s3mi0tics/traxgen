@@ -45,6 +45,7 @@ from tests.test_android_foreground import (
     PACKAGE_DUMP,
     SURFACEFLINGER_GLES_SOFTWARE,
     FakeAdb,
+    adb_args,
     ctx_with,
 )
 from traxgen.android import COORDS, DEFAULT_PACKAGE, MEASURED_APP_VERSION
@@ -129,9 +130,18 @@ def test_a_dump_with_no_gles_line_fails_rather_than_passing_unmeasured() -> None
 @pytest.mark.parametrize(
     ("devices", "measured"),
     [
-        ("List of devices attached\n\n", "no emulator listed"),
+        ("List of devices attached\n\n", "emulator-5554 not listed"),
         ("List of devices attached\nemulator-5554\toffline\n\n", "emulator-5554 offline"),
-        ("List of devices attached\nR58M12345\tdevice\n\n", "no emulator listed"),
+        (
+            "List of devices attached\nR58M12345\tdevice\n\n",
+            "emulator-5554 not listed; also attached, never driven: R58M12345",
+        ),
+        # Another emulator is not the one the harness booted: the old check
+        # passed on any `emulator-` row.
+        (
+            "List of devices attached\nemulator-5556\tdevice\n\n",
+            "emulator-5554 not listed; also attached, never driven: emulator-5556",
+        ),
     ],
 )
 def test_a_missing_or_offline_emulator_fails_the_device_check(
@@ -232,7 +242,7 @@ class HangingShell(FakeAdb):
 
     def __call__(self, cmd: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess:
         argv = [str(part) for part in cmd]
-        if argv[1:2] in (["shell"], ["exec-out"]):
+        if adb_args(argv)[:1] in (["shell"], ["exec-out"]):
             self.calls.append(argv)
             raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 10.0))
         return super().__call__(cmd, **kwargs)

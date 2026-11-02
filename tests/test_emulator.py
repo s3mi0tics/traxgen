@@ -46,6 +46,7 @@ from tests.test_android_foreground import (
     GRAVITRAX_DUMP,
     PACKAGE_DUMP,
     SURFACEFLINGER_GLES,
+    adb_args,
 )
 from traxgen.android import AdbContext
 
@@ -88,6 +89,7 @@ class ScriptedAdb:
 
     def __call__(self, cmd: Sequence[str], **_: object) -> subprocess.CompletedProcess:
         argv = [str(part) for part in cmd]
+        args = adb_args(argv)
         self.calls.append(argv)
         joined = " ".join(argv)
 
@@ -100,13 +102,13 @@ class ScriptedAdb:
                 return subprocess.CompletedProcess(argv, code, "", stderr)
             return subprocess.CompletedProcess(argv, 0, f"{answer}\n", "")
 
-        if argv[1:3] == ["emu", "kill"]:
+        if args[:2] == ["emu", "kill"]:
             if self.emu_kill is not None:
                 code, stderr = self.emu_kill
                 return subprocess.CompletedProcess(argv, code, "", stderr)
             return subprocess.CompletedProcess(argv, 0, "", "")
 
-        if argv[1:2] == ["devices"]:
+        if args[:1] == ["devices"]:
             return subprocess.CompletedProcess(
                 argv, 0, "List of devices attached\nemulator-5554\tdevice\n\n", ""
             )
@@ -215,6 +217,8 @@ def test_launch_is_cold_detached_and_truncates_the_log(tmp_path: Path) -> None:
         "-no-snapshot-load",
         "-gpu",
         DEFAULT_GPU_MODE,
+        "-port",
+        "5554",
     ]
     assert kwargs["start_new_session"] is True
     # preflight's "zero graphics errors *since boot*" is only honest if the log
@@ -403,7 +407,7 @@ def test_teardown_never_signals_qemu_directly() -> None:
     pgrep = FakePgrep([("501",), ()])
     kill_emulator(ctx_with(adb), clock=clock, sleep=clock.sleep, run=pgrep, interval=1.0)
     assert all(argv[0] == "pgrep" for argv in pgrep.calls)
-    assert not any(argv[1:2] == ["kill"] for argv in adb.calls)
+    assert not any(adb_args(argv)[:1] == ["kill"] for argv in adb.calls)
 
 
 def test_a_failed_emu_kill_is_reported_and_waited_out() -> None:
@@ -489,7 +493,8 @@ def test_the_gpu_mode_is_named_by_the_caller_not_by_the_avd_config(tmp_path: Pat
         popen=popen,
     )
     argv, _ = popen.calls[0]
-    assert argv[-2:] == ["-gpu", "swiftshader_indirect"]
+    gpu = argv.index("-gpu")
+    assert argv[gpu : gpu + 2] == ["-gpu", "swiftshader_indirect"]
 
 
 def test_boot_grades_the_device_and_says_which_checks_it_did_not_run(tmp_path: Path) -> None:

@@ -137,6 +137,16 @@ PACKAGE_DUMP = """Packages:
 """
 
 
+def adb_args(argv: Sequence[str]) -> list[str]:
+    """The adb command after its `-s <serial>`, refusing an unpinned call (#67).
+
+    Every fake runner goes through this, so a code path that builds adb argv
+    without naming the device fails the test that exercises it.
+    """
+    assert list(argv[1:2]) == ["-s"] and len(argv) > 3, f"adb call not pinned: {argv}"
+    return list(argv[3:])
+
+
 class FakeAdb:
     """Stands in for `subprocess.run`, recording argv and scripting stdout.
 
@@ -177,6 +187,7 @@ class FakeAdb:
         self, cmd: Sequence[str], **kwargs: object
     ) -> subprocess.CompletedProcess:
         argv = [str(part) for part in cmd]
+        adb_args(argv)
         self.calls.append(argv)
         self.timeouts.append(kwargs.get("timeout"))
         joined = " ".join(argv)
@@ -189,7 +200,7 @@ class FakeAdb:
             self.screencaps_served += 1
             return subprocess.CompletedProcess(argv, 0, frame, b"")
 
-        if argv[1:2] == ["devices"]:
+        if adb_args(argv)[:1] == ["devices"]:
             out = self.devices
         elif "sys.boot_completed" in joined:
             out = self.boot_completed + "\n"

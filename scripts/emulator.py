@@ -70,6 +70,8 @@ from traxgen.android import (
     DEFAULT_ANDROID_HOME,
     DEFAULT_PACKAGE,
     DEFAULT_SCREENSHOT_DIR,
+    EMULATOR_SERIAL,
+    EMULATOR_SERIAL_PATTERN,
     AdbCommandFailedError,
     AdbContext,
     AdbNotFoundError,
@@ -166,9 +168,15 @@ def spawn_emulator(
     log_path: Path,
     *,
     gpu_mode: str = DEFAULT_GPU_MODE,
+    serial: str = EMULATOR_SERIAL,
     popen: Callable[..., object] = subprocess.Popen,
 ) -> object:
     """Launch the AVD cold and detached, with its log truncated.
+
+    `-port` comes from the serial the harness pins (#67): `emulator-5554` is
+    the AVD on console port 5554. Left to choose, the emulator takes the next
+    free port, and the pinned serial would then name nothing -- or another
+    emulator. With the port fixed, a taken port fails the boot loudly instead.
 
     Truncating the log is what makes preflight's "zero graphics errors *since
     boot*" an honest sentence rather than a count over every session this
@@ -181,11 +189,21 @@ def spawn_emulator(
     """
     with log_path.open("wb") as log:
         return popen(
-            [str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", gpu_mode],
+            [
+                str(binary), "-avd", avd, "-no-snapshot-load", "-gpu", gpu_mode,
+                "-port", _console_port(serial),
+            ],
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
+
+
+def _console_port(serial: str) -> str:
+    match = EMULATOR_SERIAL_PATTERN.fullmatch(serial)
+    if match is None:
+        raise ValueError(f"not an emulator serial: {serial!r}")
+    return match.group(1)
 
 
 def wait_for_boot(
@@ -401,7 +419,7 @@ def boot(
         )
 
     out(f"booting {avd} cold with -gpu {gpu_mode}; log -> {log_path}")
-    spawn_emulator(binary, avd, log_path, gpu_mode=gpu_mode, popen=popen)
+    spawn_emulator(binary, avd, log_path, gpu_mode=gpu_mode, serial=ctx.serial, popen=popen)
 
     def teardown() -> None:
         out("interrupted before boot completed -- tearing down what was launched")

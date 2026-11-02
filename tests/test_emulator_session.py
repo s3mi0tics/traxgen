@@ -33,6 +33,7 @@ import pytest
 
 from scripts.emulator import EmulatorLifecycleError, KillOutcome, save_device_evidence, session
 from scripts.preflight import Check
+from tests.test_android_foreground import adb_args
 from traxgen.android import AdbContext
 
 CTX = AdbContext(adb_path=Path("/nonexistent/adb"))
@@ -198,7 +199,7 @@ class Phone:
     def __call__(self, cmd: Sequence[str], **_: object) -> subprocess.CompletedProcess[bytes]:
         argv = [str(part) for part in cmd]
         self.calls.append(argv)
-        joined = " ".join(argv[1:])
+        joined = " ".join(adb_args(argv))
         for needle, exc in self.raise_on.items():
             if needle in joined:
                 raise exc

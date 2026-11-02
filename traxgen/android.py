@@ -26,6 +26,12 @@ from typing import Any, NamedTuple
 
 DEFAULT_ANDROID_HOME = Path.home() / "Library" / "Android" / "sdk"
 DEFAULT_PACKAGE = "com.ravensburger.gravitrax"
+# The serial every adb call names. adb with no `-s` picks whatever single
+# device is attached, and on 2026-11-01 that was Colby's USB phone (#67), so
+# the harness never runs unpinned. `scripts.emulator` boots the AVD on the
+# matching console port, which is what makes this name the AVD it booted.
+EMULATOR_SERIAL = "emulator-5554"
+EMULATOR_SERIAL_PATTERN = re.compile(r"emulator-(\d+)")
 # The app version the harness is calibrated against: the main-menu signature,
 # the refused-screen set, the 40-50s splash timing and the DoD render were all
 # measured on it (2026-09-06/07, s32), and it was the first version ever written
@@ -147,6 +153,18 @@ class AdbCommandFailedError(AndroidAutomationError):
         self.stderr = stderr
         super().__init__(
             f"adb failed (rc={returncode}): {' '.join(cmd)}\n  stderr: {stderr[:200]}"
+        )
+
+
+class NotAnEmulatorError(AndroidAutomationError):
+    """A context was asked to drive a serial that is not an emulator's."""
+
+    def __init__(self, serial: str) -> None:
+        self.serial = serial
+        super().__init__(
+            f"refusing to drive {serial!r}: the harness taps and deletes, so it "
+            "only drives an emulator (`emulator-<port>`). Unset ANDROID_SERIAL "
+            "or point it at the emulator."
         )
 
 
@@ -280,6 +298,9 @@ class AdbContext:
 
     adb_path: Path
     package: str = DEFAULT_PACKAGE
+    # Every adb call carries `-s serial`. Validated at construction so no
+    # context, real or fake, can exist pointed at a phone (#67).
+    serial: str = EMULATOR_SERIAL
     runner: Callable[..., subprocess.CompletedProcess[Any]] = field(
         default=subprocess.run, repr=False, compare=False
     )
@@ -295,21 +316,30 @@ class AdbContext:
         default=time.monotonic, repr=False, compare=False
     )
 
+    def __post_init__(self) -> None:
+        if not EMULATOR_SERIAL_PATTERN.fullmatch(self.serial):
+            raise NotAnEmulatorError(self.serial)
 
-def resolve_context(android_home: Path | None = None, package: str = DEFAULT_PACKAGE) -> AdbContext:
-    """Locate adb based on ANDROID_HOME or env var. Validate that it exists."""
+
+def resolve_context(
+    android_home: Path | None = None,
+    package: str = DEFAULT_PACKAGE,
+    serial: str | None = None,
+) -> AdbContext:
+    """Locate adb and pin the device: `serial`, else ANDROID_SERIAL, else the default emulator."""
     home = android_home or Path(os.environ.get("ANDROID_HOME", DEFAULT_ANDROID_HOME))
     adb = home / "platform-tools" / "adb"
     if not adb.is_file():
         raise AdbNotFoundError(
             f"adb not found at {adb}. Set ANDROID_HOME or pass android_home."
         )
-    return AdbContext(adb_path=adb, package=package)
+    serial = serial or os.environ.get("ANDROID_SERIAL") or EMULATOR_SERIAL
+    return AdbContext(adb_path=adb, package=package, serial=serial)
 
 
 def _run_adb(ctx: AdbContext, *args: str, timeout: float = 10.0) -> str:
     """Run an adb command and return stdout. Raise on non-zero exit."""
-    cmd = [str(ctx.adb_path), *args]
+    cmd = [str(ctx.adb_path), "-s", ctx.serial, *args]
     try:
         result = ctx.runner(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
@@ -325,7 +355,7 @@ def _run_adb(ctx: AdbContext, *args: str, timeout: float = 10.0) -> str:
 
 def _run_adb_binary(ctx: AdbContext, *args: str, timeout: float = 30.0) -> bytes:
     """Run an adb command that produces binary output."""
-    cmd = [str(ctx.adb_path), *args]
+    cmd = [str(ctx.adb_path), "-s", ctx.serial, *args]
     try:
         result = ctx.runner(
             cmd, capture_output=True, timeout=timeout, check=False
@@ -341,6 +371,15 @@ def _run_adb_binary(ctx: AdbContext, *args: str, timeout: float = 30.0) -> bytes
     return result.stdout
 
 
+def device_state(devices_out: str, serial: str) -> str | None:
+    """The state `adb devices` lists for `serial` (`device`, `offline`, ...), or None."""
+    for line in devices_out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 2 and parts[0] == serial:
+            return parts[1].strip()
+    return None
+
+
 def assert_emulator_ready(ctx: AdbContext) -> None:
     """Verify an emulator is connected and booted.
 
@@ -351,9 +390,9 @@ def assert_emulator_ready(ctx: AdbContext) -> None:
     screenshot of the Android launcher (observations #17).
     """
     devices_out = _run_adb(ctx, "devices")
-    if "emulator-" not in devices_out:
+    if device_state(devices_out, ctx.serial) != "device":
         raise EmulatorNotReadyError(
-            f"no emulator detected. adb devices output:\n{devices_out}"
+            f"{ctx.serial} is not attached. adb devices output:\n{devices_out}"
         )
     boot = _run_adb(ctx, "shell", "getprop", "sys.boot_completed").strip()
     if boot != "1":

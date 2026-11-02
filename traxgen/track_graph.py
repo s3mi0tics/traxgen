@@ -18,7 +18,8 @@ use it to propose. Its answer is three-valued for the same reason
 UNMEASURED, never a guess.
 
 First build: STARTER and GOAL_RAIL, flat on baseplates, no rails; CURVE since
-s46, CROSS since s47. Anything else
+s46, CROSS since s47, SWITCH_LEFT and SWITCH_RIGHT since s48, for one marble
+per switch. Anything else
 in a course -- another piece, a stacked cell, a rail, a pillar, a wall, a
 raised layer -- reads UNMEASURED.
 """
@@ -62,6 +63,25 @@ CURVE_TRACKS: Mapping[int, int] = MappingProxyType({0: 2, 2: 0, 3: 4, 4: 3})
 # across, by world side 2; rotations 2 and 5 (sides 3 and 0) loaded no marble.
 # Every entry is measured once, each track in both directions.
 CROSS_TRACKS: Mapping[int, int] = MappingProxyType({1: 4, 4: 1, 2: 5, 5: 2})
+
+# The switch, in its own frame, for the first marble through it: side 2 is where
+# its branches 0 and 4 meet. `None` is a side that takes the marble in and stops
+# it against the lever. Measured on the goal-less ring boards `Q7AE2SM7MC`
+# (SWITCH_LEFT) and `54TI3KWGTH` (SWITCH_RIGHT), s48-t3: launch pads at rotation
+# 0 on the piece's world side 5, so it is entered by (5 - rotation) % 6.
+# Rotations 3 and 5 left by world side 1 (LEFT) or 3 (RIGHT); at rotation 1
+# (LEFT) or 5 (RIGHT) the marble stopped inside; rotations 0, 2, 4 (the odd
+# sides) loaded no marble. Each entry measured once.
+#
+# A passing marble flips the lever (s48-t4, `8WL7RXS9H4`): after one marble
+# passes SWITCH_LEFT by 0 -> 2, its side 4 passes to 2, which is SWITCH_RIGHT's
+# table, and the mirror. So the kind is the lever's starting position, and a
+# second marble's path depends on which marble arrives first -- timing the
+# checker does not model. A course where a switch could see a second marble
+# reads UNMEASURED.
+SWITCH_LEFT_TRACKS: Mapping[int, int | None] = MappingProxyType({0: 2, 2: 4, 4: None})
+SWITCH_RIGHT_TRACKS: Mapping[int, int | None] = MappingProxyType({4: 2, 2: 0, 0: None})
+SWITCH_KINDS: frozenset[TileKind] = frozenset({TileKind.SWITCH_LEFT, TileKind.SWITCH_RIGHT})
 
 
 class TrackStatus(Enum):
@@ -150,9 +170,10 @@ def goal_rail_rule(tile: PlacedTile, entered: int | None, board: Board) -> Throu
     return Through(caught=not _on_uncompleted_half_hole(tile, board))
 
 
-def tracks_rule(tracks: Mapping[int, int]) -> PieceRule:
-    """A passive piece of fixed tracks: entered by a track's end, in the piece's own frame,
-    it leaves by that track's other end; any other side takes no marble."""
+def tracks_rule(tracks: Mapping[int, int | None]) -> PieceRule:
+    """A piece of fixed tracks: entered by a track's end, in the piece's own frame, it leaves
+    by that track's other end; a side mapped to None takes the marble in and holds it (a dead
+    end); any other side takes no marble."""
 
     def rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
         if entered is None:
@@ -160,13 +181,18 @@ def tracks_rule(tracks: Mapping[int, int]) -> PieceRule:
         side = (entered - tile.hex_rotation) % 6
         if side not in tracks:
             return Through(accepts=False)
-        return Through(exits=frozenset({(tracks[side] + tile.hex_rotation) % 6}))
+        out = tracks[side]
+        if out is None:
+            return Through()
+        return Through(exits=frozenset({(out + tile.hex_rotation) % 6}))
 
     return rule
 
 
 curve_rule = tracks_rule(CURVE_TRACKS)
 cross_rule = tracks_rule(CROSS_TRACKS)
+switch_left_rule = tracks_rule(SWITCH_LEFT_TRACKS)
+switch_right_rule = tracks_rule(SWITCH_RIGHT_TRACKS)
 
 
 PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
@@ -175,6 +201,8 @@ PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
         TileKind.GOAL_RAIL: goal_rail_rule,
         TileKind.CURVE: curve_rule,
         TileKind.CROSS: cross_rule,
+        TileKind.SWITCH_LEFT: switch_left_rule,
+        TileKind.SWITCH_RIGHT: switch_right_rule,
     }
 )
 
@@ -255,6 +283,14 @@ class _Walk:
 
     def launch(self, starter: PlacedTile) -> TrackVerdict:
         through = self.rules[starter.kind](starter, None, self.board)
+        if any(t.kind in SWITCH_KINDS for t in self.by_cell.values()):
+            marbles = sum(1 for e in through.exits if self._accepts(starter, e))
+            if marbles > 1:
+                return TrackVerdict(
+                    TrackStatus.UNMEASURED,
+                    f"{marbles} marbles on a course with a switch: which reaches it first "
+                    "decides its lever (s48-t4)",
+                )
         verdict = self._leave(starter, through, at=None)
         if verdict is not None:
             return verdict
@@ -298,6 +334,12 @@ class _Walk:
             return TrackVerdict(
                 TrackStatus.INVALID,
                 f"dead end: {behind.kind.name} is off its plate's footprint",
+                door,
+            )
+        if behind.kind in SWITCH_KINDS and any(d.cell == nxt for d in self.on_route):
+            return TrackVerdict(
+                TrackStatus.UNMEASURED,
+                f"a route reaches {behind.kind.name} a second time, after its lever has flipped",
                 door,
             )
         self.on_route.add(door)

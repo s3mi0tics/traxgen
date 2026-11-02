@@ -399,3 +399,125 @@ def test_both_cross_tracks_run_both_ways_and_two_sides_stay_shut() -> None:
     for shut in (0, 3):
         assert not rule(tile, (shut + 1) % 6, board).accepts
     assert not rule(tile, None, board).accepts
+
+
+# --- The switch, measured on the goal-less ring boards (s48-t3, t4) ------------
+
+# The boards' rows: rotation -> the world side the marble left by, "stops" for a
+# marble that went in and stopped against the lever, None for no marble. The
+# launch pad sits on the piece's world side 5, as on the CROSS board.
+SWITCH_BOARD_ROWS: dict[TileKind, dict[int, int | str | None]] = {
+    TileKind.SWITCH_LEFT: {0: None, 1: "stops", 2: None, 3: 1, 4: None, 5: 1},
+    TileKind.SWITCH_RIGHT: {0: None, 1: 3, 2: None, 3: 3, 4: None, 5: "stops"},
+}
+SWITCH_ROWS = [(k, r) for k, rows in SWITCH_BOARD_ROWS.items() for r in sorted(rows)]
+
+
+@pytest.mark.parametrize(("kind", "rotation"), SWITCH_ROWS)
+def test_each_switch_row_leaves_by_its_measured_side_and_no_other(
+    kind: TileKind, rotation: int
+) -> None:
+    """One goal at a time on each free side; a stopping row is a dead end on every side."""
+    row = SWITCH_BOARD_ROWS[kind][rotation]
+    for side in range(5):
+        verdict = check_course(piece_with_one_goal(kind, rotation, side))
+        if row is None:
+            assert verdict.reason == "no valid connection to the starter: no marble loads"
+        elif row == "stops":
+            assert verdict.status is TrackStatus.INVALID, (kind, rotation, side, verdict)
+            assert verdict.reason == f"dead end: {kind.name} has no way on", verdict
+        elif side == row:
+            assert verdict.status is TrackStatus.VALID, (kind, rotation, side, verdict)
+        else:
+            assert verdict.status is TrackStatus.INVALID, (kind, rotation, side, verdict)
+
+
+@pytest.mark.parametrize("kind", sorted(SWITCH_BOARD_ROWS, key=lambda k: k.name))
+def test_the_switch_tables_are_in_the_pieces_own_frame(kind: TileKind) -> None:
+    """Read at rotation 1, so a world-frame table fails; the two kinds are mirror images."""
+    tile = PlacedTile(
+        kind=kind,
+        world_pos=CURVE_CELL,
+        local_pos=CURVE_CELL,
+        hex_rotation=1,
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        layer_id=1,
+    )
+    board = Board(plate_positions=frozenset({(0, 0)}))
+    rule = PIECE_RULES[kind]
+    passes = {0: 2, 2: 4} if kind is TileKind.SWITCH_LEFT else {4: 2, 2: 0}
+    stops = 4 if kind is TileKind.SWITCH_LEFT else 0
+    for a, b in passes.items():
+        assert rule(tile, (a + 1) % 6, board).exits == frozenset({(b + 1) % 6}), (a, b)
+    held = rule(tile, (stops + 1) % 6, board)
+    assert held.accepts and not held.exits
+    for shut in (1, 3, 5):
+        assert not rule(tile, (shut + 1) % 6, board).accepts
+
+
+def two_marbles(second: TileKind) -> Course:
+    """A starter with two valid connections: a goal on side 0, and `second` on side 2.
+
+    With a SWITCH_LEFT on side 2, entered by its branch 0, its marble passes out
+    its side 2 into a goal -- so the course is VALID except for the guard.
+    """
+    pad = HexVector(y=-3, x=2)
+    piece = pad.neighbor(2)
+    tiles = [
+        (TileKind.STARTER, (pad.y, pad.x), 0),
+        (TileKind.GOAL_RAIL, (pad.neighbor(0).y, pad.neighbor(0).x), goal_rotation_for(0)),
+    ]
+    if second is TileKind.GOAL_RAIL:
+        tiles.append((TileKind.GOAL_RAIL, (piece.y, piece.x), goal_rotation_for(2)))
+    else:
+        # Rotation 5: the pad is on the switch's world side 5, its own side 0, which passes
+        # to its side 2, world side 1 -- where a goal waits.
+        out = piece.neighbor(1)
+        tiles += [
+            (second, (piece.y, piece.x), 5),
+            (TileKind.GOAL_RAIL, (out.y, out.x), goal_rotation_for(1)),
+        ]
+    return course_of(*tiles)
+
+
+def test_two_marbles_on_a_course_with_a_switch_are_unmeasured() -> None:
+    """s48-t4: with two marbles, which arrives first decides the lever."""
+    verdict = check_course(two_marbles(TileKind.SWITCH_LEFT))
+    assert verdict.status is TrackStatus.UNMEASURED
+    assert verdict.reason.startswith("2 marbles on a course with a switch")
+
+
+def test_the_two_marble_courses_are_valid_but_for_the_guard() -> None:
+    """Controls: the same layout with a goal in the switch's place is VALID, and the switch's
+    route alone (its own pad, no second marble) is VALID."""
+    assert check_course(two_marbles(TileKind.GOAL_RAIL)).status is TrackStatus.VALID
+    pad = CURVE_CELL.neighbor(5)
+    out = CURVE_CELL.neighbor(1)
+    alone = course_of(
+        (TileKind.STARTER, (pad.y, pad.x), 0),
+        (TileKind.SWITCH_LEFT, (CURVE_CELL.y, CURVE_CELL.x), 5),
+        (TileKind.GOAL_RAIL, (out.y, out.x), goal_rotation_for(1)),
+    )
+    assert check_course(alone).status is TrackStatus.VALID
+
+
+def back_round(tile: PlacedTile, entered: int | None, board: Board) -> Through:
+    """Test piece: hands the marble round the ring around CENTRE, and from RING[4] into CENTRE."""
+    i = RING.index(tile.world_pos)
+    to = CENTRE if i == 4 else RING[(i + 1) % 6]
+    side = tile.world_pos.direction_to(to)
+    assert side is not None
+    return Through(exits=frozenset({side}))
+
+
+def test_a_route_back_into_its_own_switch_is_unmeasured() -> None:
+    """SWITCH_LEFT at CENTRE, fed by its branch 0 from RING[0]; out by 2 into RING[2], round
+    to RING[4], and back in by its side 4. Without the guard that is a dead end (4 stops)."""
+    course = course_of(
+        (TileKind.STARTER, (RING[0].y, RING[0].x), 1),
+        (TileKind.SWITCH_LEFT, (CENTRE.y, CENTRE.x), 0),
+        *((TileKind.THREEWAY, (c.y, c.x), 0) for c in RING[2:5]),
+    )
+    verdict = check_course(course, rules={**PIECE_RULES, TileKind.THREEWAY: back_round})
+    assert verdict.status is TrackStatus.UNMEASURED, verdict
+    assert verdict.at == Doorway(cell=CENTRE, side=4)

@@ -125,11 +125,11 @@ def test_a_piece_with_no_rule_makes_the_course_unmeasured() -> None:
     course = course_of(
         (TileKind.STARTER, (0, 0), 0),
         (TileKind.GOAL_RAIL, (-1, 0), 3),
-        (TileKind.CROSS, (-4, 3), 0),
+        (TileKind.THREEWAY, (-4, 3), 0),
     )
     verdict = check_course(course)
     assert verdict.status is TrackStatus.UNMEASURED
-    assert "CROSS" in verdict.reason
+    assert "THREEWAY" in verdict.reason
 
 
 def test_two_valid_connections_are_two_routes_both_caught() -> None:
@@ -196,9 +196,9 @@ def test_a_ring_of_pieces_is_a_loop_named_at_its_doorway() -> None:
     assert not set(others) & set(RING)  # only one piece attached to the starter
     course = course_of(
         (TileKind.STARTER, (starter.y, starter.x), 1),
-        *((TileKind.CROSS, (c.y, c.x), 0) for c in RING),
+        *((TileKind.THREEWAY, (c.y, c.x), 0) for c in RING),
     )
-    verdict = check_course(course, rules={**PIECE_RULES, TileKind.CROSS: ring_rule})
+    verdict = check_course(course, rules={**PIECE_RULES, TileKind.THREEWAY: ring_rule})
     assert verdict.status is TrackStatus.INVALID
     assert verdict.reason.startswith("loop")
     # RING[0] is entered twice by *different* sides (from the starter, then from
@@ -214,7 +214,7 @@ def test_without_the_ring_rule_the_same_course_is_unmeasured() -> None:
     starter = CENTRE + HexVector(y=2 * HEX_DIRECTIONS[0][0], x=2 * HEX_DIRECTIONS[0][1])
     course = course_of(
         (TileKind.STARTER, (starter.y, starter.x), 1),
-        *((TileKind.CROSS, (c.y, c.x), 0) for c in RING),
+        *((TileKind.THREEWAY, (c.y, c.x), 0) for c in RING),
     )
     assert check_course(course).status is TrackStatus.UNMEASURED
 
@@ -345,4 +345,57 @@ def test_a_curve_ridden_into_from_a_goal_side_reads_the_track_both_ways() -> Non
     assert rule(tile, (3 + 1) % 6, board).exits == frozenset({(4 + 1) % 6})
     assert not rule(tile, (1 + 1) % 6, board).accepts
     assert not rule(tile, (5 + 1) % 6, board).accepts
+    assert not rule(tile, None, board).accepts
+
+
+# --- CROSS, measured on the ring board YFUGDSMDUH (s47-t4) ---------------------
+
+# The board's rows: cross rotation -> the world side the marble left by (None: no marble).
+# The launch pad sits on the piece's world side 5, so it enters by its own side (5 - r) % 6.
+CROSS_BOARD_ROWS: dict[int, int | None] = {0: 2, 1: 2, 2: None, 3: 2, 4: 2, 5: None}
+
+
+def piece_with_one_goal(kind: TileKind, rotation: int, side: int) -> Course:
+    """The launch pad, the piece at CURVE_CELL, and a single goal facing it on `side`."""
+    goal = CURVE_CELL.neighbor(side)
+    return course_of(
+        (TileKind.STARTER, (CURVE_STARTER.y, CURVE_STARTER.x), 0),
+        (kind, (CURVE_CELL.y, CURVE_CELL.x), rotation),
+        (TileKind.GOAL_RAIL, (goal.y, goal.x), goal_rotation_for(side)),
+    )
+
+
+@pytest.mark.parametrize("rotation", sorted(CROSS_BOARD_ROWS))
+def test_each_cross_row_leaves_by_its_measured_side_and_no_other(rotation: int) -> None:
+    exit_side = CROSS_BOARD_ROWS[rotation]
+    for side in range(5):
+        verdict = check_course(piece_with_one_goal(TileKind.CROSS, rotation, side))
+        if side == exit_side:
+            assert verdict.status is TrackStatus.VALID, (rotation, side, verdict)
+        else:
+            assert verdict.status is TrackStatus.INVALID, (rotation, side, verdict)
+
+
+@pytest.mark.parametrize("rotation", [r for r, s in CROSS_BOARD_ROWS.items() if s is None])
+def test_a_closed_cross_side_facing_the_pad_loads_no_marble(rotation: int) -> None:
+    verdict = check_course(piece_with_one_goal(TileKind.CROSS, rotation, 2))
+    assert verdict.reason == "no valid connection to the starter: no marble loads"
+
+
+def test_both_cross_tracks_run_both_ways_and_two_sides_stay_shut() -> None:
+    """Read in the piece's own frame at rotation 1, so a world-frame table would fail."""
+    tile = PlacedTile(
+        kind=TileKind.CROSS,
+        world_pos=CURVE_CELL,
+        local_pos=CURVE_CELL,
+        hex_rotation=1,
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        layer_id=1,
+    )
+    board = Board(plate_positions=frozenset({(0, 0)}))
+    rule = PIECE_RULES[TileKind.CROSS]
+    for a, b in ((1, 4), (4, 1), (2, 5), (5, 2)):
+        assert rule(tile, (a + 1) % 6, board).exits == frozenset({(b + 1) % 6}), (a, b)
+    for shut in (0, 3):
+        assert not rule(tile, (shut + 1) % 6, board).accepts
     assert not rule(tile, None, board).accepts

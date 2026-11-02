@@ -18,7 +18,7 @@ use it to propose. Its answer is three-valued for the same reason
 UNMEASURED, never a guess.
 
 First build: STARTER and GOAL_RAIL, flat on baseplates, no rails; CURVE since
-s46. Anything else
+s46, CROSS since s47. Anything else
 in a course -- another piece, a stacked cell, a rail, a pillar, a wall, a
 raised layer -- reads UNMEASURED.
 """
@@ -54,6 +54,14 @@ GOAL_RAIL_ENTRANCE: int = 2
 # (side 5) loaded no marble, twice. Side 1 (rotation 4) is Colby's description
 # of the piece plus the four-of-six count, not a run.
 CURVE_TRACKS: Mapping[int, int] = MappingProxyType({0: 2, 2: 0, 3: 4, 4: 3})
+
+# CROSS (the X-intersection), in its own frame: two straight tracks, 1-4 and
+# 2-5, crossing at one level; sides 0 and 3 have no way in. Measured on the ring
+# board `YFUGDSMDUH` (s47-t4, the goal-less twin of `8NN7VNHLIA`): rotations 0,
+# 1, 3 and 4 entered by sides 5, 4, 2 and 1, and every marble left straight
+# across, by world side 2; rotations 2 and 5 (sides 3 and 0) loaded no marble.
+# Every entry is measured once, each track in both directions.
+CROSS_TRACKS: Mapping[int, int] = MappingProxyType({1: 4, 4: 1, 2: 5, 5: 2})
 
 
 class TrackStatus(Enum):
@@ -142,14 +150,23 @@ def goal_rail_rule(tile: PlacedTile, entered: int | None, board: Board) -> Throu
     return Through(caught=not _on_uncompleted_half_hole(tile, board))
 
 
-def curve_rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
-    """CURVE: entered by a track's end, it leaves by that track's other end (`CURVE_TRACKS`)."""
-    if entered is None:
-        return Through(accepts=False)
-    side = (entered - tile.hex_rotation) % 6
-    if side not in CURVE_TRACKS:
-        return Through(accepts=False)
-    return Through(exits=frozenset({(CURVE_TRACKS[side] + tile.hex_rotation) % 6}))
+def tracks_rule(tracks: Mapping[int, int]) -> PieceRule:
+    """A passive piece of fixed tracks: entered by a track's end, in the piece's own frame,
+    it leaves by that track's other end; any other side takes no marble."""
+
+    def rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
+        if entered is None:
+            return Through(accepts=False)
+        side = (entered - tile.hex_rotation) % 6
+        if side not in tracks:
+            return Through(accepts=False)
+        return Through(exits=frozenset({(tracks[side] + tile.hex_rotation) % 6}))
+
+    return rule
+
+
+curve_rule = tracks_rule(CURVE_TRACKS)
+cross_rule = tracks_rule(CROSS_TRACKS)
 
 
 PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
@@ -157,6 +174,7 @@ PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
         TileKind.STARTER: starter_rule,
         TileKind.GOAL_RAIL: goal_rail_rule,
         TileKind.CURVE: curve_rule,
+        TileKind.CROSS: cross_rule,
     }
 )
 

@@ -19,6 +19,7 @@ from traxgen.graph import (
 )
 from traxgen.hex import HEX_DIRECTIONS, HexVector
 from traxgen.layout import TilePlacement, build_course
+from traxgen.plates import is_buildable_on_plate
 from traxgen.serializer import serialize_course
 from traxgen.track_graph import (
     PIECE_RULES,
@@ -28,7 +29,7 @@ from traxgen.track_graph import (
     TrackStatus,
     check_course,
 )
-from traxgen.types import TileKind
+from traxgen.types import LayerKind, TileKind
 
 ORIGIN_PLATE = (HexVector(y=0, x=0),)
 
@@ -124,11 +125,11 @@ def test_a_piece_with_no_rule_makes_the_course_unmeasured() -> None:
     course = course_of(
         (TileKind.STARTER, (0, 0), 0),
         (TileKind.GOAL_RAIL, (-1, 0), 3),
-        (TileKind.CURVE, (-4, 3), 0),
+        (TileKind.CROSS, (-4, 3), 0),
     )
     verdict = check_course(course)
     assert verdict.status is TrackStatus.UNMEASURED
-    assert "CURVE" in verdict.reason
+    assert "CROSS" in verdict.reason
 
 
 def test_two_valid_connections_are_two_routes_both_caught() -> None:
@@ -195,9 +196,9 @@ def test_a_ring_of_pieces_is_a_loop_named_at_its_doorway() -> None:
     assert not set(others) & set(RING)  # only one piece attached to the starter
     course = course_of(
         (TileKind.STARTER, (starter.y, starter.x), 1),
-        *((TileKind.CURVE, (c.y, c.x), 0) for c in RING),
+        *((TileKind.CROSS, (c.y, c.x), 0) for c in RING),
     )
-    verdict = check_course(course, rules={**PIECE_RULES, TileKind.CURVE: ring_rule})
+    verdict = check_course(course, rules={**PIECE_RULES, TileKind.CROSS: ring_rule})
     assert verdict.status is TrackStatus.INVALID
     assert verdict.reason.startswith("loop")
     # RING[0] is entered twice by *different* sides (from the starter, then from
@@ -213,7 +214,7 @@ def test_without_the_ring_rule_the_same_course_is_unmeasured() -> None:
     starter = CENTRE + HexVector(y=2 * HEX_DIRECTIONS[0][0], x=2 * HEX_DIRECTIONS[0][1])
     course = course_of(
         (TileKind.STARTER, (starter.y, starter.x), 1),
-        *((TileKind.CURVE, (c.y, c.x), 0) for c in RING),
+        *((TileKind.CROSS, (c.y, c.x), 0) for c in RING),
     )
     assert check_course(course).status is TrackStatus.UNMEASURED
 
@@ -263,3 +264,85 @@ def test_a_route_into_a_wrong_way_goal_names_the_goal() -> None:
     assert verdict.status is TrackStatus.INVALID
     assert verdict.reason == "dead end: GOAL_RAIL has no way in here"
     assert verdict.at == Doorway(cell=HexVector(y=-3, x=4), side=3)
+
+
+# --- CURVE, measured on Colby's board 7UNB5OAAOT (s45) -------------------------
+
+CURVE_CELL = HexVector(y=-3, x=2)  # every neighbour is on a lone plate, none a half-hole
+CURVE_STARTER = CURVE_CELL.neighbor(5)  # the curve one step NW of the pad, as on the board
+# The board's rows: curve rotation -> the world side the marble left by (None: no marble).
+CURVE_BOARD_ROWS: dict[int, int | None] = {0: None, 5: 1, 3: 3, 2: 0, 1: 4, 4: None}
+
+
+def test_the_curve_cell_and_its_ring_are_buildable() -> None:
+    cells = [CURVE_CELL, *(CURVE_CELL.neighbor(d) for d in range(6))]
+    assert all(is_buildable_on_plate(LayerKind.BASE_LAYER_PIECE, c) for c in cells)
+
+
+def curve_ring(rotation: int) -> Course:
+    """The launch pad feeding a curve, and a goal facing it on each of its other five sides."""
+    goals = [
+        (TileKind.GOAL_RAIL, (c.y, c.x), goal_rotation_for(d))
+        for d in range(5)
+        for c in (CURVE_CELL.neighbor(d),)
+    ]
+    return course_of(
+        (TileKind.STARTER, (CURVE_STARTER.y, CURVE_STARTER.x), 0),
+        (TileKind.CURVE, (CURVE_CELL.y, CURVE_CELL.x), rotation),
+        *goals,
+    )
+
+
+def curve_with_one_goal(rotation: int, side: int) -> Course:
+    """The launch pad, the curve, and a single goal facing the curve on `side`."""
+    goal = CURVE_CELL.neighbor(side)
+    return course_of(
+        (TileKind.STARTER, (CURVE_STARTER.y, CURVE_STARTER.x), 0),
+        (TileKind.CURVE, (CURVE_CELL.y, CURVE_CELL.x), rotation),
+        (TileKind.GOAL_RAIL, (goal.y, goal.x), goal_rotation_for(side)),
+    )
+
+
+@pytest.mark.parametrize("rotation", sorted(CURVE_BOARD_ROWS))
+def test_each_board_row_leaves_by_its_measured_side_and_no_other(rotation: int) -> None:
+    """One goal at a time on each of the five free sides: only the measured side is VALID.
+
+    A single goal, not the ring, so a wrong exit cannot hide behind another goal catching it.
+    """
+    exit_side = CURVE_BOARD_ROWS[rotation]
+    for side in range(5):
+        verdict = check_course(curve_with_one_goal(rotation, side))
+        if side == exit_side:
+            assert verdict.status is TrackStatus.VALID, (rotation, side, verdict)
+        else:
+            assert verdict.status is TrackStatus.INVALID, (rotation, side, verdict)
+
+
+@pytest.mark.parametrize("rotation", sorted(CURVE_BOARD_ROWS))
+def test_the_ring_is_valid_exactly_where_a_marble_loads(rotation: int) -> None:
+    """QTOVZBN3AV's shape at every rotation: a closed side facing the pad loads no marble."""
+    verdict = check_course(curve_ring(rotation))
+    if CURVE_BOARD_ROWS[rotation] is None:
+        assert verdict.status is TrackStatus.INVALID
+        assert verdict.reason == "no valid connection to the starter: no marble loads"
+    else:
+        assert verdict.status is TrackStatus.VALID, verdict
+
+
+def test_a_curve_ridden_into_from_a_goal_side_reads_the_track_both_ways() -> None:
+    """Gentle track entered by side 2 leaves by 0, and the sharp one entered by 3 leaves by 4."""
+    tile = PlacedTile(
+        kind=TileKind.CURVE,
+        world_pos=CURVE_CELL,
+        local_pos=CURVE_CELL,
+        hex_rotation=1,
+        layer_kind=LayerKind.BASE_LAYER_PIECE,
+        layer_id=1,
+    )
+    board = Board(plate_positions=frozenset({(0, 0)}))
+    rule = PIECE_RULES[TileKind.CURVE]
+    assert rule(tile, (2 + 1) % 6, board).exits == frozenset({(0 + 1) % 6})
+    assert rule(tile, (3 + 1) % 6, board).exits == frozenset({(4 + 1) % 6})
+    assert not rule(tile, (1 + 1) % 6, board).accepts
+    assert not rule(tile, (5 + 1) % 6, board).accepts
+    assert not rule(tile, None, board).accepts

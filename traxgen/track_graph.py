@@ -17,7 +17,8 @@ use it to propose. Its answer is three-valued for the same reason
 `ConnectionStatus` is: a piece with no measured rule makes the answer
 UNMEASURED, never a guess.
 
-First build: STARTER and GOAL_RAIL, flat on baseplates, no rails. Anything else
+First build: STARTER and GOAL_RAIL, flat on baseplates, no rails; CURVE since
+s46. Anything else
 in a course -- another piece, a stacked cell, a rail, a pillar, a wall, a
 raised layer -- reads UNMEASURED.
 """
@@ -43,6 +44,16 @@ HALF_HOLE_COMPLETER_OFFSET: tuple[int, int] = (5, 0)
 # which is the goal-side rule `(d + 1) % 6` seen from the goal's cell: a goal
 # one step in direction d has its way in on side (d + 3) % 6.
 GOAL_RAIL_ENTRANCE: int = 2
+
+# CURVE's two tracks, in its own frame: each side maps to the side it leaves by.
+# A gentle 60-degree track joins sides 0 and 2, a sharp 120-degree one joins 3
+# and 4, both ridden either way; sides 1 and 5 have no way in. Measured on
+# Colby's board `7UNB5OAAOT` (s45): launch pads at rotation 0, each with a
+# curve one step NW, so the marble enters by world side 5, curve side
+# (5 - rotation) % 6. Rotations 5, 3, 2, 1 left by the sides below; rotation 0
+# (side 5) loaded no marble, twice. Side 1 (rotation 4) is Colby's description
+# of the piece plus the four-of-six count, not a run.
+CURVE_TRACKS: Mapping[int, int] = MappingProxyType({0: 2, 2: 0, 3: 4, 4: 3})
 
 
 class TrackStatus(Enum):
@@ -131,10 +142,21 @@ def goal_rail_rule(tile: PlacedTile, entered: int | None, board: Board) -> Throu
     return Through(caught=not _on_uncompleted_half_hole(tile, board))
 
 
+def curve_rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
+    """CURVE: entered by a track's end, it leaves by that track's other end (`CURVE_TRACKS`)."""
+    if entered is None:
+        return Through(accepts=False)
+    side = (entered - tile.hex_rotation) % 6
+    if side not in CURVE_TRACKS:
+        return Through(accepts=False)
+    return Through(exits=frozenset({(CURVE_TRACKS[side] + tile.hex_rotation) % 6}))
+
+
 PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
     {
         TileKind.STARTER: starter_rule,
         TileKind.GOAL_RAIL: goal_rail_rule,
+        TileKind.CURVE: curve_rule,
     }
 )
 

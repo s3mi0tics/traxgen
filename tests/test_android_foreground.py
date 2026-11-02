@@ -479,7 +479,7 @@ def test_reset_first_establishes_state_then_verifies_it(tmp_path: Path) -> None:
     before the foreground check runs and before any tap lands -- so the first
     screencap in the recorded calls sits between the launch and the check.
     """
-    fake = FakeAdb(screencap_png=MAIN_MENU_PNG)
+    fake = FakeAdb(screencap_pngs=(MAIN_MENU_PNG, PNG_FRAME))
     render_course(
         "ABC1234567",
         ctx=ctx_with(fake),
@@ -497,7 +497,7 @@ def test_reset_first_establishes_state_then_verifies_it(tmp_path: Path) -> None:
 def test_reset_first_reports_the_menu_arrival_before_the_first_tap(tmp_path: Path) -> None:
     """`on_menu` hears the arrival before any tap lands (s37), so a render that fails
     later still leaves it behind. Without a reset there is no wait to report."""
-    fake = FakeAdb(screencap_png=MAIN_MENU_PNG)
+    fake = FakeAdb(screencap_pngs=(MAIN_MENU_PNG, PNG_FRAME))
     heard: list[tuple[MenuArrival, int]] = []
     render_course(
         "ABC1234567",
@@ -512,7 +512,7 @@ def test_reset_first_reports_the_menu_arrival_before_the_first_tap(tmp_path: Pat
     assert calls_then <= fake.index_of(IS_TAP)
     render_course(
         "ABC1234567",
-        ctx=ctx_with(FakeAdb(screencap_png=MAIN_MENU_PNG)),
+        ctx=ctx_with(FakeAdb()),
         screenshot_dir=tmp_path,
         cleanup=False,
         on_menu=lambda arrival: heard.append((arrival, 0)),

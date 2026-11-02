@@ -119,3 +119,4 @@ TASK-OPEN s47-t1 base=f822de8 scope=traxgen/android.py,scripts/emulator.py,scrip
 TASK-CLOSED s47-t1 DONE
 TASK-OPEN s47-t2 base=7c96e8f scope=tests/test_screencap_guard.py
 TASK-CLOSED s47-t2 DONE
+TASK-OPEN s47-t3 base=0a473cf scope=traxgen/ring_board.py,tests/test_ring_board.py,scripts/probe_finish_frames.py,tests/test_probe_finish_frames.py

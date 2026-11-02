@@ -1357,6 +1357,75 @@ class RenderResult(NamedTuple):
     finish: FinishReading | None = None  # None when not detected
 
 
+def load_course(
+    ctx: AdbContext,
+    code: str,
+    out_path: Path,
+    *,
+    by_link: bool = False,
+    expect_disclaimer: bool = True,
+    refused_screens: Sequence[RefusedScreen] | None = None,
+    refused_screen_distance: float = REFUSED_SCREEN_DISTANCE,
+) -> Path:
+    """Open a course from the main menu, capture it to `out_path`, refuse a frame with no course.
+
+    The one copy of the load steps (s48-t1). `probe_finish_frames` once had its
+    own, which skipped every guard below and recorded the build tutorial as a
+    result (#68); a path that opens a course goes through here or it does not
+    ship. Assumes the main menu is in front; it checks the app half of that.
+
+    Raises, in the order they are checked:
+    - `WrongForegroundAppError` before the first action and again after the
+      capture (the launcher, s21);
+    - `OracleFrameError` on a mostly near-white frame (a splash or loading
+      screen, 2026-08-07), whether or not the caller wants a placement reading;
+    - `RefusedScreenError` on a known dead screen (the build tutorial,
+      2026-08-25). The editor is still open then; the caller cleans up.
+
+    Each failure leaves the frame on disk for diagnosis. An unknown dead screen
+    passes all three: these recognise known ones (see the refused-screens section).
+    """
+    # Before the first action. After it, a tap has already landed on whatever
+    # was in front, and the run is spending renders on the wrong surface.
+    assert_app_in_foreground(ctx)
+
+    if by_link:
+        open_share_link(ctx, code)
+    else:
+        tap(ctx, "share_code_hex")
+        if expect_disclaimer:
+            tap(ctx, "load_track_now")
+        tap(ctx, "code_input_field")
+        type_text(ctx, code)
+        tap(ctx, "ime_ok")
+    tap(ctx, "load_track_button")
+    ctx.sleep(WAITS["after_load"])
+    tap(ctx, "loaded_track_hex")
+    ctx.sleep(WAITS["after_render_load"])
+    screencap(ctx, out_path)
+
+    # The closing bracket: the app was in front immediately after the frame was
+    # taken. It is not proof of what the frame contains, and nothing here can be.
+    assert_app_in_foreground(ctx)
+
+    assert_not_near_white(out_path)
+
+    # Checked before any reading, because on a refused screen a reading is
+    # well-formed and wrong: the greyed play button of an empty editor reads
+    # exactly like a dark course.
+    refusal = match_refused_screen(
+        out_path.read_bytes(),
+        default_refused_screens() if refused_screens is None else refused_screens,
+        threshold=refused_screen_distance,
+    )
+    if refusal:
+        screen, distance = refusal
+        raise RefusedScreenError(
+            screen=screen.name, distance=distance, threshold=refused_screen_distance, path=out_path
+        )
+    return out_path
+
+
 def render_course(
     code: str,
     *,
@@ -1440,43 +1509,25 @@ def render_course(
         if on_menu is not None:
             on_menu(arrival)
 
-    # Before the first tap. After it, the tap has already landed on whatever
-    # was in front, and the run is spending renders on the wrong surface.
-    assert_app_in_foreground(ctx)
-
     name = screenshot_name or f"rendered_{code}"
     out_path = screenshot_dir / f"{name}.png"
 
-    if by_link:
-        open_share_link(ctx, code)
-    else:
-        tap(ctx, "share_code_hex")
-        if expect_disclaimer:
-            tap(ctx, "load_track_now")
-        tap(ctx, "code_input_field")
-        type_text(ctx, code)
-        tap(ctx, "ime_ok")
-    tap(ctx, "load_track_button")
-    ctx.sleep(WAITS["after_load"])
-    tap(ctx, "loaded_track_hex")
-    ctx.sleep(WAITS["after_render_load"])
-    screencap(ctx, out_path)
-
-    # The closing bracket. Capture first, then verify, so a run that fails here
-    # still leaves the frame on disk for diagnosis -- the s21 diagnosis was
-    # ended by looking at the screenshot. Note precisely what this establishes:
-    # the app was in front immediately after the frame was taken. It is not
-    # proof of what the frame contains, and nothing here can be.
-    assert_app_in_foreground(ctx)
-
-    # The fourth axis. Checked BEFORE the oracle, because on a refused screen
-    # the oracle's answer is well-formed and wrong -- the greyed play button of
-    # an empty editor reads exactly like a dark course.
-    refusal = match_refused_screen(
-        out_path.read_bytes(),
-        default_refused_screens() if refused_screens is None else refused_screens,
-        threshold=refused_screen_distance,
-    )
+    # The load and its three guards are `load_course`'s, shared with every other
+    # path that opens a course (s48-t1, #68). A refused screen is caught here
+    # only so cleanup can run before it is re-raised.
+    refusal: RefusedScreenError | None = None
+    try:
+        load_course(
+            ctx,
+            code,
+            out_path,
+            by_link=by_link,
+            expect_disclaimer=expect_disclaimer,
+            refused_screens=refused_screens,
+            refused_screen_distance=refused_screen_distance,
+        )
+    except RefusedScreenError as exc:
+        refusal = exc
 
     validity = detect_play_button_state(out_path) if detect_validity and not refusal else None
 
@@ -1514,14 +1565,8 @@ def render_course(
     if watch_error is not None:
         raise watch_error
 
-    if refusal:
-        screen, distance = refusal
-        raise RefusedScreenError(
-            screen=screen.name,
-            distance=distance,
-            threshold=refused_screen_distance,
-            path=out_path,
-        )
+    if refusal is not None:
+        raise refusal
 
     return RenderResult(screenshot=out_path, validity=validity, finish=finish)
 
@@ -1613,6 +1658,17 @@ def frame_white_fraction(screenshot_path: Path) -> float:
     return mask.histogram()[255] / float(small.width * small.height)
 
 
+def assert_not_near_white(screenshot_path: Path) -> None:
+    """Raise `OracleFrameError` if the frame is mostly near-white: a splash or loading screen."""
+    white = frame_white_fraction(screenshot_path)
+    if white >= FRAME_MAX_WHITE_FRACTION:
+        raise OracleFrameError(
+            f"{Path(screenshot_path).name}: {white:.3f} of the frame is near-white "
+            f"(limit {FRAME_MAX_WHITE_FRACTION}) -- this looks like a splash or "
+            "loading screen, not a rendered course; refusing to classify it"
+        )
+
+
 def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True) -> str:
     """Sample the play-button triangle and return 'active' or 'inactive'.
 
@@ -1632,13 +1688,7 @@ def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True)
     from PIL import Image, ImageStat
 
     if guard_frame:
-        white = frame_white_fraction(screenshot_path)
-        if white >= FRAME_MAX_WHITE_FRACTION:
-            raise OracleFrameError(
-                f"{Path(screenshot_path).name}: {white:.3f} of the frame is near-white "
-                f"(limit {FRAME_MAX_WHITE_FRACTION}) -- this looks like a splash or "
-                "loading screen, not a rendered course; refusing to classify it"
-            )
+        assert_not_near_white(screenshot_path)
 
     img = Image.open(screenshot_path).convert("RGB")
     cx, cy = PLAY_BUTTON_SAMPLE_CENTER

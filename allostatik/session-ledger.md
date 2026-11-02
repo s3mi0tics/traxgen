@@ -128,3 +128,4 @@ TASK-CLOSED s47-t5 DONE
 CLOSED s47
 OPENED s48 2026-11-02
 TASK-OPEN s48-t1 base=f6d8b53 scope=traxgen/android.py,scripts/probe_finish_frames.py,tests/test_load_course.py,tests/test_probe_finish_frames.py,tests/test_refused_screens.py,tests/test_frame_guard.py,tests/test_render_finish.py
+TASK-CLOSED s48-t1 FAILED

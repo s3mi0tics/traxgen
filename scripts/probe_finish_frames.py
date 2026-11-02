@@ -33,14 +33,14 @@ from traxgen.android import (
     PLAY_BUTTON_SAMPLE_CENTER,
     WAITS,
     AdbContext,
-    assert_app_in_foreground,
+    RefusedScreenError,
     button_shows_stop,
     capture_png,
     detect_play_button_state,
     frame_difference,
     frame_fingerprint,
     judge_finish,
-    open_share_link,
+    load_course,
     render_course,
     reset_to_main_menu,
     tap,
@@ -57,16 +57,17 @@ def load_by_link(ctx: AdbContext, code: str, folder: Path) -> str:
     """Open the course by share link (s41-t4) instead of typing; return the oracle's reading.
 
     Main menu first, so the first-launch death (#21) happens before the link is spent.
+    The load and its guards are `load_course`'s (s48-t1): until then this function
+    had its own copy of the steps, which recorded the build tutorial as `inactive` (#68).
+    On a refused screen the editor is left before the error goes up.
     """
     print(reset_to_main_menu(ctx).line(), file=sys.stderr)
-    open_share_link(ctx, code)
-    tap(ctx, "load_track_button")
-    ctx.sleep(WAITS["after_load"])
-    tap(ctx, "loaded_track_hex")
-    ctx.sleep(WAITS["after_render_load"])
     shot = folder / "rendered.png"
-    shot.write_bytes(capture_png(ctx, what="rendered"))
-    assert_app_in_foreground(ctx)
+    try:
+        load_course(ctx, code, shot, by_link=True)
+    except RefusedScreenError:
+        clean_up(ctx)
+        raise
     return detect_play_button_state(shot)
 
 

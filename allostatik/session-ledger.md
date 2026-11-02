@@ -109,3 +109,4 @@ TASK-OPEN s46-t1 base=3416a12 scope=traxgen/track_graph.py,tests/test_track_grap
 TASK-CLOSED s46-t1 DONE
 TASK-OPEN s46-t2 base=d626ccd scope=traxgen/ring_board.py,tests/test_ring_board.py,scripts/ring_board.py
 TASK-CLOSED s46-t2 DONE
+TASK-OPEN s46-t3 base=11193c2 scope=traxgen/ring_board.py,tests/test_ring_board.py,scripts/ring_board.py,scripts/read_ring_board.py,tests/test_read_ring_board.py

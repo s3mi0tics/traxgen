@@ -12,7 +12,10 @@ is written from.
 
 Output: screenshots/finish_frames/<code>/before.png, after_NN.png, frames.json.
 With --runs N, each run goes to <code>/run_<k>/ and the codes alternate round by
-round, so a drift within one boot does not line up with one code (#23).
+round, so a drift within one boot does not line up with one code (#23). A folder
+that already holds frames is never written into: the run goes to the next
+unused <code>/run_<n>/ instead, and the folder is printed (s47-t3; s46-t3 lost a
+good reference to a later run of the same code).
 
 Path: traxgen/scripts/probe_finish_frames.py
 """
@@ -141,15 +144,31 @@ def keep_evidence(ctx: AdbContext, reason: str) -> str:
     return path
 
 
+def holds_frames(folder: Path) -> bool:
+    return (folder / "before.png").exists() or (folder / "frames.json").exists()
+
+
+def frame_folder(out: Path, code: str, runs: int) -> Path:
+    """Where the next run of `code` goes: `<code>/` for a single run if it holds no frames,
+    else the lowest-numbered `<code>/run_<n>/` that holds none."""
+    if runs == 1 and not holds_frames(out / code):
+        return out / code
+    n = 1
+    while holds_frames(out / code / f"run_{n}"):
+        n += 1
+    return out / code / f"run_{n}"
+
+
 def main(codes: list[str], runs: int = 1) -> int:
     from scripts.emulator import session
 
     plan = [(code, k) for k in range(1, runs + 1) for code in codes]
     results: dict[str, object] = {}
     with session(out=lambda line: print(line, file=sys.stderr)) as ctx:
-        for code, k in plan:
-            folder = OUT / code if runs == 1 else OUT / code / f"run_{k}"
+        for code, _round in plan:
+            folder = frame_folder(OUT, code, runs)
             folder.mkdir(parents=True, exist_ok=True)
+            print(f"{code}: frames -> {folder}", file=sys.stderr)
             # Two tries in the same boot: the first launch after a cold boot died in 4 of
             # 7 s41 sessions, and no later launch in the same boot did (#21).
             for attempt in (1, 2):
@@ -174,7 +193,7 @@ def main(codes: list[str], runs: int = 1) -> int:
                               "evidence": keep_evidence(ctx, f"{code} attempt {attempt}: {error}")}
                     print(f"{code}: attempt {attempt} failed: {record}", file=sys.stderr)
             (folder / "frames.json").write_text(json.dumps(record, indent=2))
-            label = code if runs == 1 else f"{code}/run_{k}"
+            label = str(folder.relative_to(OUT))
             print(f"{label}: {json.dumps(record)}", file=sys.stderr)
             results[label] = record
     print(json.dumps(results, indent=2))

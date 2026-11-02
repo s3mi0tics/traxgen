@@ -18,8 +18,10 @@ from traxgen.ring_board import (
     RingBoard,
     hex_distance,
     is_buildable,
+    ring_at,
     ring_board,
     single_ring_course,
+    under_toolbar,
 )
 from traxgen.track_graph import CURVE_TRACKS, TrackStatus, check_course
 from traxgen.types import LayerKind, TileKind
@@ -117,3 +119,30 @@ def test_the_goalless_board_is_the_same_board_minus_its_goals(curve_board: RingB
     }
     assert rest == {t for t in full if t[2] is not TileKind.GOAL_RAIL}
     assert len(full) - len(rest) == 6 * 5
+
+
+# The curve board as uploaded in s46 (`TKLKNFJGT3`): rotation -> ring centre (y, x).
+# s46-t3 read it on the emulator, and exactly two of its 30 goals read hidden:
+# rotation 2's sides 3 and 4, under the toolbar.
+S46_CURVE_RINGS = {0: (-5, 4), 1: (-3, 0), 2: (-1, -4), 3: (-1, 2), 4: (1, -2), 5: (1, 4)}
+
+
+def test_the_screen_map_hides_exactly_the_goals_s46_read_as_hidden() -> None:
+    hidden = {
+        (rotation, side)
+        for rotation, (y, x) in S46_CURVE_RINGS.items()
+        for side, cell in ring_at(HexVector(y=y, x=x), rotation).goals.items()
+        if under_toolbar(cell)
+    }
+    assert hidden == {(2, 3), (2, 4)}
+
+
+def test_no_cell_of_the_board_is_under_the_toolbar(curve_board: RingBoard) -> None:
+    """Every cell, not just the centres: a goal under the toolbar is a goal the reader can't see."""
+    assert not [c for ring in curve_board.rings for c in ring.cells() if under_toolbar(c)]
+
+
+def test_a_piece_clipped_by_the_toolbar_counts_as_hidden() -> None:
+    """s46's rotation-2 launch pad, at (0, -4), is drawn 38 px above the tab row and loses its
+    lower part under it (TKLKNFJGT3/before.png). Only the margin catches it."""
+    assert under_toolbar(ring_at(HexVector(y=-1, x=-4), 2).starter)

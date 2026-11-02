@@ -12,12 +12,14 @@ catches it, so the board *measures* the exit rather than checking a guess.
 
 Rings are placed greedily, in a fixed order, at least four cells apart centre
 to centre, which leaves an empty cell between any two rings: no launch pad or
-goal of one ring is beside a piece of another.
+goal of one ring is beside a piece of another. On the standard square, a ring
+is also kept out of the cells the app's toolbar covers (s47), so every goal is
+on screen for the reader.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -39,6 +41,26 @@ GOAL_SIDES: tuple[int, ...] = tuple(d for d in range(6) if d != STARTER_SIDE)
 RING_SPACING: int = 4
 
 HALF_HOLE_COMPLETER_OFFSET: tuple[int, int] = (5, 0)
+
+# Where the app draws a cell of the standard square, in full-frame pixels of the
+# 2400x1080 screen: (px, py) = row * (y, x, 1). Fitted in s46-t3 from the curve
+# ring board's goals (residual 0.30 px). The camera frames the plates, not the
+# pieces: the empty build-tutorial frame and the ring board's frame show the
+# board in the same place (screenshots/finish_frames/5H5NQ7HT7D, TKLKNFJGT3).
+STANDARD_SQUARE_SCREEN: tuple[tuple[float, float, float], tuple[float, float, float]] = (
+    (-82.95, 17.67, 1281.57),
+    (-39.73, -59.91, 540.39),
+)
+# The toolbar, as (left, top, right, bottom) in the same pixels, measured on
+# 5H5NQ7HT7D/before.png (s47-t3): the row of piece-group tabs, and the piece
+# tray below it, which runs the full width but for the play button.
+TOOLBAR_RECTS: tuple[tuple[int, int, int, int], ...] = (
+    (158, 818, 1330, 1080),
+    (153, 912, 2121, 1080),
+)
+# A cell counts as hidden when its centre is within this many pixels of the
+# toolbar: about half a cell's short axis (a step in x is 62 px on screen).
+HIDDEN_MARGIN_PX: float = 45.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +105,22 @@ def is_buildable(plates: Sequence[HexVector], world_cell: HexVector) -> bool:
     return plates[index] + HexVector(y=dy, x=dx) in plates
 
 
+def screen_position(cell: HexVector) -> tuple[float, float]:
+    """Where the app draws `cell` of the standard square, in full-frame pixels."""
+    (a, b, c), (d, e, f) = STANDARD_SQUARE_SCREEN
+    return (a * cell.y + b * cell.x + c, d * cell.y + e * cell.x + f)
+
+
+def under_toolbar(cell: HexVector) -> bool:
+    """True when the standard square's `cell` is drawn under, or at the edge of, the toolbar."""
+    px, py = screen_position(cell)
+    m = HIDDEN_MARGIN_PX
+    return any(
+        left - m <= px <= right + m and top - m <= py <= bottom + m
+        for left, top, right, bottom in TOOLBAR_RECTS
+    )
+
+
 def ring_at(centre: HexVector, rotation: int) -> Ring:
     """The ring for one rotation, centred on `centre`."""
     return Ring(
@@ -93,8 +131,13 @@ def ring_at(centre: HexVector, rotation: int) -> Ring:
     )
 
 
-def place_rings(plates: Sequence[HexVector], rotations: Iterable[int]) -> tuple[Ring, ...]:
-    """Greedy placement, scanning cells in a fixed order; raises if a rotation does not fit."""
+def place_rings(
+    plates: Sequence[HexVector],
+    rotations: Iterable[int],
+    hidden: Callable[[HexVector], bool] = lambda _: False,
+) -> tuple[Ring, ...]:
+    """Greedy placement, scanning cells in a fixed order, skipping any ring with a `hidden`
+    cell; raises if a rotation does not fit."""
     wanted = list(rotations)
     candidates = sorted(
         {plate + HexVector(y=y, x=x) for plate in plates for y in range(-6, 1) for x in range(6)},
@@ -105,7 +148,7 @@ def place_rings(plates: Sequence[HexVector], rotations: Iterable[int]) -> tuple[
         if len(rings) == len(wanted):
             break
         ring = ring_at(centre, wanted[len(rings)])
-        if not all(is_buildable(plates, c) for c in ring.cells()):
+        if not all(is_buildable(plates, c) and not hidden(c) for c in ring.cells()):
             continue
         if any(hex_distance(centre, r.centre) < RING_SPACING for r in rings):
             continue
@@ -146,7 +189,9 @@ def ring_board(
 ) -> RingBoard:
     """A course with one ring of `kind` per rotation; without its goals when `goals=False`."""
     plates = tuple(HexVector(y=y, x=x) for y, x in plate_positions)
-    rings = place_rings(plates, rotations)
+    # The screen map is measured for the standard square only; elsewhere nothing is hidden.
+    hidden = under_toolbar if tuple(plate_positions) == tuple(STANDARD_SQUARE) else None
+    rings = place_rings(plates, rotations, hidden or (lambda _: False))
     tiles = [t for ring in rings for t in ring_tiles(kind, plates, ring, goals=goals)]
     course = build_course(
         plate_world_positions=plates,

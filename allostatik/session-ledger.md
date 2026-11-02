@@ -125,3 +125,4 @@ TASK-OPEN s47-t4 base=9cca419 scope=
 TASK-CLOSED s47-t4 DONE
 TASK-OPEN s47-t5 base=b22a95b scope=traxgen/track_graph.py,tests/test_track_graph.py
 TASK-CLOSED s47-t5 DONE
+CLOSED s47

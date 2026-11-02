@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-11-01 (s46)
+**Last updated:** 2026-11-02 (s47)
 
 ## Runtime
 
@@ -56,11 +56,11 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - **The finish check is `traxgen.android.judge_finish`** (s42, D093). It reads the app's finish burst from frames captured back to back after play. `scripts/probe_finish_frames.py --link CODE ...` runs it live and writes `finish`, `finish_peak` and `median_interval` into each `frames.json`; `--runs N` repeats each code. A failed attempt saves the phone's evidence (s42-t3).
 - **Claude Code on this Mac renders in-session** (s41). Unlike Cowork and the container, it has adb and the emulator, so a render is a background command, not a handoff. `numpy` and `scipy` are not project dependencies; a one-off analysis uses `uv run --with numpy --with scipy`.
 
-- **A piece's ring test board** (s46, D098): `uv run python -m scripts.ring_board KIND` and `... KIND --no-goals` upload the board and its goal-less twin; `ANDROID_SERIAL=emulator-5554 uv run python -m scripts.probe_finish_frames --link <goal-less> <goals>` plays both (goal-less first: the first launch after a cold boot is the one that fails, #21); `uv run python -m scripts.read_ring_board KIND --without-goals <frames>/<code>/run_1` reads each ring's exit.
+- **A piece's ring test board** (s46, D098; s47, D100): `uv run python -m scripts.ring_board KIND --no-goals` uploads the goal-less board, `uv run python -m scripts.probe_finish_frames --link <code>` plays it (frames go to a fresh `run_<n>` if the code already has some), and the exits come from its trails through `ring_board.STANDARD_SQUARE_SCREEN` (s47-t4's reading, in its report). `read_ring_board KIND` still needs the goal board too. Look at `before.png` first: the probe can record the build tutorial as a result (#68).
 
 ## Gotchas (each learned the hard way)
 
-- **adb names no device, so a phone on USB gets the harness's commands** (s46, #67). Colby's Pixel 6 is sometimes plugged in; `adb devices` then lists it, and with the emulator not yet registered the boot checks ran against the phone. Until plan item 22 pins the serial in code, prefix every harness command with `ANDROID_SERIAL=emulator-5554`. Check with `"$ADB" devices -l` before a run.
+- **Every harness adb call names `emulator-5554`** (s47, D101; this was the s46 gotcha "adb names no device", #67). A phone serial in `ANDROID_SERIAL` is refused; the boot starts the AVD on port 5554, so a second emulator already holding that port fails the boot loudly. A plugged-in phone is listed by preflight as "never driven". Raw `adb` typed by hand is still unpinned: use `"$ADB" -s emulator-5554 ...`.
 
 - **`$ANDROID_HOME` is not exported in a default shell.** A boot command written as `$ANDROID_HOME/emulator/emulator ...` expands to `/emulator/emulator`, fails, and — because the command redirects into `/tmp/emulator.log` — fails *silently* while appearing to background successfully. Use `${ANDROID_HOME:-$HOME/Library/Android/sdk}`. The library is unaffected: `android.resolve_context()` already falls back to that path.
 - **`adb` is not on `PATH` either — and the emulator's documented fallback does not cover it.** Resolve it the same way: `ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"`, and prove it live with `"$ADB" version` before anything depends on it. On 2026-08-21 a command applied the fallback correctly to the emulator binary and then called bare `adb` one line later. Worse, the boot-wait it fed swallowed stderr (`2>/dev/null`) inside an unbounded `until`, so "command not found" was discarded and the loop spun silently forever — bound such waits and never suppress the stream that would name the cause (observations #25). The library is unaffected: `android.resolve_context()` already resolves adb through the same fallback.

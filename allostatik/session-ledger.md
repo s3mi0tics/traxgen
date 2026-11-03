@@ -155,3 +155,4 @@ TASK-OPEN s50-t1 base=4a0a6ff scope=scripts/probe_two_marbles.py,tests/test_prob
 TASK-CLOSED s50-t1 DONE
 TASK-OPEN s50-t2 base=c9bc92d scope=
 TASK-CLOSED s50-t2 DONE
+TASK-OPEN s50-t3 base=3ca2529 scope=scripts/probe_half_holes.py,tests/test_probe_half_holes.py

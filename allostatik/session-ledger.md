@@ -150,3 +150,5 @@ TASK-CLOSED s49-t4 FAILED
 CLOSED s49
 TASK-OPEN s49-t5 base=5312d1c scope=
 TASK-CLOSED s49-t5 DONE
+OPENED s50 2026-11-02
+TASK-OPEN s50-t1 base=4a0a6ff scope=scripts/probe_two_marbles.py,tests/test_probe_two_marbles.py

@@ -134,6 +134,7 @@ D104 · The checker holds the switch for one marble per switch, and says UNMEASU
 D105 · A finish is a burst of at least six sparkles, not a count of white pixels (2026-11-02, s49) **[?revised]** → decisions.md:122, body 224w
 D106 · A launch pad releases one marble per valid connection, all at the same moment (2026-11-02, s50) → decisions.md:123, body 131w
 D107 · A goal rail on an uncompleted half-hole misses from every side, and the app does not draw it (2026-11-02, s50) → decisions.md:124, body 94w
+D108 · GraviTrax auto-update is off for that app only, and the Play Store stays on (2026-11-02, claude.ai chat) → decisions.md:125, body 133w
 
 ## Observations
 
@@ -218,3 +219,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #70 · **A guest's reading of its own memory was taken as the host's.** → observations.md:144, body 253w
 #71 · **A script was asked for its help text and ran live; then its output was deleted before it was read.** → observations.md:146, body 77w
 #72 · **A cut-off list was read as the whole list.** → observations.md:148, body 121w
+#73 · **A question that sounds operational still runs against the record.** → observations.md:150, body 104w

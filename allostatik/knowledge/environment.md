@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-11-02 (s48)
+**Last updated:** 2026-11-02 (s49)
 
 ## Runtime
 
@@ -59,7 +59,8 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - **A piece's ring test board** (s46, D098; s47, D100): `uv run python -m scripts.ring_board KIND --no-goals` uploads the goal-less board, `uv run python -m scripts.probe_finish_frames --link <code>` plays it (frames go to a fresh `run_<n>` if the code already has some), and the exits come from its trails through `ring_board.STANDARD_SQUARE_SCREEN` (s47-t4's reading, in its report). `read_ring_board KIND` still needs the goal board too. Since s48 the probe's load refuses the build tutorial, a loading screen and the launcher (D102), so a failed attempt says why; `before.png` is still worth a look for screens no check knows.
 
 - **Two marbles at one switch** (s48-t4): `uv run python -m scripts.probe_switch_flip --pairs-only --run 3` uploads a goal-less board with each switch fed by a near launch pad and a far one behind a straight run of X-intersections. Three gives the order cleanly; six loses the far marble.
-- **Finish readings on a course with a switch are not evidence** (s48, item 23): the lever's swing reads as a burst.
+- *(Fixed s49, D105.)* ~~Finish readings on a course with a switch are not evidence~~: `judge_finish` counts sparkles now, and the lever's streaks are not sparkles. `frames.json` carries `finish_sparkles` beside `finish_peak`.
+- **Read the Mac's memory before blaming the emulator** (s49, #70). `sysctl vm.swapusage` and `uptime`; on 2026-11-02 swap was 18.4 of 19.5 GB used and every emulator boot failed its first app launch. In Activity Monitor: the Memory tab's *Memory Pressure* graph (green, yellow, red) and *Swap Used*. BambuStudio (~5 GB) and Docker's virtual machines (~9 GB) are the big ones to quit before a render session.
 
 ## Gotchas (each learned the hard way)
 

@@ -8,7 +8,7 @@ has been retired, moved or demoted.
 
 `body NNNw` is the length of what this line is not showing. A **[AMENDED]** or
 **[SUPERSEDED]** flag means the body changes or reverses what the title says —
-**those are never safe to act on from this file.** 11 of these decision titles carry one.
+**those are never safe to act on from this file.** 12 of these decision titles carry one.
 
 Look one up by the line address on its own line — exact, and unaffected by any
 punctuation in a title that a literal `grep` would trip over:
@@ -119,7 +119,7 @@ D089 · A failed run keeps the phone's account (2026-09-21, s38) → decisions.m
 D090 · The container reaches the emulator through a drop folder, and a request's identity is its filename (2026-10-05, s39) → decisions.md:107, body 210w
 D091 · The container's isolation is the security boundary, not its permission rules (2026-10-05, s39) → decisions.md:108, body 136w
 D092 · A finish means the trail runs into the goal rail (2026-10-18, s41) **[SUPERSEDED 2026-10-22]** → decisions.md:109, body 165w
-D093 · A finish is the app's finish burst, for every goal piece (2026-10-22, s42) **[AMENDED 2026-10-23]** → decisions.md:110, body 303w
+D093 · A finish is the app's finish burst, for every goal piece (2026-10-22, s42) **[AMENDED 2026-11-02]** → decisions.md:110, body 336w
 D094 · `render_course` loads by link only when asked; the render command defaults to the link (2026-10-22, s43) → decisions.md:111, body 156w
 D095 · Finishes are recorded per cell, beside the placement record (2026-10-22, s43) → decisions.md:112, body 127w
 D096 · The graph checker walks doorways; every route from the starter must end in a goal (2026-10-23, s44) → decisions.md:113, body 217w
@@ -131,6 +131,7 @@ D101 · Every adb call names the emulator; a phone serial cannot make a context 
 D102 · Every path that opens a course goes through `load_course`, which refuses a courseless screen (2026-11-02, s48) → decisions.md:119, body 145w
 D103 · The switch is a three-sided piece whose kind is its lever's starting position (2026-11-02, s48) → decisions.md:120, body 157w
 D104 · The checker holds the switch for one marble per switch, and says UNMEASURED where a second marble could reach one (2026-11-02, s48) → decisions.md:121, body 108w
+D105 · A finish is a burst of at least six sparkles, not a count of white pixels (2026-11-02, s49) **[?revised]** → decisions.md:122, body 219w
 
 ## Observations
 
@@ -208,7 +209,8 @@ kind. Promotion means three or more firings across separate sessions.*
 #63 · **A done check named an output the code never prints.** → observations.md:130, body 302w
 #64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 105w
 #65 · **A piece rule written from the record alone got corrected twice by someone who has used the piece.** → observations.md:134, body 112w
-#66 · **A signal assumed local because every course so far had one goal.** → observations.md:136, body 165w
+#66 · **A signal assumed local because every course so far had one goal.** → observations.md:136, body 201w
 #67 · **The harness talks to whatever Android device is attached.** → observations.md:138, body 89w
 #68 · **A harness reported a screen it never rendered as a result, again, on a path built after the guard.** → observations.md:140, body 110w
 #69 · **A task's scope missed a test that feeds the code it changed.** → observations.md:142, body 86w
+#70 · **A guest's reading of its own memory was taken as the host's.** → observations.md:144, body 165w

@@ -1,8 +1,8 @@
 # s49-t2 — a launch pad, a switch and a goal, played live and read by the sparkle count
 
-**Status:** OPEN
+**Status:** STOPPED — needs Colby: A (`DLYQPCH46H`) never loaded in two sessions, both times the first load after a cold boot. One more session with B played first as a warm-up and A second, or stop here with B's result?
 
-**In one paragraph:** _written at close_
+**In one paragraph:** Half done. The twin B (`8B3RSYR8XW`, `SWITCH_RIGHT`) played as the checker said: its marble ran into the switch and stopped against the lever. The finish check read it not finished, 0 sparkles, while the lever's white added 273 new white pixels, which the old pixel rule would have called a finish. So item 23's bug was seen live and the fix held. A (`DLYQPCH46H`, the VALID course) never played. In both sessions it was the first code, its first load landed on the build tutorial (refused, as designed), and the retry's `am force-stop` failed on the phone: `fork failed: Out of memory`, then a 10 s timeout. The phone was not short of memory (1,071 MB free, status normal). Google services were being killed for not responding while the app started, which is #21's first-launch trouble.
 
 ## Open (written before the work)
 
@@ -23,3 +23,23 @@
   - B: a marble loads and stops against the switch's lever. NOT_FINISHED, sparkles 0 to 2.
   - If A does not finish, either the switch rule in `track_graph` or the goal rail's placement beside a switch is wrong, and the frames say which. That would be a finding about D103/D104, not about the finish check, unless the trail ends in the goal and the reading still says not finished.
   - If B finishes, the switch rule is wrong (D103).
+
+## Close
+
+- **What happened:** uploaded A `DLYQPCH46H` and B `8B3RSYR8XW` (286 bytes each; manifest `screenshots/ring_board/s49_switch_goal.json`). Session 1 (`--link A B`): A attempt 1 refused as the build tutorial (distance 2.329), attempt 2 `fork failed: Out of memory` on `am force-stop`; B loaded first try and played. Session 2 (`--link A`): A attempt 1 the build tutorial again (1.880), attempt 2 an adb timeout on `am force-stop`. Both boots passed every device check on Metal; the emulator was down after each (`PASS emulator_down`).
+- **What changed:** nothing in the repo. Frames under `screenshots/finish_frames/8B3RSYR8XW/`; A's failed attempts under `DLYQPCH46H/` and `DLYQPCH46H/run_1/`.
+- **Evidence:**
+  - B `frames.json`: `validity: active`, `finish: not_finished`, `finish_sparkles: 0`, `finish_peak: 273`, `settled: true`, 15 frames, 1.07 s median interval.
+  - B `after_14.png`, looked at: a short pink trail from the launch pad into the switch, ending at the lever; nothing past it; the goal rail untouched.
+  - Phone evidence: `screenshots/device_evidence/20261102-162924.txt`, `-162937.txt`, `-163455.txt`. Total RAM 2,025,912K, free 1,071,221K, status normal; `am_kill ... bg anr` on `com.google.android.as` and `com.google.android.gms` during app start in both boots.
+- **Declared outcomes against what happened:**
+  - B: held at the lever, not finished, sparkles 0 to 2. Held: 0 sparkles.
+  - A: unmeasured.
+- **Decisions made inside the task:** reran A alone rather than A after B, to keep the first session's order. That repeated the exact condition that failed: first load after a cold boot.
+- **For the record:**
+  - Item 23: the fix seen live on a miss. A switch course whose lever adds 273 white pixels reads not finished at 0 sparkles. The finished half is still unmeasured.
+  - D104 and D103: the checker's INVALID on B ("SWITCH_RIGHT has no way on") matched the run.
+  - #21: 2 boots, 4 load attempts, 1 good. Both failures were the first load after boot (build tutorial), then a dead `force-stop` on the retry. The phone had memory to spare; Google services were ANR-killed during app start.
+  - Colby, watching live: "the switch only works if the marble runs a certain way through the switch". Consistent with D103: one side holds, and which one depends on the lever.
+- **Friction:** the retry after a refused load runs `am force-stop` on a phone that is still struggling, and dies there. Retrying in the same boot used to work (s43, s46, s48); here it didn't, twice.
+- **Next:** Colby's call: one more session with B first as a warm-up, then A; or stop with B's half.

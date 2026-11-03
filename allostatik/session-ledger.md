@@ -142,3 +142,4 @@ OPENED s49 2026-11-02
 TASK-OPEN s49-t1 base=8ed149b scope=traxgen/android.py,tests/test_finish_burst.py,tests/test_render_finish.py,tests/test_probe_finish_frames.py,scripts/render_course.py,scripts/probe_finish_frames.py,scripts/finish_record.py
 TASK-CLOSED s49-t1 DONE
 TASK-OPEN s49-t2 base=27169da scope=
+TASK-CLOSED s49-t2 STOPPED

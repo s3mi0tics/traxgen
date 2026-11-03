@@ -143,3 +143,4 @@ TASK-OPEN s49-t1 base=8ed149b scope=traxgen/android.py,tests/test_finish_burst.p
 TASK-CLOSED s49-t1 DONE
 TASK-OPEN s49-t2 base=27169da scope=
 TASK-CLOSED s49-t2 STOPPED
+TASK-OPEN s49-t3 base=2445ef4 scope=

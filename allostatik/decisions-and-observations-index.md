@@ -132,6 +132,8 @@ D102 · Every path that opens a course goes through `load_course`, which refuses
 D103 · The switch is a three-sided piece whose kind is its lever's starting position (2026-11-02, s48) → decisions.md:120, body 157w
 D104 · The checker holds the switch for one marble per switch, and says UNMEASURED where a second marble could reach one (2026-11-02, s48) → decisions.md:121, body 108w
 D105 · A finish is a burst of at least six sparkles, not a count of white pixels (2026-11-02, s49) **[?revised]** → decisions.md:122, body 224w
+D106 · A launch pad releases one marble per valid connection, all at the same moment (2026-11-02, s50) → decisions.md:123, body 131w
+D107 · A goal rail on an uncompleted half-hole misses from every side, and the app does not draw it (2026-11-02, s50) → decisions.md:124, body 94w
 
 ## Observations
 
@@ -204,7 +206,7 @@ kind. Promotion means three or more firings across separate sessions.*
 #58 · **A change of direction at the goal turn skipped the rest of the open, and nothing noticed for four days.** → observations.md:120, body 107w
 #59 · **A declared outcome failed, and the close matched the result to another run instead of saying so.** → observations.md:122, body 122w
 #60 · **A convention's cheap test named the wrong thing, and nothing ever ran it against a real case.** → observations.md:124, body 70w
-#61 · **A brief signal was ruled out by comparing only the first and last frames.** → observations.md:126, body 98w
+#61 · **A brief signal was ruled out by comparing only the first and last frames.** → observations.md:126, body 162w
 #62 · **An option's cost was judged per check, not per loop.** → observations.md:128, body 71w
 #63 · **A done check named an output the code never prints.** → observations.md:130, body 302w
 #64 · **A trace scored against the data a term was fitted to tests only that term.** → observations.md:132, body 105w
@@ -213,4 +215,5 @@ kind. Promotion means three or more firings across separate sessions.*
 #67 · **The harness talks to whatever Android device is attached.** → observations.md:138, body 89w
 #68 · **A harness reported a screen it never rendered as a result, again, on a path built after the guard.** → observations.md:140, body 110w
 #69 · **A task's scope missed a test that feeds the code it changed.** → observations.md:142, body 86w
-#70 · **A guest's reading of its own memory was taken as the host's.** → observations.md:144, body 165w
+#70 · **A guest's reading of its own memory was taken as the host's.** → observations.md:144, body 253w
+#71 · **A script was asked for its help text and ran live; then its output was deleted before it was read.** → observations.md:146, body 77w

@@ -157,3 +157,4 @@ TASK-OPEN s50-t2 base=c9bc92d scope=
 TASK-CLOSED s50-t2 DONE
 TASK-OPEN s50-t3 base=3ca2529 scope=scripts/probe_half_holes.py,tests/test_probe_half_holes.py
 TASK-CLOSED s50-t3 DONE
+CLOSED s50

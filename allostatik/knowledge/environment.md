@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-11-02 (s49)
+**Last updated:** 2026-11-02 (s50)
 
 ## Runtime
 
@@ -62,7 +62,11 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - *(Fixed s49, D105.)* ~~Finish readings on a course with a switch are not evidence~~: `judge_finish` counts sparkles now, and the lever's streaks are not sparkles. `frames.json` carries `finish_sparkles` beside `finish_peak`.
 - **Read the Mac's memory before blaming the emulator** (s49, #70). `sysctl vm.swapusage` and `uptime`; on 2026-11-02 swap was 18.4 of 19.5 GB used and every emulator boot failed its first app launch. In Activity Monitor: the Memory tab's *Memory Pressure* graph (green, yellow, red) and *Swap Used*. BambuStudio (~5 GB) and Docker's virtual machines (~9 GB) are the big ones to quit before a render session.
 
+- **Two s50 probes** (lone or standard board, uploaded, read by trails and the finish check): `uv run python -m scripts.probe_two_marbles` (launch pads with two joined ports, D106) and `uv run python -m scripts.probe_half_holes` (a goal on every half-hole, D107); each writes its manifest under `screenshots/ring_board/` and prints the codes to pass to `probe_finish_frames --link`.
+
 ## Gotchas (each learned the hard way)
+
+- **`probe_finish_frames` has no `--help`: every argument but `--link` and `--runs` is a share code, and it boots the emulator to try it** (s50, #71). Read a script's argument handling in its source first.
 
 - **Every harness adb call names `emulator-5554`** (s47, D101; this was the s46 gotcha "adb names no device", #67). A phone serial in `ANDROID_SERIAL` is refused; the boot starts the AVD on port 5554, so a second emulator already holding that port fails the boot loudly. A plugged-in phone is listed by preflight as "never driven". Raw `adb` typed by hand is still unpinned: use `"$ADB" -s emulator-5554 ...`.
 

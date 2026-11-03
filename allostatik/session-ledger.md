@@ -153,3 +153,4 @@ TASK-CLOSED s49-t5 DONE
 OPENED s50 2026-11-02
 TASK-OPEN s50-t1 base=4a0a6ff scope=scripts/probe_two_marbles.py,tests/test_probe_two_marbles.py
 TASK-CLOSED s50-t1 DONE
+TASK-OPEN s50-t2 base=c9bc92d scope=

@@ -158,3 +158,7 @@ TASK-CLOSED s50-t2 DONE
 TASK-OPEN s50-t3 base=3ca2529 scope=scripts/probe_half_holes.py,tests/test_probe_half_holes.py
 TASK-CLOSED s50-t3 DONE
 CLOSED s50
+OPENED s51 2026-11-02
+STEP upgrade 1/5 v0.3.14 596db3f56cc5 routine:7935f02a34c8 from:64e45da50938 tree:clean part1:v0.3.14 sha256:1b74956f9d9a claude-md:v0.3.14 sha256:9e2268059b59 agents-md:v0.3.14 sha256:a331be536e27 state-check:v0.3.14 sha256:07a3399d5819
+STEP upgrade 2/5 part1:PRISTINE-STALE claude-md:CURRENT agents-md:CURRENT state-check:ABSENT
+CLOSED s51

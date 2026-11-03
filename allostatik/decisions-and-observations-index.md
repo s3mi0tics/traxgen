@@ -217,3 +217,4 @@ kind. Promotion means three or more firings across separate sessions.*
 #69 · **A task's scope missed a test that feeds the code it changed.** → observations.md:142, body 86w
 #70 · **A guest's reading of its own memory was taken as the host's.** → observations.md:144, body 253w
 #71 · **A script was asked for its help text and ran live; then its output was deleted before it was read.** → observations.md:146, body 77w
+#72 · **A cut-off list was read as the whole list.** → observations.md:148, body 121w

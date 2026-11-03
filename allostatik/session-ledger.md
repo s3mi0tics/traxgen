@@ -145,3 +145,4 @@ TASK-OPEN s49-t2 base=27169da scope=
 TASK-CLOSED s49-t2 STOPPED
 TASK-OPEN s49-t3 base=2445ef4 scope=
 TASK-CLOSED s49-t3 FAILED
+TASK-OPEN s49-t4 base=4ef7ebd scope=

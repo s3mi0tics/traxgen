@@ -1,8 +1,8 @@
 # s50-t1 — a board of two-connection launch pads
 
-**Status:** OPEN
+**Status:** DONE
 
-**In one paragraph:** _written at close_
+**In one paragraph:** `scripts/probe_two_marbles.py` builds a goal-ringed board on the standard square with three tests, one per pair of a rotation-0 launch pad's ports ({0,2}, {2,4}, {0,4}). Each used port runs through two straight X-intersections into its own goal rail, the third port faces an empty cell, and each test alone checks VALID. A run of three fits only one test on the standard square, so the default is two. Nothing was uploaded; t2 plays it.
 
 ## Open (written before the work)
 
@@ -17,3 +17,13 @@
   4. *Reads:* `tests/test_probe_two_marbles.py`, run by pytest against the script's `layout`.
   5. *Check:* the test asserts, for every test of the built board, two accepting neighbours and one empty, equal run lengths, buildable and visible cells, spacing to other tests, and `check_course` VALID on the test alone; the suite reports the count passed.
 - **Outcomes declared before any live run:** none, because there is no live run.
+
+## Close
+
+- **What happened:** wrote the script and its test. The first layout tried tests strictly in order and fitted one of three at a run of 3; letting each cell take any unplaced test still fitted one at 3, and all three at 2.
+- **What changed:** `scripts/probe_two_marbles.py`, `tests/test_probe_two_marbles.py`.
+- **Evidence:** `s50-t1: in scope -- 2 files changed since open commit bcd138b, all declared`; 8 new tests pass; full suite 1234 passed; ruff clean on both files. Mutants: a wrong X-intersection rotation failed 1 test (the accepting-ports test); using all three ports errored 7 (layout no longer fits), so that one is caught by the fit, not by the third-port test directly.
+- **Decisions made inside the task:** default run 2, since 3 fits one test; the class is `PadTest`, not `Test`, so pytest doesn't try to collect it.
+- **For the record:** the standard square holds three two-route launch-pad tests at two X-intersections per route, one at three (`test_a_run_of_three_does_not_fit_all_three`).
+- **Friction:** none.
+- **Next:** t2, upload and play the board twice by link, swap-ins and memory-free percentage read before and after.

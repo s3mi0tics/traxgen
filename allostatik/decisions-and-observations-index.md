@@ -131,7 +131,7 @@ D101 · Every adb call names the emulator; a phone serial cannot make a context 
 D102 · Every path that opens a course goes through `load_course`, which refuses a courseless screen (2026-11-02, s48) → decisions.md:119, body 145w
 D103 · The switch is a three-sided piece whose kind is its lever's starting position (2026-11-02, s48) → decisions.md:120, body 157w
 D104 · The checker holds the switch for one marble per switch, and says UNMEASURED where a second marble could reach one (2026-11-02, s48) → decisions.md:121, body 108w
-D105 · A finish is a burst of at least six sparkles, not a count of white pixels (2026-11-02, s49) **[?revised]** → decisions.md:122, body 219w
+D105 · A finish is a burst of at least six sparkles, not a count of white pixels (2026-11-02, s49) **[?revised]** → decisions.md:122, body 224w
 
 ## Observations
 

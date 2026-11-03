@@ -106,6 +106,7 @@ def watch(ctx: AdbContext, folder: Path) -> dict[str, object]:
     return {
         "finish": reading.status.value,
         "finish_peak": reading.peak_new_white,
+        "finish_sparkles": reading.peak_sparkles,
         "finish_reason": reading.reason,
         "median_interval": round(gaps[len(gaps) // 2], 2) if gaps else None,
         "settled": quiet >= QUIET_FRAMES and not stop[-1],

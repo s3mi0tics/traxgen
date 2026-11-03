@@ -216,7 +216,8 @@ def _run(args: argparse.Namespace) -> int:
     if result.finish is not None:
         f = result.finish
         print(
-            f"finish: {f.status.value} (peak {f.peak_new_white}, {f.frames} frames, {f.reason})",
+            f"finish: {f.status.value} ({f.peak_sparkles} sparkles,"
+            f" {f.peak_new_white} new white px, {f.frames} frames, {f.reason})",
             file=sys.stderr,
         )
     print(result.screenshot)

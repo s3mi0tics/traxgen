@@ -1721,7 +1721,28 @@ def detect_play_button_state(screenshot_path: Path, *, guard_frame: bool = True)
 # run (peak 581), so the 62 is no longer on disk; and the second no-goal run,
 # 4DLUQKGRKN, never played (UNJUDGED, 0), so it says nothing about the threshold.
 # Measured on the goal rail only: whether the other goal pieces burst too is unmeasured.
+#
+# The pixel count is reported, and no longer decides (s49-t1, plan item 23): a
+# switch's lever swings as a marble passes and uncovers white plastic, 432 to 976
+# new near-white pixels on goal-less boards (#66). What decides is the number of
+# separate sparkles -- spots of new white, 8-connected, of SPARKLE_AREA pixels,
+# filling at least SPARKLE_MIN_FILL of their bounding box and no longer than
+# SPARKLE_MAX_ASPECT to one. A lever's white is 3 to 5 thin streaks of 100 to 330
+# px. Most sparkles in any frame after play, on the runs on disk:
+#
+#   finish (goal rail, 4 runs)            18, 24, 30, 33
+#   finish (30-goal ring board, 1 run)    102
+#   switch boards, goal-less (5 runs)     0, 0, 0, 1, 2
+#   misses, no-goal and other runs        0
+#
+# 6 sits 3x above the highest non-finish and 3x below the lowest finish. Timing
+# does not separate them: with two marbles per switch the second swings the lever
+# back, so the lever's white can last one frame, as a burst does (8WL7RXS9H4).
 FINISH_BURST_MIN_PIXELS = 30
+FINISH_SPARKLES_MIN = 6
+SPARKLE_AREA = range(15, 81)
+SPARKLE_MIN_FILL = 0.5
+SPARKLE_MAX_ASPECT = 2.0
 FINISH_BURST_BOARD = (200, 0, 2400, 880)  # x0, y0, x1, y1: clear of the back icon and toolbar
 
 # A corner of the stop square that the play triangle does not cover (s41-t1):
@@ -1747,12 +1768,52 @@ def _near_white_mask(png_bytes: bytes) -> Any:
     return darkest.point(lambda v: 255 if v > FRAME_WHITE_MIN_CHANNEL else 0)
 
 
-def new_white_pixels(before_png: bytes, frame_png: bytes) -> int:
-    """Board pixels near-white in `frame_png` that were not near-white before play."""
+def _added_white(before_png: bytes, frame_png: bytes) -> Any:
     from PIL import ImageChops
 
-    added = ImageChops.subtract(_near_white_mask(frame_png), _near_white_mask(before_png))
-    return added.histogram()[255]
+    return ImageChops.subtract(_near_white_mask(frame_png), _near_white_mask(before_png))
+
+
+def new_white_pixels(before_png: bytes, frame_png: bytes) -> int:
+    """Board pixels near-white in `frame_png` that were not near-white before play."""
+    return _added_white(before_png, frame_png).histogram()[255]
+
+
+def _count_sparkles(added: Any) -> int:
+    width = added.width
+    todo = {m.start() for m in re.finditer(b"\xff", added.tobytes())}
+    sparkles = 0
+    while todo:
+        stack = [todo.pop()]
+        xs: list[int] = []
+        ys: list[int] = []
+        while stack:
+            i = stack.pop()
+            y, x = divmod(i, width)
+            xs.append(x)
+            ys.append(y)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nx = x + dx
+                    j = i + dy * width + dx
+                    if 0 <= nx < width and j in todo:
+                        todo.remove(j)
+                        stack.append(j)
+        area = len(xs)
+        w = max(xs) - min(xs) + 1
+        h = max(ys) - min(ys) + 1
+        if (
+            area in SPARKLE_AREA
+            and area >= SPARKLE_MIN_FILL * w * h
+            and max(w, h) <= SPARKLE_MAX_ASPECT * min(w, h)
+        ):
+            sparkles += 1
+    return sparkles
+
+
+def new_sparkles(before_png: bytes, frame_png: bytes) -> int:
+    """Separate sparkle-sized spots of white in `frame_png` that were not white before play."""
+    return _count_sparkles(_added_white(before_png, frame_png))
 
 
 class FinishStatus(StrEnum):
@@ -1767,6 +1828,7 @@ class FinishReading:
     peak_new_white: int
     frames: int
     reason: str
+    peak_sparkles: int = 0
 
 
 def judge_finish(before_png: bytes, frames: Sequence[bytes]) -> FinishReading:
@@ -1774,18 +1836,21 @@ def judge_finish(before_png: bytes, frames: Sequence[bytes]) -> FinishReading:
 
     UNJUDGED, never NOT_FINISHED, when the stop square never showed (play never
     ran) or still shows on the last frame (the run had not ended): a run that
-    did not happen is not a miss.
+    did not happen is not a miss. The burst is judged by its sparkle count, not
+    its white pixels, which a switch's lever also adds (s49-t1).
     """
     stops = [button_shows_stop(f) for f in frames]
-    peak = max((new_white_pixels(before_png, f) for f in frames), default=0)
+    added = [_added_white(before_png, f) for f in frames]
+    peak = max((a.histogram()[255] for a in added), default=0)
     n = len(frames)
     if not any(stops):
         return FinishReading(FinishStatus.UNJUDGED, peak, n, "the stop square never showed")
     if stops[-1]:
         return FinishReading(FinishStatus.UNJUDGED, peak, n, "the run had not ended")
-    if peak >= FINISH_BURST_MIN_PIXELS:
-        return FinishReading(FinishStatus.FINISHED, peak, n, "sparkle burst")
-    return FinishReading(FinishStatus.NOT_FINISHED, peak, n, "no sparkle burst")
+    sparkles = max(_count_sparkles(a) for a in added)
+    if sparkles >= FINISH_SPARKLES_MIN:
+        return FinishReading(FinishStatus.FINISHED, peak, n, "sparkle burst", sparkles)
+    return FinishReading(FinishStatus.NOT_FINISHED, peak, n, "no sparkle burst", sparkles)
 
 
 # How the play run is watched. Frames are captured back to back (a capture

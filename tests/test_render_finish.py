@@ -27,6 +27,7 @@ from tests.test_refused_screens import DEAD_FRAME
 from traxgen.android import (
     COORDS,
     FINISH_BURST_MIN_PIXELS,
+    FINISH_SPARKLES_MIN,
     PLAY_BUTTON_SAMPLE_CENTER,
     PLAY_MAX_FRAMES,
     PLAY_START_FRAMES,
@@ -57,12 +58,14 @@ IS_LOAD_CONFIRM = lambda c: LOAD_CONFIRM_TAP in c  # noqa: E731
 
 
 def frame(*, stop: bool = False, sparkles: int = 0) -> bytes:
-    """A dark board, the play button's corner (stop or idle), and `sparkles` white pixels."""
+    """A dark board, the play button's corner (stop or idle), and `sparkles` separate
+    5x5 white dots, 10 px apart: the finish burst's shape (s49-t1)."""
     img = Image.new("RGB", (2400, 1080), (20, 110, 170))
     draw = ImageDraw.Draw(img)
     draw.rectangle(STOP_SQUARE_CORNER, fill=(221, 232, 161) if stop else (180, 204, 50))
     for i in range(sparkles):
-        draw.point((1400 + i % 50, 300 + i // 50), fill=(250, 250, 250))
+        x, y = 1400 + 10 * (i % 40), 300 + 10 * (i // 40)
+        draw.rectangle((x, y, x + 4, y + 4), fill=(250, 250, 250))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -70,7 +73,7 @@ def frame(*, stop: bool = False, sparkles: int = 0) -> bytes:
 
 IDLE = frame()
 # rendered screenshot, before play, the run with its burst, then a still screen
-FINISHING_RUN = [IDLE, IDLE, frame(stop=True), frame(stop=True, sparkles=500)] + [IDLE] * 4
+FINISHING_RUN = [IDLE, IDLE, frame(stop=True), frame(stop=True, sparkles=20)] + [IDLE] * 4
 
 
 def indices(fake: FakeAdb, predicate) -> list[int]:
@@ -126,6 +129,7 @@ def test_a_finishing_run_is_read_and_play_comes_after_both_guards(tmp_path: Path
     result = render_course(CODE, ctx=ctx_with(fake), screenshot_dir=tmp_path, detect_finish=True)
     assert isinstance(result.finish, FinishReading)
     assert result.finish.status is FinishStatus.FINISHED
+    assert result.finish.peak_sparkles == 20
     assert result.finish.peak_new_white == 500
 
     [play] = indices(fake, IS_PLAY)
@@ -145,7 +149,7 @@ def test_the_before_frame_is_captured_after_the_screenshot_not_reused(tmp_path: 
     The screenshot carries the same white pixels as the burst, so a `before`
     reused from it would cancel the burst out and read NOT_FINISHED.
     """
-    sparkly_screenshot = [frame(sparkles=500), IDLE, frame(stop=True, sparkles=500)] + [IDLE] * 4
+    sparkly_screenshot = [frame(sparkles=20), IDLE, frame(stop=True, sparkles=20)] + [IDLE] * 4
     fake = FakeAdb(screencap_pngs=sparkly_screenshot)
     result = render_course(CODE, ctx=ctx_with(fake), screenshot_dir=tmp_path, detect_finish=True)
     assert result.finish is not None
@@ -258,7 +262,7 @@ def test_the_cli_passes_both_flags_and_prints_the_finish(
 
     def render(code: str, **kwargs: object) -> RenderResult:
         seen.update(kwargs)
-        reading = FinishReading(FinishStatus.FINISHED, 1115, 11, "sparkle burst")
+        reading = FinishReading(FinishStatus.FINISHED, 1115, 11, "sparkle burst", 33)
         return RenderResult(Path("s.png"), "active", reading)
 
     monkeypatch.setattr(script, "resolve_context", lambda: object())
@@ -268,7 +272,7 @@ def test_the_cli_passes_both_flags_and_prints_the_finish(
     assert seen["detect_finish"] is True and seen["by_link"] is True
     err = capsys.readouterr().err
     assert "play button: active" in err
-    assert "finish: finished (peak 1115, 11 frames, sparkle burst)" in err
+    assert "finish: finished (33 sparkles, 1115 new white px, 11 frames, sparkle burst)" in err
 
     script.main([CODE, "--typed"], chime_fn=lambda ok, **_: "")
     assert seen["by_link"] is False and seen["detect_finish"] is False
@@ -279,13 +283,13 @@ def test_the_cli_passes_both_flags_and_prints_the_finish(
 
 def test_a_burst_on_the_last_frame_counts() -> None:
     """The burst can land as the stop square clears; the last frame is read too."""
-    reading = judge_finish(IDLE, [frame(stop=True), frame(sparkles=500)])
+    reading = judge_finish(IDLE, [frame(stop=True), frame(sparkles=20)])
     assert reading.status is FinishStatus.FINISHED
 
 
 def test_a_changing_screen_after_the_run_keeps_the_watch_going() -> None:
     """Stillness is measured against the previous frame, not assumed."""
-    trail_a, trail_b = frame(sparkles=2000), frame(sparkles=4000)
+    trail_a, trail_b = frame(sparkles=200), frame(sparkles=400)
     moving = [IDLE, frame(stop=True), trail_a, trail_b, trail_a, trail_b] + [trail_b] * 3
     fake = FakeAdb(screencap_pngs=moving)
     _, frames = watch_play_run(ctx_with(fake))
@@ -293,11 +297,13 @@ def test_a_changing_screen_after_the_run_keeps_the_watch_going() -> None:
 
 
 def test_the_finish_and_stop_thresholds_are_the_recorded_numbers() -> None:
-    """Literal, so a moved constant fails here: D093 sets 30; s41-t1 measured 161 vs 50 blue."""
+    """Literal, so a moved constant fails here: D093 sets 30 px, now reported only;
+    s49-t1 sets 6 sparkles; s41-t1 measured 161 vs 50 blue."""
     assert FINISH_BURST_MIN_PIXELS == 30
+    assert FINISH_SPARKLES_MIN == 6
     assert STOP_SQUARE_MIN_BLUE == 105.0
     def at(n: int) -> FinishStatus:
         return judge_finish(IDLE, [frame(stop=True, sparkles=n), IDLE]).status
 
-    assert at(29) is FinishStatus.NOT_FINISHED
-    assert at(30) is FinishStatus.FINISHED
+    assert at(5) is FinishStatus.NOT_FINISHED
+    assert at(6) is FinishStatus.FINISHED

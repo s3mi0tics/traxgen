@@ -119,6 +119,7 @@ def render_one(ctx: AdbContext, code: str, folder: Path) -> dict[str, object]:
         "validity": result.validity,
         "finish": finish.status.value,
         "finish_peak": finish.peak_new_white,
+        "finish_sparkles": finish.peak_sparkles,
         "finish_frames": finish.frames,
         "finish_reason": finish.reason,
     }
@@ -158,7 +159,7 @@ def main(argv: list[str]) -> int:
                     error = f"{type(exc).__name__}: {exc}"
                     reason = f"{label} attempt {attempt}: {error}"
                     entry.update(attempt=attempt, error=error, evidence=keep_evidence(ctx, reason))
-            keys = ("code", "validity", "finish", "finish_peak", "error")
+            keys = ("code", "validity", "finish", "finish_sparkles", "finish_peak", "error")
             print(f"{label}: {json.dumps({k: entry.get(k) for k in keys})}", file=sys.stderr)
             out_file.write_text(json.dumps(results, indent=2))
     print(json.dumps(results, indent=2))

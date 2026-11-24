@@ -25,7 +25,7 @@ def _tolerant_generation(value: int):
     types.py's CourseElementGeneration is behind the app (missing >=10 --
     AUTUMN_2024 onward; upstream 8d7974a has through 13). Read-only mining
     keeps the raw int instead of crashing the course; the enum catch-up is
-    plan.md item 5 / deferred-cleanup work, not this script's.
+    plan.md item 8 / deferred-cleanup work, not this script's.
     """
     try:
         return CourseElementGeneration(value)
@@ -34,6 +34,20 @@ def _tolerant_generation(value: int):
 
 
 _parser.CourseElementGeneration = _tolerant_generation
+
+
+def piece_side(side_hex_rot: int, hex_rotation: int) -> int:
+    """The tile-relative side a rail exit sits on, in `track_graph`'s frame (s52-t9).
+
+    The format numbers a cell's edges the mirror way round from `HEX_DIRECTIONS`:
+    edge `s` is world direction `(2 - s) % 6`. Measured on 15,880 corpus STRAIGHT
+    rails with both ends on layers -- the step from exit 1's cell to exit 2's is
+    `HEX_DIRECTIONS[(2 - s1) % 6]` every time. Until s52 this was
+    `(side_hex_rot - hex_rotation) % 6`, which keeps parity (so STARTER's {0,2,4}
+    passed) but permutes the sides of every asymmetric piece: the curve's "87/13"
+    split (s20) was its sharp track's side 3, mirrored.
+    """
+    return (2 - side_hex_rot - hex_rotation) % 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +253,7 @@ def mine(path: Path, port_obs: dict, records: list, verbose: bool = True) -> str
                 ctx = join_exit(ex, layer_by_id, tile_retainers)
                 for tile in ctx.tower:
                     port_obs[tile.kind_name].append(
-                        (ctx.side_hex_rot, (ctx.side_hex_rot - tile.hex_rotation) % 6,
+                        (ctx.side_hex_rot, piece_side(ctx.side_hex_rot, tile.hex_rotation),
                          round(ctx.exit_local_pos_y, 3), tile.height_in_small_stacker,
                          rail.rail_kind.name, code))
                     records.append({
@@ -283,7 +297,7 @@ def mine(path: Path, port_obs: dict, records: list, verbose: bool = True) -> str
         print(f"    exit2: {describe_exit(e2)}")
         for ctx in (e1, e2):
             for tile in ctx.tower:
-                rel = (ctx.side_hex_rot - tile.hex_rotation) % 6
+                rel = piece_side(ctx.side_hex_rot, tile.hex_rotation)
                 port_obs[tile.kind_name].append(
                     (ctx.side_hex_rot, rel, round(ctx.exit_local_pos_y, 3),
                      tile.height_in_small_stacker, rail.rail_kind.name, code)
@@ -338,8 +352,8 @@ def main(argv: list[str]) -> int:
                 fh.write(json.dumps(rec) + "\n")
         print(f"  {len(records)} observation records -> {jsonl_out}")
     print("\n=== Port observations by TileKind (POSITIVE EVIDENCE ONLY) ===")
-    print("    (side=raw side_hex_rot; rel=(side - tile.hex_rotation) % 6, the")
-    print("     tile-relative-edge HYPOTHESIS; y=exit_local_pos_y; h=tile height)")
+    print("    (side=raw side_hex_rot; rel=piece_side(side, tile.hex_rotation) =")
+    print("     (2 - side - hex_rotation) % 6; y=exit_local_pos_y; h=tile height)")
     for kind in sorted(port_obs):
         rows = port_obs[kind]
         print(f"  {kind}: {len(rows)} observation(s)")

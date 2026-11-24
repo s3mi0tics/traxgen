@@ -187,3 +187,4 @@ TASK-CLOSED s52-t7 DONE
 TASK-OPEN s52-t8 base=e6df3ca scope=
 TASK-CLOSED s52-t8 DONE
 TASK-OPEN s52-t9 base=9456f4f scope=scripts/mine_ports.py,tests/test_mine_ports.py
+TASK-CLOSED s52-t9 DONE

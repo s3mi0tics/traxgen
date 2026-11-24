@@ -212,3 +212,4 @@ TASK-OPEN s52-t20 base=17a7708 scope=
 TASK-CLOSED s52-t20 DONE
 TASK-OPEN s52-t21 base=36eb08f scope=
 TASK-CLOSED s52-t21 DONE
+TASK-OPEN s52-t22 base=c1e7293 scope=traxgen/track_graph.py,tests/test_track_graph.py

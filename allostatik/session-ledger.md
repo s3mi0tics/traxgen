@@ -208,3 +208,4 @@ TASK-OPEN s52-t18 base=9eff194 scope=scripts/search_routes.py,tests/test_search_
 TASK-CLOSED s52-t18 DONE
 TASK-OPEN s52-t19 base=da41aad scope=
 TASK-CLOSED s52-t19 DONE
+TASK-OPEN s52-t20 base=17a7708 scope=

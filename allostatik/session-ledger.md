@@ -179,3 +179,4 @@ TASK-CLOSED s52-t3 DONE
 TASK-OPEN s52-t4 base=e64fa8a scope=scripts/read_trail_ends.py,tests/test_read_trail_ends.py
 TASK-CLOSED s52-t4 DONE
 TASK-OPEN s52-t5 base=cbbc051 scope=
+TASK-CLOSED s52-t5 DONE

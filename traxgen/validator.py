@@ -20,10 +20,11 @@ from traxgen.domain import (
     Course,
     TileTowerConstructionData,
     TileTowerTreeNodeData,
+    WallBalconyConstructionData,
     WallConstructionData,
 )
 from traxgen.graph import ConnectionStatus, start_goal_status
-from traxgen.hex import HexVector
+from traxgen.hex import HEX_DIRECTIONS, HexVector
 from traxgen.inventory import (
     PIECE_CATALOG,
     Inventory,
@@ -32,7 +33,7 @@ from traxgen.inventory import (
     WallKind,
 )
 from traxgen.plates import BASEPLATE_LAYER_KINDS
-from traxgen.types import LayerKind, RailKind, TileKind
+from traxgen.types import LayerKind, RailKind, TileKind, WallSide
 
 
 class Severity(IntEnum):
@@ -116,21 +117,19 @@ def _iter_placed_tiles(course: Course) -> Iterator[TileTowerConstructionData]:
 
 
 def _resolve_retainer_world_positions(course: Course) -> dict[int, HexVector]:
-    """Map retainer_id -> world HexVector for layer and tile retainers.
+    """Map retainer_id -> world HexVector for layer, tile and balcony retainers.
 
-    Two retainer categories get resolved:
+    Three retainer categories get resolved:
 
       1. Layer retainers — the layer's own world_hex_position.
       2. Tile retainers (structural tiles declaring retainer_id on layer
          cells) — containing-layer world_hex_position + cell local_hex_position.
+      3. Balcony retainers (s52-t12) — the cell beside the wall line, by
+         `_balcony_world_position`, when the wall's towers resolve.
 
-    Balcony retainers are NOT resolved. Balcony cells live in their wall's
-    coordinate system, which requires separate probe work to reconcile
-    with layer world-coords. A rail touching a balcony retainer will have
-    that endpoint missing from this mapping, and callers must handle that
-    absence by skipping (same behavior as the original cross-retainer
-    skip). See docs/refs/layer-kinds-and-world-coords.md and PLAN.md open
-    unknowns.
+    A retainer that still does not resolve is missing from the mapping, and
+    callers must handle that absence by skipping. Balcony height is not
+    modelled: positions are cells, and spans are counted in cells.
 
     Verified correct for GDZJZA3J3T by probe 3865bcb: cross-retainer
     STRAIGHT rails #18 and #19 yield world-distances 3 and 2 respectively,
@@ -144,7 +143,48 @@ def _resolve_retainer_world_positions(course: Course) -> dict[int, HexVector]:
                 rid = node.construction_data.retainer_id
                 if rid is not None:
                     positions[rid] = layer.world_hex_position + cell.local_hex_position
+    for wall in course.wall_construction_data:
+        for balcony in wall.balcony_construction_datas:
+            cell = _balcony_world_position(wall, balcony, positions)
+            if cell is not None:
+                positions[balcony.retainer_id] = cell
     return positions
+
+
+def _balcony_world_position(
+    wall: WallConstructionData,
+    balcony: WallBalconyConstructionData,
+    retainer_world: Mapping[int, HexVector],
+) -> HexVector | None:
+    """The world cell a balcony occupies, or None if its wall's towers do not resolve.
+
+    A wall runs straight from tower 1 to tower 2, 2 to 4 cells, with one column
+    per cell of length. The balcony at `column` sits beside the wall line,
+    touching line cells `column` and `column + 1`, on the side `wall_side`
+    names: tower 1 + column steps along the wall + one step to that side.
+    Corpus (s52-t10): every one of 709 balcony-to-other and 1,034
+    balcony-to-balcony rails then has a span its kind allows; with EAST and
+    WEST swapped, 46 of the 709.
+    """
+    w1 = retainer_world.get(wall.lower_stacker_tower_1_retainer_id)
+    w2 = retainer_world.get(wall.lower_stacker_tower_2_retainer_id)
+    if w1 is None or w2 is None:
+        return None
+    p1 = w1 + wall.lower_stacker_tower_1_local_hex_pos
+    p2 = w2 + wall.lower_stacker_tower_2_local_hex_pos
+    length = p1.distance_to(p2)
+    step = p2 - p1
+    if length == 0 or step.y % length or step.x % length:
+        return None
+    unit = (step.y // length, step.x // length)
+    if unit not in HEX_DIRECTIONS:
+        return None
+    along = HEX_DIRECTIONS.index(unit)
+    side = along + 1 if balcony.wall_side is WallSide.EAST else along - 1
+    dy, dx = HEX_DIRECTIONS[along]
+    sy, sx = HEX_DIRECTIONS[side % 6]
+    column = balcony.wall_coordinate.column
+    return HexVector(y=p1.y + column * dy + sy, x=p1.x + column * dx + sx)
 
 
 # --- Rules -----------------------------------------------------------------
@@ -473,11 +513,9 @@ def _check_inventory_budget_rails(
       (layer or tile retainer): compute world distance via
       `world + cell_local` for each endpoint. Proved correct for the
       GDZJZA3J3T fixture by probe 3865bcb.
-    - Cross-retainer rails where at least one endpoint cannot be resolved
-      (typically a balcony retainer): skip from the sub-budget entirely.
-      The rail still counts toward the per-kind STRAIGHT budget. Balcony
-      world-coord resolution is deferred — see
-      docs/refs/layer-kinds-and-world-coords.md and PLAN.md open unknowns.
+    - Cross-retainer rails where at least one endpoint cannot be resolved:
+      skip from the sub-budget entirely. The rail still counts toward the
+      per-kind STRAIGHT budget. Balcony endpoints resolve since s52-t12.
     """
     violations: list[Violation] = []
 
@@ -499,8 +537,7 @@ def _check_inventory_budget_rails(
             ))
 
     # --- STRAIGHT sub-budget: per-placement invalid span + bucket checks -
-    # Resolve retainer world positions once up front. Balcony retainers
-    # are absent from this mapping — see docstring.
+    # Resolve retainer world positions once up front, balconies included.
     retainer_world = _resolve_retainer_world_positions(course)
 
     length_counts: Counter[RailLength] = Counter()
@@ -518,8 +555,8 @@ def _check_inventory_budget_rails(
             w1 = retainer_world.get(exit_1.retainer_id)
             w2 = retainer_world.get(exit_2.retainer_id)
             if w1 is None or w2 is None:
-                # Unresolvable endpoint (typically a balcony retainer).
-                # Skip from sub-budget; still counts toward per-kind above.
+                # Unresolvable endpoint. Skip from sub-budget; still counts
+                # toward per-kind above.
                 continue
             world_1 = w1 + exit_1.cell_local_hex_pos
             world_2 = w2 + exit_2.cell_local_hex_pos

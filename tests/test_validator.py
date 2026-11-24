@@ -1223,6 +1223,40 @@ def test_budget_rails_cross_retainer_straight_invalid_world_distance_fires() -> 
     assert v.location.rail_index == 0
 
 
+def _balcony_rail_course(side: WallSide, far: HexVector) -> Course:
+    """A wall along East from (0,0) to (0,3), one balcony at column 0, a STRAIGHT rail to `far`."""
+    balcony = WallBalconyConstructionData(
+        retainer_id=500,
+        wall_side=side,
+        wall_coordinate=WallCoordinate(column=0, row=0),
+        cell_construction_data=None,
+    )
+    wall = _wall(tower1=HexVector(y=0, x=0), tower2=HexVector(y=0, x=3),
+                 balconies=(balcony,))
+    rail = _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=far,
+                 retainer_1=500, retainer_2=0)
+    return _course_with(_layer(), walls=(wall,), rails=(rail,))
+
+
+@pytest.mark.parametrize(
+    ("side", "balcony_cell"),
+    [(WallSide.EAST, HexVector(y=-1, x=1)), (WallSide.WEST, HexVector(y=1, x=0))],
+)
+def test_budget_rails_balcony_end_is_measured(side: WallSide, balcony_cell: HexVector) -> None:
+    """A balcony sits beside its wall's first cell, on its side (s52-t10): a rail 5 away is invalid.
+
+    Before s52-t12 a rail touching a balcony was skipped, so this reported nothing.
+    """
+    far = HexVector(y=balcony_cell.y, x=balcony_cell.x + 5)
+    violations = _rail_violations(validate(_balcony_rail_course(side, far),
+                                           PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "distance 5" in violations[0].message
+    near = HexVector(y=balcony_cell.y, x=balcony_cell.x + 2)
+    assert _rail_violations(validate(_balcony_rail_course(side, near),
+                                     PRO_VERTICAL_STARTER_SET)) == []
+
+
 def test_budget_rails_cross_retainer_straight_counts_toward_bucket() -> None:
     """Cross-retainer STRAIGHT rails count in their length bucket (not skipped).
 

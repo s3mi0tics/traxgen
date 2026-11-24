@@ -193,3 +193,4 @@ TASK-CLOSED s52-t10 DONE
 TASK-OPEN s52-t11 base=70a0f28 scope=traxgen/validator.py,tests/test_validator.py,docs/refs/rail-specs.md
 TASK-CLOSED s52-t11 DONE
 TASK-OPEN s52-t12 base=6e23704 scope=traxgen/validator.py,tests/test_validator.py
+TASK-CLOSED s52-t12 DONE

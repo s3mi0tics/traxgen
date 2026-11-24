@@ -162,3 +162,11 @@ OPENED s51 2026-11-02
 STEP upgrade 1/5 v0.3.14 596db3f56cc5 routine:7935f02a34c8 from:64e45da50938 tree:clean part1:v0.3.14 sha256:1b74956f9d9a claude-md:v0.3.14 sha256:9e2268059b59 agents-md:v0.3.14 sha256:a331be536e27 state-check:v0.3.14 sha256:07a3399d5819
 STEP upgrade 2/5 part1:PRISTINE-STALE claude-md:CURRENT agents-md:CURRENT state-check:ABSENT
 CLOSED s51
+OPENED s52 2026-11-03 09:43
+OPENED s52 2026-11-16
+STEP upgrade 3/5 part1 applied v0.3.14 sha256:1b74956f9d9a
+STEP upgrade 3/5 claude-md applied v0.3.14 sha256:9e2268059b59
+STEP upgrade 3/5 agents-md applied v0.3.14 sha256:a331be536e27
+STEP upgrade 4/5 offered:1 placed:1 declined:0 deferred:0
+STEP upgrade 5/5 verified
+STEP-DONE upgrade

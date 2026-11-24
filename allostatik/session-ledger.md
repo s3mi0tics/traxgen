@@ -214,3 +214,5 @@ TASK-OPEN s52-t21 base=36eb08f scope=
 TASK-CLOSED s52-t21 DONE
 TASK-OPEN s52-t22 base=c1e7293 scope=traxgen/track_graph.py,tests/test_track_graph.py
 TASK-CLOSED s52-t22 DONE
+CLOSED s52
+STEP-BLOCKED close 6/8 push not available here

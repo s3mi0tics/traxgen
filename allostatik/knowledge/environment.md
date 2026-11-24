@@ -4,7 +4,7 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 
 > **Never put secrets here.** Env-var *names*, ports, and URLs are fine; actual keys, tokens, passwords, and credentials are not — these files are meant to be committed.
 
-**Last updated:** 2026-11-02 (s50)
+**Last updated:** 2026-11-24 (s52)
 
 ## Runtime
 
@@ -62,9 +62,14 @@ Project-runtime environment context. Machine-wide setup lives in the user-scope 
 - *(Fixed s49, D105.)* ~~Finish readings on a course with a switch are not evidence~~: `judge_finish` counts sparkles now, and the lever's streaks are not sparkles. `frames.json` carries `finish_sparkles` beside `finish_peak`.
 - **Read the Mac's memory before blaming the emulator** (s49, #70). `sysctl vm.swapusage` and `uptime`; on 2026-11-02 swap was 18.4 of 19.5 GB used and every emulator boot failed its first app launch. In Activity Monitor: the Memory tab's *Memory Pressure* graph (green, yellow, red) and *Swap Used*. BambuStudio (~5 GB) and Docker's virtual machines (~9 GB) are the big ones to quit before a render session.
 
+- **s52 tools.** `uv run python -m scripts.search_routes [--upload]` generates courses the checker calls VALID (manifest `screenshots/ring_board/routes.json`); `scripts.probe_goal_basin` builds the basin board; `scripts.read_trail_ends <frames dir> <manifest> [key]` reads where each trail ends (standard square; pads closer than two cells claim each other's trails). `sh allostatik/scripts/state-check.sh` is the open's clean-start check (D109); this session's auto-mode classifier refused to run it, so Colby runs it.
+- **The Play Store's pending GraviTrax is 2.8.1** (store page 2026-10-12, s52-t1); preflight refuses it.
+- **Memory on this Mac, 2026-11-24 (s52, #70):** free-percentage near 31% with 21 GB of swap was not enough; Colby's safety program's Docker containers (three VS Code dev containers ~0.9 GB each, seven Supabase containers ~0.6 GB) were the movable load, and stopping them dropped swap 21.7 -> 18.9 GB. Docker Desktop's own engine struggled to stop one; quitting Docker Desktop is the cleaner move. Screenshots on this Mac save to `~/Screenshots`.
 - **Two s50 probes** (lone or standard board, uploaded, read by trails and the finish check): `uv run python -m scripts.probe_two_marbles` (launch pads with two joined ports, D106) and `uv run python -m scripts.probe_half_holes` (a goal on every half-hole, D107); each writes its manifest under `screenshots/ring_board/` and prints the codes to pass to `probe_finish_frames --link`.
 
 ## Gotchas (each learned the hard way)
+
+- **An exit code read through `| tail` is `tail`'s** (s52, #77). Capture to a file and `echo $?`, or `set -o pipefail`.
 
 - **`probe_finish_frames` has no `--help`: every argument but `--link` and `--runs` is a share code, and it boots the emulator to try it** (s50, #71). Read a script's argument handling in its source first.
 

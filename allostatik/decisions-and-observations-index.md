@@ -135,6 +135,12 @@ D105 · A finish is a burst of at least six sparkles, not a count of white pixel
 D106 · A launch pad releases one marble per valid connection, all at the same moment (2026-11-02, s50) → decisions.md:123, body 131w
 D107 · A goal rail on an uncompleted half-hole misses from every side, and the app does not draw it (2026-11-02, s50) → decisions.md:124, body 94w
 D108 · GraviTrax auto-update is off for that app only, and the Play Store stays on (2026-11-02, claude.ai chat) → decisions.md:125, body 133w
+D109 · Allostatik runs at v0.3.14, with the clean-start script, and the close ends on "This session is closed." below `/clear` and the kickoff line (2026-11-16, s52) → decisions.md:126, body 111w
+D110 · The format numbers a cell's edges the mirror way from `HEX_DIRECTIONS`: edge `s` is world direction `(2 - s) % 6` (2026-11-24, s52) → decisions.md:127, body 88w
+D111 · A STRAIGHT rail or wall's SHORT, MEDIUM, LONG joins cells 2, 3, 4 apart, and walls are measured in world cells (2026-11-24, s52) → decisions.md:128, body 67w
+D112 · A balcony sits beside its wall line, touching cells `column` and `column + 1`, on the side `wall_side` names (2026-11-24, s52) → decisions.md:129, body 69w
+D113 · GOAL_BASIN catches a marble entering by piece side 0, 2 or 4, and a caught marble finishes (2026-11-24, s52) → decisions.md:130, body 85w
+D114 · The CANNON is one-way: in by piece side 2, ball out by side 5; a marble entering by 5 is held (2026-11-24, s52) → decisions.md:131, body 76w
 
 ## Observations
 
@@ -220,3 +226,8 @@ kind. Promotion means three or more firings across separate sessions.*
 #71 · **A script was asked for its help text and ran live; then its output was deleted before it was read.** → observations.md:146, body 77w
 #72 · **A cut-off list was read as the whole list.** → observations.md:148, body 121w
 #73 · **A question that sounds operational still runs against the record.** → observations.md:150, body 104w
+#74 · **A symmetric calibration target cannot catch a mirror.** → observations.md:152, body 57w
+#75 · **A saved verdict outlives the rule that made it, and a probe overwrites the frames a claim rests on.** → observations.md:154, body 54w
+#76 · **An inference failed on the one premise it never stated.** → observations.md:156, body 49w
+#77 · **An exit code read through a pipe is the pipe's.** → observations.md:158, body 53w
+#78 · **A number from a fan source went into code without its unit, and the corpus would have caught it the day it was written.** → observations.md:160, body 67w

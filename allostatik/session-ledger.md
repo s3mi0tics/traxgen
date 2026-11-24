@@ -203,3 +203,4 @@ TASK-CLOSED s52-t15 DONE
 TASK-OPEN s52-t16 base=95554df scope=
 TASK-CLOSED s52-t16 DONE
 TASK-OPEN s52-t17 base=73191eb scope=scripts/probe_goal_basin.py,tests/test_probe_goal_basin.py
+TASK-CLOSED s52-t17 STOPPED

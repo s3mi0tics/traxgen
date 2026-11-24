@@ -194,3 +194,4 @@ TASK-OPEN s52-t11 base=70a0f28 scope=traxgen/validator.py,tests/test_validator.p
 TASK-CLOSED s52-t11 DONE
 TASK-OPEN s52-t12 base=6e23704 scope=traxgen/validator.py,tests/test_validator.py
 TASK-CLOSED s52-t12 DONE
+TASK-OPEN s52-t13 base=54c1751 scope=

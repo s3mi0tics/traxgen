@@ -198,3 +198,4 @@ TASK-OPEN s52-t13 base=54c1751 scope=
 TASK-CLOSED s52-t13 DONE
 TASK-OPEN s52-t14 base=5c7c3fa scope=
 TASK-CLOSED s52-t14 DONE
+TASK-OPEN s52-t15 base=a99b9d0 scope=

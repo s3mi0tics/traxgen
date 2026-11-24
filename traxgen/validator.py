@@ -11,7 +11,7 @@ Path: traxgen/traxgen/validator.py
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
 
@@ -20,6 +20,7 @@ from traxgen.domain import (
     Course,
     TileTowerConstructionData,
     TileTowerTreeNodeData,
+    WallConstructionData,
 )
 from traxgen.graph import ConnectionStatus, start_goal_status
 from traxgen.hex import HexVector
@@ -166,22 +167,26 @@ _STRUCTURAL_TILE_KINDS: frozenset[TileKind] = frozenset({
     TileKind.DOUBLE_BALCONY,
 })
 
-# Wall length is not stored on the wall itself — it's inferred from hex
-# distance between the two tower endpoints. See docs/refs/pro-structural-notes.md.
+# Wall length is not stored on the wall itself — it's inferred from the world
+# hex distance between the two tower endpoints. Corpus (s52-t11): all 1,161
+# walls in 640 app-saved courses sit 2, 3 or 4 cells apart (106 / 481 / 574),
+# never 1; the s52 table before this read {1, 2, 3} from local positions and
+# could not classify 680 of them. See docs/refs/pro-structural-notes.md.
 _WALL_DISTANCE_TO_KIND: dict[int, WallKind] = {
-    1: WallKind.SHORT,
-    2: WallKind.MEDIUM,
-    3: WallKind.LONG,
+    2: WallKind.SHORT,
+    3: WallKind.MEDIUM,
+    4: WallKind.LONG,
 }
 
-# STRAIGHT rails are fixed-length pieces: a SHORT spans exactly 1 hex, MEDIUM
-# spans exactly 2, LONG spans exactly 3. No cascading coverage. A distance
-# outside {1, 2, 3} means no available piece can satisfy that placement.
-# See docs/refs/rail-specs.md.
+# STRAIGHT rails are fixed-length pieces: SHORT, MEDIUM and LONG join cells 2,
+# 3 and 4 apart -- one, two or three empty cells between the ends. No cascading
+# coverage. Corpus (s52-t11): no STRAIGHT rail in 640 app-saved courses spans
+# distance 1, and 2,522 span 4, which the earlier {1, 2, 3} table called
+# invalid. See docs/refs/rail-specs.md.
 _STRAIGHT_DISTANCE_TO_LENGTH: dict[int, RailLength] = {
-    1: RailLength.SHORT,
-    2: RailLength.MEDIUM,
-    3: RailLength.LONG,
+    2: RailLength.SHORT,
+    3: RailLength.MEDIUM,
+    4: RailLength.LONG,
 }
 
 # Starter and goal kinds derived from PieceSpec flags in PIECE_CATALOG.
@@ -322,6 +327,28 @@ def _check_inventory_budget_stackers(
     return violations
 
 
+def _wall_distance(
+    wall: WallConstructionData, retainer_world: Mapping[int, HexVector]
+) -> int | None:
+    """World hex distance between a wall's two towers, or None if a retainer does not resolve.
+
+    Each tower is its retainer's world position plus its local position; with
+    both towers on one retainer the local distance is the same thing. In the
+    corpus the two towers sit on different retainers in 919 of 1,161 walls.
+    """
+    t1 = wall.lower_stacker_tower_1_local_hex_pos
+    t2 = wall.lower_stacker_tower_2_local_hex_pos
+    r1 = wall.lower_stacker_tower_1_retainer_id
+    r2 = wall.lower_stacker_tower_2_retainer_id
+    if r1 == r2:
+        return t1.distance_to(t2)
+    w1 = retainer_world.get(r1)
+    w2 = retainer_world.get(r2)
+    if w1 is None or w2 is None:
+        return None
+    return (w1 + t1).distance_to(w2 + t2)
+
+
 def _check_inventory_budget_structural(
     course: Course, inventory: Inventory
 ) -> Iterable[Violation]:
@@ -329,7 +356,7 @@ def _check_inventory_budget_structural(
 
     Pillars appear as tree nodes (TileKind.STACKER_TOWER_CLOSED / OPENED).
     Walls live in course.wall_construction_data; length is inferred from the
-    hex distance between the two tower endpoints (1=SHORT, 2=MEDIUM, 3=LONG).
+    world hex distance between the two tower endpoints (2=SHORT, 3=MEDIUM, 4=LONG).
     Double balconies appear as tree nodes (TileKind.DOUBLE_BALCONY).
     Single balconies are mounted cells in WallBalconyConstructionData entries
     on walls — only entries with a non-null cell count as mounted.
@@ -339,8 +366,9 @@ def _check_inventory_budget_structural(
     physical balcony piece, mounted or not. Verify when we have a fixture
     with explicit balcony placements.
 
-    TODO: walls with hex distance outside {1,2,3} are silently skipped. A
-    future schema-validity rule should flag those as invalid placements.
+    TODO: walls with hex distance outside {2,3,4}, or a tower whose retainer
+    does not resolve, are silently skipped. None occurs in the corpus
+    (s52-t11); a future schema-validity rule should flag them.
     """
     violations: list[Violation] = []
 
@@ -366,11 +394,10 @@ def _check_inventory_budget_structural(
 
     # --- Walls (length inferred from hex distance between endpoints) -----
     wall_kind_counts: Counter[WallKind] = Counter()
+    retainer_world = _resolve_retainer_world_positions(course)
     for wall in course.wall_construction_data:
-        distance = wall.lower_stacker_tower_1_local_hex_pos.distance_to(
-            wall.lower_stacker_tower_2_local_hex_pos
-        )
-        wall_kind = _WALL_DISTANCE_TO_KIND.get(distance)
+        distance = _wall_distance(wall, retainer_world)
+        wall_kind = _WALL_DISTANCE_TO_KIND.get(distance) if distance is not None else None
         if wall_kind is None:
             # See TODO above — future rule territory.
             continue

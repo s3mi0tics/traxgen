@@ -13,17 +13,24 @@ Heights below are in small-stacker units. Conversions:
 
 ## Starter-Set rails (all `RailKind.STRAIGHT`)
 
-| Name   | Count | Max hex distance | Max Δheight (small-stacker units) | Max Δheight (human) |
-|--------|-------|------------------|-----------------------------------|---------------------|
-| Short  | 9     | 1                | 5                                 | 2 full + 1 half     |
-| Medium | 6     | 2                | 7                                 | 3 full + 1 half     |
-| Long   | 3     | 3                | 8                                 | 4 full              |
+| Name   | Count | Cells spanned (empty between ends) | Cell distance in the format | Max Δheight (small-stacker units) | Max Δheight (human) |
+|--------|-------|------------------------------------|-----------------------------|-----------------------------------|---------------------|
+| Short  | 9     | 1                                  | 2                           | 5                                 | 2 full + 1 half     |
+| Medium | 6     | 2                                  | 3                           | 7                                 | 3 full + 1 half     |
+| Long   | 3     | 3                                  | 4                           | 8                                 | 4 full              |
+
+**Corrected 2026-11-24 (s52-t11).** This column used to read "Max hex distance
+1 / 2 / 3", and the validator took that as the hex distance between the two end
+cells. The format's distance is one more: across 640 app-saved corpus courses no
+STRAIGHT rail joins adjacent cells (distance 1), and 2,522 join cells 4 apart. A
+short rail crosses one empty cell, so its ends are 2 apart. Walls follow the
+same count: all 1,161 corpus walls have towers 2, 3 or 4 cells apart.
 
 ## Notes
 
 - All starter rails share `RailKind.STRAIGHT` (value 0). Rail length is
-  inferred from hex distance between endpoints, not stored on the rail
-  itself.
+  inferred from the world hex distance between the end cells (2 / 3 / 4),
+  not stored on the rail itself.
 - Δheight is the absolute difference between the two endpoints, not a
   signed value — rails work up or down.
 - "Max" is the manufacturer-documented maximum. The validator should

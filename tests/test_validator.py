@@ -641,12 +641,13 @@ def _structural_violations(violations: list[Violation]) -> list[Violation]:
 def _wall(
     *, tower1: HexVector, tower2: HexVector,
     balconies: tuple[WallBalconyConstructionData, ...] = (),
+    retainer_1: int = 0, retainer_2: int = 0,
 ) -> WallConstructionData:
-    """Build a wall between two tower positions with optional balconies."""
+    """Build a wall between two tower positions with optional balconies; one retainer by default."""
     return WallConstructionData(
-        lower_stacker_tower_1_retainer_id=0,
+        lower_stacker_tower_1_retainer_id=retainer_1,
         lower_stacker_tower_1_local_hex_pos=tower1,
-        lower_stacker_tower_2_retainer_id=1,
+        lower_stacker_tower_2_retainer_id=retainer_2,
         lower_stacker_tower_2_local_hex_pos=tower2,
         balcony_construction_datas=balconies,
     )
@@ -706,11 +707,11 @@ def test_budget_structural_pillars_counted_in_stacked_trees() -> None:
     assert "CLOSED" in violations[0].message
 
 
-def test_budget_structural_wall_short_inferred_from_distance_one() -> None:
-    """A wall with endpoints 1 hex apart is SHORT; PRO budget is 1."""
+def test_budget_structural_wall_short_inferred_from_distance_two() -> None:
+    """A wall with endpoints 2 hexes apart is SHORT; PRO budget is 1."""
     # 2 SHORT walls → over budget (1).
-    wall_1 = _wall(tower1=HexVector(y=0, x=0), tower2=HexVector(y=0, x=1))
-    wall_2 = _wall(tower1=HexVector(y=2, x=0), tower2=HexVector(y=2, x=1))
+    wall_1 = _wall(tower1=HexVector(y=0, x=0), tower2=HexVector(y=0, x=2))
+    wall_2 = _wall(tower1=HexVector(y=2, x=0), tower2=HexVector(y=2, x=2))
     course = _course_with(_layer(), walls=(wall_1, wall_2))
     violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
@@ -719,25 +720,9 @@ def test_budget_structural_wall_short_inferred_from_distance_one() -> None:
     assert "1" in violations[0].message
 
 
-def test_budget_structural_wall_medium_inferred_from_distance_two() -> None:
-    """A wall with endpoints 2 hexes apart is MEDIUM; PRO budget is 2."""
+def test_budget_structural_wall_medium_inferred_from_distance_three() -> None:
+    """A wall with endpoints 3 hexes apart is MEDIUM; PRO budget is 2."""
     # 3 MEDIUM walls → over budget (2).
-    walls = tuple(
-        _wall(
-            tower1=HexVector(y=i, x=0),
-            tower2=HexVector(y=i, x=2),
-        )
-        for i in range(3)
-    )
-    course = _course_with(_layer(), walls=walls)
-    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
-    assert len(violations) == 1
-    assert "MEDIUM" in violations[0].message
-
-
-def test_budget_structural_wall_long_inferred_from_distance_three() -> None:
-    """A wall with endpoints 3 hexes apart is LONG; PRO budget is 2."""
-    # 3 LONG walls → over budget (2).
     walls = tuple(
         _wall(
             tower1=HexVector(y=i, x=0),
@@ -748,16 +733,51 @@ def test_budget_structural_wall_long_inferred_from_distance_three() -> None:
     course = _course_with(_layer(), walls=walls)
     violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
+    assert "MEDIUM" in violations[0].message
+
+
+def test_budget_structural_wall_long_inferred_from_distance_four() -> None:
+    """A wall with endpoints 4 hexes apart is LONG; PRO budget is 2."""
+    # 3 LONG walls → over budget (2).
+    walls = tuple(
+        _wall(
+            tower1=HexVector(y=i, x=0),
+            tower2=HexVector(y=i, x=4),
+        )
+        for i in range(3)
+    )
+    course = _course_with(_layer(), walls=walls)
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "LONG" in violations[0].message
+
+
+def test_budget_structural_wall_across_retainers_is_measured_in_world_cells() -> None:
+    """Towers on two plates: local positions 0 apart, world positions 4 apart -> LONG.
+
+    919 of 1,161 corpus walls have their towers on different retainers (s52-t11);
+    their local distance says nothing on its own.
+    """
+    plate_a = _layer(layer_id=100, world_hex_position=HexVector(y=0, x=0))
+    plate_b = _layer(layer_id=200, world_hex_position=HexVector(y=0, x=4))
+    walls = tuple(
+        _wall(tower1=HexVector(y=i, x=0), tower2=HexVector(y=i, x=0),
+              retainer_1=100, retainer_2=200)
+        for i in range(3)
+    )
+    course = _course_with(plate_a, plate_b, walls=walls)
+    violations = _structural_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
     assert "LONG" in violations[0].message
 
 
 def test_budget_structural_wall_unmappable_distance_silently_skipped() -> None:
-    """Walls with hex distance outside {1,2,3} don't count toward any wall budget."""
+    """Walls with hex distance outside {2,3,4} don't count toward any wall budget."""
     # A wall spanning 5 hexes — not a valid wall length. Should be ignored,
     # not double-counted as a LONG. Budget is 2 LONG walls; we add 2 LONG +
     # 1 unmappable. Total valid LONG = 2, at budget, no violation.
     long_walls = tuple(
-        _wall(tower1=HexVector(y=i, x=0), tower2=HexVector(y=i, x=3))
+        _wall(tower1=HexVector(y=i, x=0), tower2=HexVector(y=i, x=4))
         for i in range(2)
     )
     bogus_wall = _wall(tower1=HexVector(y=10, x=0), tower2=HexVector(y=10, x=5))
@@ -767,7 +787,7 @@ def test_budget_structural_wall_unmappable_distance_silently_skipped() -> None:
 
 def test_budget_structural_single_balcony_overrun() -> None:
     """17 mounted single balconies against PRO budget of 16 fires one violation."""
-    # One wall with 17 mounted balcony cells. Use distance 1 so wall-length
+    # One wall with 17 mounted balcony cells. Use distance 2 so wall-length
     # inference picks SHORT (PRO has 1 SHORT budget → 1 wall fits).
     mounted = tuple(
         WallBalconyConstructionData(
@@ -783,7 +803,7 @@ def test_budget_structural_single_balcony_overrun() -> None:
     )
     wall = _wall(
         tower1=HexVector(y=0, x=0),
-        tower2=HexVector(y=0, x=1),
+        tower2=HexVector(y=0, x=2),
         balconies=mounted,
     )
     course = _course_with(_layer(), walls=(wall,))
@@ -809,7 +829,7 @@ def test_budget_structural_empty_balcony_slots_do_not_count() -> None:
     )
     wall = _wall(
         tower1=HexVector(y=0, x=0),
-        tower2=HexVector(y=0, x=1),
+        tower2=HexVector(y=0, x=2),
         balconies=empty_slots,
     )
     course = _course_with(_layer(), walls=(wall,))
@@ -930,9 +950,9 @@ def test_budget_rails_empty_passes() -> None:
 def test_budget_rails_under_budget_passes() -> None:
     """A modest sprinkling of rails, all within budget, produces no violations."""
     rails = (
-        _straight(1, offset=0),  # SHORT
-        _straight(2, offset=1),  # MEDIUM
-        _straight(3, offset=2),  # LONG
+        _straight(2, offset=0),  # SHORT
+        _straight(3, offset=1),  # MEDIUM
+        _straight(4, offset=2),  # LONG
         _rail(RailKind.BERNOULLI_SMALL_LEFT,
               p1=HexVector(y=10, x=0), p2=HexVector(y=10, x=1)),
     )
@@ -959,8 +979,8 @@ def test_budget_rails_per_kind_bernoulli_overrun() -> None:
 
 
 def test_budget_rails_short_bucket_overrun() -> None:
-    """10 distance-1 STRAIGHT rails against PRO budget of 9 SHORT fires bucket violation."""
-    rails = tuple(_straight(1, offset=i) for i in range(10))
+    """10 distance-2 STRAIGHT rails against PRO budget of 9 SHORT fires bucket violation."""
+    rails = tuple(_straight(2, offset=i) for i in range(10))
     course = _course_with(_layer(), rails=rails)
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     # STRAIGHT per-kind is 10/18 (fine). SHORT bucket is 10/9 (over).
@@ -972,8 +992,8 @@ def test_budget_rails_short_bucket_overrun() -> None:
 
 
 def test_budget_rails_medium_bucket_overrun() -> None:
-    """7 distance-2 STRAIGHT rails against PRO budget of 6 MEDIUM fires bucket violation."""
-    rails = tuple(_straight(2, offset=i) for i in range(7))
+    """7 distance-3 STRAIGHT rails against PRO budget of 6 MEDIUM fires bucket violation."""
+    rails = tuple(_straight(3, offset=i) for i in range(7))
     course = _course_with(_layer(), rails=rails)
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
@@ -981,8 +1001,8 @@ def test_budget_rails_medium_bucket_overrun() -> None:
 
 
 def test_budget_rails_long_bucket_overrun() -> None:
-    """4 distance-3 STRAIGHT rails against PRO budget of 3 LONG fires bucket violation."""
-    rails = tuple(_straight(3, offset=i) for i in range(4))
+    """4 distance-4 STRAIGHT rails against PRO budget of 3 LONG fires bucket violation."""
+    rails = tuple(_straight(4, offset=i) for i in range(4))
     course = _course_with(_layer(), rails=rails)
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
@@ -1004,9 +1024,9 @@ def test_budget_rails_straight_per_kind_overrun_fires_independently() -> None:
     """
     # 10 SHORT + 6 MEDIUM + 3 LONG = 19 STRAIGHT total.
     rails = (
-        *(_straight(1, offset=i) for i in range(10)),
-        *(_straight(2, offset=100 + i) for i in range(6)),
-        *(_straight(3, offset=200 + i) for i in range(3)),
+        *(_straight(2, offset=i) for i in range(10)),
+        *(_straight(3, offset=100 + i) for i in range(6)),
+        *(_straight(4, offset=200 + i) for i in range(3)),
     )
     course = _course_with(_layer(), rails=rails)
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
@@ -1032,22 +1052,39 @@ def test_budget_rails_invalid_span_distance_zero() -> None:
     assert v.location.rail_index == 0
 
 
-def test_budget_rails_invalid_span_distance_four() -> None:
-    """A STRAIGHT rail with distance 4 exceeds LONG's fixed span — invalid."""
+def test_budget_rails_invalid_span_distance_five() -> None:
+    """A STRAIGHT rail with distance 5 exceeds LONG's fixed span — invalid."""
     bad = _rail(RailKind.STRAIGHT,
-                p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4))
+                p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=5))
     course = _course_with(_layer(), rails=(bad,))
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
     v = violations[0]
     assert "invalid span" in v.message
-    assert "distance 4" in v.message
+    assert "distance 5" in v.message
+
+
+def test_budget_rails_invalid_span_distance_one() -> None:
+    """Adjacent cells: no STRAIGHT rail joins them (none in 640 corpus courses, s52-t11)."""
+    bad = _rail(RailKind.STRAIGHT,
+                p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=1))
+    course = _course_with(_layer(), rails=(bad,))
+    violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
+    assert len(violations) == 1
+    assert "distance 1" in violations[0].message
+
+
+def test_budget_rails_distance_four_is_long() -> None:
+    """Distance 4 is LONG: the corpus holds 2,522 of them, which the old {1,2,3} table refused."""
+    rails = tuple(_straight(4, offset=i) for i in range(3))
+    course = _course_with(_layer(), rails=rails)
+    assert _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET)) == []
 
 
 def test_budget_rails_multiple_invalid_spans_each_reported() -> None:
     """Each invalid STRAIGHT placement gets its own per-placement violation."""
     rails = (
-        _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4)),
+        _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=1)),
         _rail(RailKind.STRAIGHT, p1=HexVector(y=1, x=0), p2=HexVector(y=1, x=5)),
         _rail(RailKind.STRAIGHT, p1=HexVector(y=2, x=0), p2=HexVector(y=2, x=0)),
     )
@@ -1064,8 +1101,8 @@ def test_budget_rails_invalid_span_does_not_count_toward_buckets() -> None:
     """An invalid-span rail must not be bucketed and pass the bucket check."""
     # 9 valid SHORT (at budget) + 1 invalid-span rail.
     # Bucket check: SHORT = 9/9, fine. Invalid span: 1 violation. Total: 1.
-    valid = tuple(_straight(1, offset=i) for i in range(9))
-    bad = _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=4))
+    valid = tuple(_straight(2, offset=i) for i in range(9))
+    bad = _rail(RailKind.STRAIGHT, p1=HexVector(y=0, x=0), p2=HexVector(y=0, x=5))
     course = _course_with(_layer(), rails=valid + (bad,))
     violations = _rail_violations(validate(course, PRO_VERTICAL_STARTER_SET))
     assert len(violations) == 1
@@ -1189,12 +1226,12 @@ def test_budget_rails_cross_retainer_straight_invalid_world_distance_fires() -> 
 def test_budget_rails_cross_retainer_straight_counts_toward_bucket() -> None:
     """Cross-retainer STRAIGHT rails count in their length bucket (not skipped).
 
-    7 cross-retainer MEDIUM rails between two world-distance-2 layers
+    7 cross-retainer MEDIUM rails between two world-distance-3 layers
     against PRO Vertical's 6-MEDIUM budget → one bucket overrun violation.
     Proves the unblock actually exercises the bucket check on cross-
     retainer rails, not just the invalid-span check.
     """
-    # Two layers 2 hexes apart in world space → MEDIUM bucket.
+    # Two layers 3 hexes apart in world space → MEDIUM bucket.
     layer_a = _layer(
         _cell(TileKind.CURVE, y=0, x=0),
         layer_id=100,
@@ -1203,9 +1240,9 @@ def test_budget_rails_cross_retainer_straight_counts_toward_bucket() -> None:
     layer_b = _layer(
         _cell(TileKind.CURVE, y=0, x=0),
         layer_id=200,
-        world_hex_position=HexVector(y=0, x=2),
+        world_hex_position=HexVector(y=0, x=3),
     )
-    # 7 cross-retainer rails, each resolving to world distance 2 (MEDIUM).
+    # 7 cross-retainer rails, each resolving to world distance 3 (MEDIUM).
     rails = tuple(
         _rail(
             RailKind.STRAIGHT,

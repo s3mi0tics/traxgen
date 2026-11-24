@@ -174,3 +174,4 @@ TASK-OPEN s52-t1 base=a5a0fb9 scope=
 TASK-CLOSED s52-t1 DONE
 TASK-OPEN s52-t2 base=7175f69 scope=
 TASK-CLOSED s52-t2 DONE
+TASK-OPEN s52-t3 base=ef3ac0a scope=

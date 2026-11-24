@@ -171,3 +171,4 @@ STEP upgrade 4/5 offered:1 placed:1 declined:0 deferred:0
 STEP upgrade 5/5 verified
 STEP-DONE upgrade
 TASK-OPEN s52-t1 base=a5a0fb9 scope=
+TASK-CLOSED s52-t1 DONE

@@ -170,6 +170,28 @@ def goal_rail_rule(tile: PlacedTile, entered: int | None, board: Board) -> Throu
     return Through(caught=not _on_uncompleted_half_hole(tile, board))
 
 
+# GOAL_BASIN's ways in, in its own frame: a marble entering by any of these is
+# caught. Proposed by the corpus before any render (s52-t13: rail ends on piece
+# sides 0, 2, 4 only, 220 of them) and confirmed on `6ZX7WEFRTJ` (s52-t19): six
+# launch pads at rotation 0, each with a basin on its East side at rotation 0 to
+# 5, so the marble enters by piece side (3 - rotation) % 6. Rotations 1, 3, 5
+# caught it and the board finished (89 sparkles); at 0, 2, 4 no marble loaded.
+# Each rotation measured once.
+GOAL_BASIN_ENTRANCES: frozenset[int] = frozenset({0, 2, 4})
+
+
+def goal_basin_rule(tile: PlacedTile, entered: int | None, board: Board) -> Through:
+    """GOAL_BASIN: entered by a way in, it catches the marble.
+
+    On an uncompleted half-hole it is not counted as catching. That is the goal
+    rail's rule (D107) carried over unmeasured, so the checker can wrongly call
+    such a course INVALID but never wrongly VALID.
+    """
+    if entered is None or (entered - tile.hex_rotation) % 6 not in GOAL_BASIN_ENTRANCES:
+        return Through(accepts=False)
+    return Through(caught=not _on_uncompleted_half_hole(tile, board))
+
+
 def tracks_rule(tracks: Mapping[int, int | None]) -> PieceRule:
     """A piece of fixed tracks: entered by a track's end, in the piece's own frame, it leaves
     by that track's other end; a side mapped to None takes the marble in and holds it (a dead
@@ -199,6 +221,7 @@ PIECE_RULES: Mapping[TileKind, PieceRule] = MappingProxyType(
     {
         TileKind.STARTER: starter_rule,
         TileKind.GOAL_RAIL: goal_rail_rule,
+        TileKind.GOAL_BASIN: goal_basin_rule,
         TileKind.CURVE: curve_rule,
         TileKind.CROSS: cross_rule,
         TileKind.SWITCH_LEFT: switch_left_rule,

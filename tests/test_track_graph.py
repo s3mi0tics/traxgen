@@ -121,6 +121,39 @@ def test_the_phase_1_course_is_valid() -> None:
     assert verdict.status is TrackStatus.VALID
 
 
+# `6ZX7WEFRTJ` (s52-t19): pad at rotation 0, basin on its East side, standard square.
+BASIN_BOARD = {
+    0: ((-6, 4), (-6, 5)),
+    1: ((-4, 0), (-4, 1)),
+    2: ((-3, 3), (-3, 4)),
+    3: ((-2, -4), (-2, -3)),
+    4: ((-1, -1), (-1, 0)),
+    5: ((0, 2), (0, 3)),
+}
+BASIN_CAUGHT = {0: False, 1: True, 2: False, 3: True, 4: False, 5: True}
+
+
+@pytest.mark.parametrize("rotation", range(6))
+def test_goal_basin_rotations_read_as_measured(rotation: int) -> None:
+    from traxgen.layout import owning_plate
+    from traxgen.plates import STANDARD_SQUARE
+
+    plates = tuple(HexVector(y=y, x=x) for y, x in STANDARD_SQUARE)
+    pad, basin = BASIN_BOARD[rotation]
+    tiles = []
+    for kind, (y, x), r in ((TileKind.STARTER, pad, 0), (TileKind.GOAL_BASIN, basin, rotation)):
+        owner = owning_plate(plates, HexVector(y=y, x=x))
+        assert owner is not None
+        tiles.append(TilePlacement(kind, owner[0], owner[1], r))
+    course = build_course(plate_world_positions=plates, tiles=tiles)
+    verdict = check_course(course)
+    if BASIN_CAUGHT[rotation]:
+        assert verdict.status is TrackStatus.VALID
+    else:
+        assert verdict.status is TrackStatus.INVALID
+        assert "no marble loads" in verdict.reason
+
+
 def test_a_piece_with_no_rule_makes_the_course_unmeasured() -> None:
     course = course_of(
         (TileKind.STARTER, (0, 0), 0),

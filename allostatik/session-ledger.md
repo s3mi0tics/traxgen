@@ -190,3 +190,4 @@ TASK-OPEN s52-t9 base=9456f4f scope=scripts/mine_ports.py,tests/test_mine_ports.
 TASK-CLOSED s52-t9 DONE
 TASK-OPEN s52-t10 base=e909c01 scope=
 TASK-CLOSED s52-t10 DONE
+TASK-OPEN s52-t11 base=70a0f28 scope=traxgen/validator.py,tests/test_validator.py,docs/refs/rail-specs.md
